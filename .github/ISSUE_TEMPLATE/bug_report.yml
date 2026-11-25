@@ -1,0 +1,50 @@
+name: Bug report
+description: Something in Hangar Note does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please write in English.
+        Security problems do not belong here; report them privately (see the link on the "New issue" page).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A short description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a note
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: Hangar Note version
+      placeholder: 0.1.0-1
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: Operating system and version
+      placeholder: Windows 11 24H2 (build 26100)
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Optional. Remove API keys, tokens and anything else private before posting.
