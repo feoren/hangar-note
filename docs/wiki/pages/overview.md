@@ -10,12 +10,13 @@ updated: 2026-11-25
 # Overview
 
 ## State of knowledge
-- The wiki was set up on 2026-11-25 following [[llm-wiki-pattern]]. There is no code and no
-  decision yet.
+- The wiki was set up on 2026-11-25 following [[llm-wiki-pattern]].
+- [[0001-foundation]] settles scope, window model, storage and editor: sticky notes on the desktop.
 
 ## Open questions
-- Scope and non-goals of Hangar Note: to be settled in the first ADR (`decisions/0001-...`).
-- Note storage format, sync and conflict handling, relation to Hangar's notes.
+- Memory use with many open note windows (one WebView each), unmeasured.
+- Frameless windows on Linux compositors, unmeasured.
+- A contract with Hangar for showing Hangar notes as sticky notes (deferred).
 
 ## Open risks
 - None recorded yet.
