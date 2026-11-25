@@ -6,7 +6,7 @@ superseded_by:
 tags: [foundation, scope, tauri, notes, windows, storage]
 sources: []
 created: 2026-11-25
-updated: 2026-11-25
+updated: 2026-11-26
 ---
 
 # ADR 0001: Foundation: sticky notes on the desktop
@@ -122,6 +122,10 @@ Product name "Hangar Note", identifier `com.feoren.hangar-note`, version 0.1.0 w
 number from Git as in Hangar. Updater and release script follow with the first release.
 
 ## Non-goals (this version)
+> [!warning] Superseded in part
+> [[0002-hangar-notes-takeover]] (2026-11-26) makes team notes, encryption and Hangar's notes data
+> goals: Hangar Note takes over Hangar's notes area and uses its storage in place.
+
 - Sync between devices, sharing with a team, encryption.
 - Images, ink, attachments, reminders.
 - Reading or writing Hangar's notes or any other Hangar data.
