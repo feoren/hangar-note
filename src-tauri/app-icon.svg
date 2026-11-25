@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Hangar Note: sticky note</title>
+  <rect width="256" height="256" rx="56" fill="#141a24" />
+  <path d="M56 60H200V160L152 208H56Z" fill="#f2e3c6" />
+  <path d="M56 60H200V84H56Z" fill="#5aa9ff" />
+  <path d="M152 208V172A12 12 0 0 1 164 160H200Z" fill="#c9b78f" />
+  <path d="M80 108H176V120H80Z M80 132H160V144H80Z M80 156H136V168H80Z" fill="#141a24" opacity="0.55" />
+</svg>

@@ -65,8 +65,8 @@ Window model option 1, storage option 1, editor option 1, Hangar relation option
   320 x 320 logical px, minimum 200 x 160. Header row as the drag region with: "New note" (+),
   a menu (color, "Keep on top", "Delete note", "All notes") and "Close". Closing hides the note
   (it stays in the list and keeps its content); only "Delete note" removes it.
-  Below the editor a slim formatting bar, shown while the note has focus: bold, italic,
-  strikethrough, bullet list, checklist item.
+  Below the editor a slim formatting bar, shown while the focus is anywhere in the note window
+  (so it can be reached with Tab): bold, italic, strikethrough, bullet list, checklist item.
 - **"All notes" window** (label `hub`): search field, "New note", the notes as cards (color, first
   lines, last change), click opens or brings the note to the front, a context menu with "Delete".
   A small settings area: language, theme (system, light, dark), start with the system, color of
@@ -110,12 +110,30 @@ Lemon (default), Peach, Mint, Sky, Lilac, Rose, Sand, Slate. The app chrome uses
 - `src-tauri/src/store.rs`: the notes domain (index, content, trash, recovery), no Tauri types.
 - `src-tauri/src/bounds.rs`: placing windows onto visible monitors (pure).
 - `src-tauri/src/settings.rs`, `src-tauri/src/windows.rs` (create, show, remember bounds,
-  debounced), `src-tauri/src/tray.rs`, `src-tauri/src/commands.rs` (thin, no logic).
-- `src/main.tsx` picks the view by window label; `src/NoteWindow.tsx`, `src/Hub.tsx`,
+  debounced, native window theme from the theme setting), `src-tauri/src/tray.rs`,
+  `src-tauri/src/commands.rs` (thin, no logic).
+- `src-tauri/src/replies.rs` (pure): before a note window ends, the note saves first. Deleting an
+  open note from "All notes" sends `note-delete-requested`; the note saves and deletes itself, or
+  answers `note_flushed(false)`, and then nothing is deleted, the note keeps showing "Not saved" and
+  "All notes" says why. "Quit" sends `note-flush-requested` to every note window and quits once all
+  answered; a note that could not save keeps the app open and comes to the front. "Quit" chosen
+  again within 10 s after that ends the app anyway (`QUIT_ANYWAY_WITHIN`), so a note that can never
+  save cannot trap the user in the app. A note that does not answer within 2 s does not block
+  either (fallback: delete, quit). Requests to one note use
+  `emit_to` its label, and the note listens for its own label only.
+- `src/main.tsx` picks the view by window label (one React root, kept across hot reloads by
+  `src/hotRoot.ts`); `src/NoteWindow.tsx`, `src/Hub.tsx`,
   `src/editor.ts` (CodeMirror setup), `src/api.ts` (typed command wrappers), `src/i18n.ts`
-  (12 languages as in Hangar), `src/shortcuts.ts`, `src/colors.ts`, `src/styles.css`.
-- Shortcuts in the note: Ctrl+N new note, Ctrl+B bold, Ctrl+I italic, Ctrl+Shift+X strikethrough
-  (Cmd on macOS); Escape leaves the formatting bar. Defined only in `src/shortcuts.ts`, with tests.
+  (12 languages as in Hangar), `src/shortcuts.ts`, `src/colors.ts`, `src/styles.css`,
+  `src/menuKeys.ts` (keyboard use of the popup menus after the WAI-ARIA menu pattern: Arrow Up and
+  Down, Home, End; Escape closes and returns the focus to the button that opened the menu),
+  `src/browserGuard.ts` (the WebView's own context menu only in text fields and the editor; in
+  release builds no reloading, printing or find bar by F5, Ctrl+R, Ctrl+P, Ctrl+F, F3).
+- Shortcuts in the note: Ctrl+N new note, Ctrl+B bold, Ctrl+I italic, Ctrl+Shift+X strikethrough,
+  Ctrl+Shift+8 bullet list, Ctrl+Shift+9 checklist item (Cmd on macOS); Escape leaves the
+  formatting bar. Letters match the letter the layout types (Dvorak), and the key position on
+  layouts without Latin letters; digits match the key position; AltGr never triggers a shortcut.
+  Defined only in `src/shortcuts.ts`, with tests.
 
 ### Identity and versions
 Product name "Hangar Note", identifier `com.feoren.hangar-note`, version 0.1.0 with the build
@@ -153,3 +171,9 @@ number from Git as in Hangar. Updater and release script follow with the first r
   file layout and the atomic writes.
 - Tauri `app_local_data_dir` = `dirs::data_local_dir()/<identifier>`, checked in Hangar against
   tauri 2.12.5 `src/path/desktop.rs`.
+- Event delivery, checked against tauri 2.12.7 `src/event/listener.rs` (`match_any_or_filter`): a
+  JS listener with the default target `Any` receives events sent with `emit_to` to any other
+  label too, so per-note requests listen with `{ target: <own label> }`.
+- Browser keys, checked against wry 0.57.4 (`with_browser_accelerator_keys`, applied in
+  `src/webview2/mod.rs`) and tauri-runtime-wry 2.12.5, which never calls it and offers no config
+  for it: Tauri 2.12 cannot switch WebView2's browser keys off, hence the frontend guard.

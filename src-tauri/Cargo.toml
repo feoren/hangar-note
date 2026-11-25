@@ -1,0 +1,37 @@
+[package]
+name = "hangar-note"
+version = "0.1.0"
+description = "Sticky notes on the desktop"
+edition = "2021"
+# The oldest Rust the build supports: tauri-plugin-autostart 2.7 needs 1.90. CI builds with
+# current stable.
+rust-version = "1.90"
+publish = false
+
+[lib]
+name = "hangar_note_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+# tray-icon: the icon in the notification area (tray.rs, ADR 0001); adds tauri-apps' tray-icon
+# crate (MIT/Apache-2.0), whose menu code (muda) is already in the build through Tauri's menus.
+tauri = { version = "2.12", features = ["tray-icon"] }
+# One Hangar Note per user session (ADR 0001): a second start opens "All notes" in the running
+# app. Official Tauri plugin (MIT/Apache-2.0, maintained in plugins-workspace), the same one Hangar
+# uses. The alternative, a named mutex plus a message window on Windows, a D-Bus name on Linux and
+# a socket on macOS, is the code the plugin already maintains per platform.
+tauri-plugin-single-instance = "2.5"
+# "Start with the system" (ADR 0001): the OS state itself (Run key on Windows, a Launch Agent on
+# macOS, an XDG autostart entry on Linux). Official Tauri plugin (MIT/Apache-2.0,
+# plugins-workspace); adds auto-launch (MIT) and, on Windows, winreg (MIT). Only the Rust side is
+# used, through the app's own settings commands, so the frontend needs no plugin permission.
+tauri-plugin-autostart = "2.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+# Note IDs (UUID v4, ADR 0001), so file names never depend on user text. Already in the tree
+# through tauri; MIT/Apache-2.0, uuid-rs.
+uuid = { version = "1", default-features = false, features = ["std", "v4"] }

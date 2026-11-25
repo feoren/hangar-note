@@ -1,0 +1,587 @@
+/* Tokens taken from Hangar's src/styles.css (only what this app uses). Dark is the default; the
+   light values follow below. appSettings.ts sets data-theme. The note colors themselves come from
+   colors.ts as --note-* on each note and card. */
+:root {
+  --bg: #0e1116;
+  --panel: #151a21;
+  --panel-raised: #1c222b;
+  --hover: #222a35;
+  --border: #262e39;
+  --text: #d6dde6;
+  --muted: #8592a3;
+  --accent: #5aa9ff;
+  --primary: #2f6fb3;
+  --primary-hover: #3a7fc8;
+  --on-primary: #ffffff;
+  --error: #f47067;
+  --danger: #f47067;
+  --shadow: rgb(0 0 0 / 45%);
+  --note-selection: rgb(90 169 255 / 30%);
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --radius: 8px;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  color-scheme: dark;
+  font-family:
+    "Segoe UI Variable Text",
+    "Segoe UI",
+    Selawik,
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --panel: #f3f5f8;
+  --panel-raised: #ffffff;
+  --hover: #e6eaef;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --muted: #59636e;
+  --accent: #0969da;
+  --primary: #0969da;
+  --primary-hover: #0860ca;
+  --error: #cf222e;
+  --danger: #cf222e;
+  --shadow: rgb(31 35 40 / 18%);
+  --note-selection: rgb(9 105 218 / 22%);
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error-text {
+  color: var(--error);
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  transition: background-color 120ms var(--ease-out);
+}
+
+.icon-button:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.link-button {
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+}
+
+.link-button:hover {
+  background: var(--hover);
+}
+
+.primary-button,
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.primary-button {
+  border: 0;
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.primary-button:hover {
+  background: var(--primary-hover);
+}
+
+.secondary-button {
+  border: 1px solid color-mix(in srgb, var(--note-text, var(--text)) 25%, transparent);
+  background: transparent;
+  color: var(--note-text, var(--text));
+}
+
+.secondary-button:hover {
+  background: color-mix(in srgb, var(--note-text, var(--text)) 10%, transparent);
+}
+
+/* Menus: the note's menu and the card menu in "All notes". */
+.note-menu,
+.card-menu {
+  position: absolute;
+  z-index: 10;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  color: var(--text);
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: start;
+}
+
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--hover);
+}
+
+.menu-item.danger {
+  color: var(--danger);
+}
+
+.menu-check {
+  display: inline-flex;
+  width: 14px;
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 2px 8px;
+}
+
+.swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+  border-radius: 50%;
+  color: var(--text);
+}
+
+:root[data-theme="light"] .swatch {
+  color: #1f2328;
+}
+
+:root[data-theme="dark"] .swatch {
+  color: #e6edf3;
+}
+
+/* ---- Note window ---- */
+
+:root[data-window="note"] body {
+  background: transparent;
+}
+
+.note {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--note-bg);
+  color: var(--note-text);
+  font-size: 14px;
+}
+
+.note-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 4px;
+  background: var(--note-head);
+  color: var(--note-muted);
+  user-select: none;
+}
+
+.note-head .icon-button:hover {
+  color: var(--note-text);
+}
+
+.note-head-fill {
+  flex: 1;
+  align-self: stretch;
+}
+
+.note-menu {
+  top: 34px;
+  right: 6px;
+}
+
+.note-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.note-message {
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 12.5px;
+}
+
+.note-error {
+  flex: none;
+  color: var(--note-text);
+  background: color-mix(in srgb, var(--note-head) 70%, transparent);
+}
+
+.format-bar {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px 6px;
+  background: var(--note-head);
+  color: var(--note-muted);
+}
+
+.format-bar .icon-button:hover {
+  color: var(--note-text);
+}
+
+.format-bar b,
+.format-bar i,
+.format-bar s {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.cm-task {
+  width: 14px;
+  height: 14px;
+  margin: 0 6px 0 0;
+  vertical-align: -2px;
+  accent-color: var(--note-accent);
+  cursor: pointer;
+}
+
+.cm-task-done {
+  color: var(--note-muted);
+  text-decoration: line-through;
+}
+
+/* ---- All notes ---- */
+
+.hub {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg);
+}
+
+.hub-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2) var(--space-1);
+}
+
+.hub-head h1 {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0 var(--space-2) var(--space-1);
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.search:focus-within {
+  border-color: var(--accent);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+}
+
+.hub-main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-1) var(--space-2) var(--space-2);
+}
+
+.hub-message {
+  margin: var(--space-1) var(--space-2);
+  color: var(--muted);
+}
+
+.hub-message.error-text {
+  color: var(--error);
+}
+
+.cards,
+.trash-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  position: relative;
+  border-radius: var(--radius);
+  background: var(--note-bg);
+  color: var(--note-text);
+  box-shadow: inset 0 3px 0 var(--note-head);
+}
+
+.card-open {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 40px 10px 14px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  text-align: start;
+}
+
+.card-title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-title.muted {
+  color: var(--note-muted);
+  font-weight: 400;
+  font-style: italic;
+}
+
+.card-excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: anywhere;
+}
+
+.card-date {
+  color: var(--note-muted);
+  font-size: 11.5px;
+}
+
+.card-more {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+  color: var(--note-muted);
+  opacity: 0;
+}
+
+.card:hover .card-more,
+.card:focus-within .card-more {
+  opacity: 1;
+}
+
+.trash-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 10px 12px 10px 14px;
+  border-radius: var(--radius);
+  background: var(--note-bg);
+  color: var(--note-text);
+}
+
+.trash-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hub-foot {
+  display: flex;
+  flex: none;
+  justify-content: space-between;
+  padding: 6px var(--space-1);
+  border-top: 1px solid var(--border);
+}
+
+.toast {
+  position: absolute;
+  right: var(--space-2);
+  bottom: 52px;
+  left: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.field > span,
+.field > legend {
+  padding: 0;
+  margin-bottom: 6px;
+  color: var(--muted);
+}
+
+.field select {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.segmented label {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 4px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.segmented label.selected {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel-raised));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  font-weight: 600;
+}
+
+.segmented label:focus-within {
+  outline: 2px solid var(--accent);
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.check-field input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

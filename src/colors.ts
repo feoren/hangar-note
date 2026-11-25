@@ -1,0 +1,114 @@
+// The eight note colors (ADR 0001), each with a light and a dark variant. Text, the muted icons in
+// the header and links keep at least 4.5 : 1 against their background in both themes
+// (colors.test.ts measures it). The app chrome around the notes uses Hangar's tokens instead
+// (styles.css).
+
+import type { MessageKey } from "./i18n";
+
+export type NoteColor = "lemon" | "peach" | "mint" | "sky" | "lilac" | "rose" | "sand" | "slate";
+export type Theme = "light" | "dark";
+
+export const NOTE_COLORS: readonly NoteColor[] = [
+  "lemon",
+  "peach",
+  "mint",
+  "sky",
+  "lilac",
+  "rose",
+  "sand",
+  "slate",
+];
+
+export interface NoteTone {
+  /** The note's body. */
+  background: string;
+  /** The header row and the formatting bar, a step stronger. */
+  header: string;
+  text: string;
+  /** Icons and placeholder text. */
+  muted: string;
+  /** Links and ticked checkboxes. */
+  accent: string;
+}
+
+const LIGHT_TEXT = "#1f2328";
+const LIGHT_MUTED = "#4b525a";
+const LIGHT_ACCENT = "#0a5bc4";
+const DARK_TEXT = "#e6edf3";
+const DARK_MUTED = "#b3bcc6";
+const DARK_ACCENT = "#6cb6ff";
+
+function light(background: string, header: string): NoteTone {
+  return { background, header, text: LIGHT_TEXT, muted: LIGHT_MUTED, accent: LIGHT_ACCENT };
+}
+
+function dark(background: string, header: string): NoteTone {
+  return { background, header, text: DARK_TEXT, muted: DARK_MUTED, accent: DARK_ACCENT };
+}
+
+export const NOTE_TONES: Record<Theme, Record<NoteColor, NoteTone>> = {
+  light: {
+    lemon: light("#fff7c2", "#fbec9a"),
+    peach: light("#ffe6d1", "#fdd3b0"),
+    mint: light("#dcf5e5", "#c3ecd2"),
+    sky: light("#dcedfd", "#c5e0fa"),
+    lilac: light("#ede5ff", "#ddd0fb"),
+    rose: light("#ffe2eb", "#fbcbda"),
+    sand: light("#f4ecdc", "#e9dcc4"),
+    slate: light("#e5e9ef", "#d3dae3"),
+  },
+  dark: {
+    lemon: dark("#3a3415", "#47401a"),
+    peach: dark("#3e2a1c", "#4b3322"),
+    mint: dark("#1d382a", "#244433"),
+    sky: dark("#1b2f46", "#223a55"),
+    lilac: dark("#2e2645", "#382e54"),
+    rose: dark("#40232f", "#4d2a39"),
+    sand: dark("#383127", "#443c30"),
+    slate: dark("#262d36", "#303843"),
+  },
+};
+
+export function isNoteColor(value: unknown): value is NoteColor {
+  return NOTE_COLORS.some((color) => color === value);
+}
+
+export function colorLabelKey(color: NoteColor): MessageKey {
+  return `color.${color}`;
+}
+
+export function noteTone(color: NoteColor, theme: Theme): NoteTone {
+  return NOTE_TONES[theme][color];
+}
+
+/** The tone as CSS custom properties for the note window's root. */
+export function toneVariables(tone: NoteTone): Record<string, string> {
+  return {
+    "--note-bg": tone.background,
+    "--note-head": tone.header,
+    "--note-text": tone.text,
+    "--note-muted": tone.muted,
+    "--note-accent": tone.accent,
+  };
+}
+
+function channel(value: number): number {
+  const c = value / 255;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+
+/** WCAG 2 relative luminance of `#rrggbb`. */
+export function luminance(hex: string): number {
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!match) throw new Error(`not a #rrggbb color: ${hex}`);
+  const [r, g, b] = [match[1], match[2], match[3]].map((part) =>
+    channel(parseInt(part ?? "0", 16)),
+  );
+  return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
+}
+
+/** WCAG 2 contrast ratio, 1 to 21. */
+export function contrastRatio(a: string, b: string): number {
+  const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return ((high ?? 0) + 0.05) / ((low ?? 0) + 0.05);
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-close-note"
+description = "Enables the close_note command without any pre-configured scope."
+commands.allow = ["close_note"]
+
+[[permission]]
+identifier = "deny-close-note"
+description = "Denies the close_note command without any pre-configured scope."
+commands.deny = ["close_note"]
