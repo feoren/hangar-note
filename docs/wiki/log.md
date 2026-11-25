@@ -19,3 +19,7 @@ storage, editor, colors, code layout, non-goals. Updated index.md and pages/over
 Created pages/decisions/0002-hangar-notes-takeover.md (accepted, storage in place by the owner's
 choice). Marked the non-goals of pages/decisions/0001-foundation.md as superseded in part. Updated
 index.md and pages/overview.md.
+
+## [2026-11-26] schema | ADR 0002 handover marker
+Added the handover marker `notes/.handover.json` (read only until Hangar writes it) and the
+development root `HANGAR_NOTE_NOTES_ROOT` to pages/decisions/0002-hangar-notes-takeover.md.

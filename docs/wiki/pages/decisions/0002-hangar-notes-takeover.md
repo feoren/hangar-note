@@ -78,6 +78,15 @@ writes Hangar's existing notes folders and formats unchanged; nothing is migrate
 - A writer lock file `notes/.writer.lock` (held open, OS file lock) guards the private notes root;
   a second writer refuses to start writing. Same for each `.hangar/notes/` folder through a lock
   file in Hangar Note's local data keyed by the vault id.
+- **Handover marker.** Hangar writes `notes/.handover.json` `{ version: 1, contract: 1, since }`
+  (since in Unix ms) into its private notes root at the moment it stops writing notes there.
+  Until that file exists, Hangar Note opens Hangar's notes **read only** with a calm hint
+  ("Hangar still keeps these notes. Update Hangar to edit them here."), because a Hangar without the
+  handover code keeps writing the same files. Hangar never removes the marker on its own; a
+  downgrade of Hangar is the only case that needs the person.
+- **Development root.** `HANGAR_NOTE_NOTES_ROOT` (environment, debug builds only) points Hangar
+  Note at another private notes root with Hangar's layout. That root counts as handed over, so
+  development and tests never touch the person's real notes.
 - Index files stay readable by the released Hangar: Hangar Note never adds fields to `folder.json`,
   `trash.json`, `vault.json` or the inner meta line of a `.note` while any Hangar release that rejects
   unknown fields is supported. Additional data (colors, color names, sticky window places) lives in
