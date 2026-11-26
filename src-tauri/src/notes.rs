@@ -15,18 +15,29 @@
 //! A note's ID is stored only in `folder.json`, so the file name can follow the title. If a file
 //! is missing, its entry is dropped; a `.md` file added from outside is adopted with an ID derived
 //! from its scope and name (`stable_id`), the same whether the store may write or not.
-//! The store never follows a symbolic link or junction in the notes tree: a linked scope folder
-//! or trash counts as missing, and the migration leaves links where they are.
-//! Hangar Note never adds a field to `folder.json` or `trash.json` (both parsed with
-//! `deny_unknown_fields`, as in Hangar). Contents are never logged.
+//! The store never follows a symbolic link, junction or other reparse point in the notes tree: a
+//! linked scope folder or trash counts as missing, a linked note file is not a note, and the
+//! migration leaves links where they are.
+//!
+//! **The folder is shared and untrusted.** Hangar Note never adds a field to `folder.json` or
+//! `trash.json`, but it parses both tolerantly and keeps every field it does not know, at the top
+//! and in each entry (`extra`), so a rewrite loses nothing a newer Hangar wrote. An entry that does
+//! not parse, or whose ID or file name is unsafe ([`plain_markdown_name`]), is skipped with a log
+//! line that names no title, and is never followed. An index that cannot be read at all (broken
+//! JSON, unknown version, too large, a link) is never rewritten: the scope's notes are listed from
+//! the files under IDs derived from their names, their text can be read and saved, and changes to
+//! the index (create, rename, delete, restore) are refused with the storage code `io` until the
+//! file is fixed. Contents are never logged.
 //!
 //! **Shared with Hangar** (ADR 0005, contract "notes-shared 1"). Hangar writes the same folder at
-//! the same time. Every read-modify-write of a scope's `folder.json` or `.trash/trash.json` holds
-//! the scope lock, an exclusive OS file lock on `<scope>/.lock` ([`SCOPE_LOCK_FILE`]), waits for
-//! it at most [`SCOPE_LOCK_WAIT`], re-reads the file from disk under it and writes it atomically.
-//! Nothing is written from a copy kept in memory. A note's text is written only while its file is
-//! still at the version the editor read ([`NotesStore::write_note_checked`]); new files are
-//! created without replacing one that appeared meanwhile, and moves never replace a file.
+//! the same time. Every read-modify-write of a scope's `folder.json` or `.trash/trash.json`, and
+//! every write of a note's text, holds the scope lock, an exclusive OS file lock on
+//! `<scope>/.lock` ([`SCOPE_LOCK_FILE`]), waits for it at most [`SCOPE_LOCK_WAIT`], re-reads the
+//! file from disk under it and writes it atomically. Nothing is written from a copy kept in
+//! memory. A note's version is the SHA-256 of its bytes ([`content_version`]); its text is written
+//! only while the file still hashes to the version the editor read
+//! ([`NotesStore::write_note_checked`]); new files are created without replacing one that appeared
+//! meanwhile, and moves never replace a file.
 //!
 //! **Read only** (another Hangar Note holds the writer lock, `access.rs`): the store writes
 //! nothing at all, no sync, no set-aside metadata, no migration, not even the scope lock file.
@@ -42,14 +53,16 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize, Serializer};
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 use crate::fsio::{
-    create_private_dir, lock, log_cause, millis, read_capped, read_prefix, rename_no_replace,
-    storage_log, storage_log_io, utf8_prefix, write_atomic, write_atomic_versioned, StorageCode,
+    create_private_dir, is_hidden_or_temp, is_link_meta, is_regular_file, lock, log_cause, millis,
+    read_capped, read_prefix, rename_no_replace, storage_log, storage_log_io, utf8_prefix,
+    write_atomic, write_atomic_versioned, StorageCode,
 };
 use crate::naming::{is_reserved_on_windows, without_invisible, FORBIDDEN_CHARS, JOINERS};
-use crate::watch::Watch;
+use crate::watch::{stat_version, Watch};
 
 pub const GENERAL_KEY: &str = "general";
 const META_FILE: &str = "folder.json";
@@ -154,39 +167,117 @@ pub struct TrashInfo {
     pub deleted_at: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// `trash.json` as written back. Fields Hangar Note does not know are kept in `extra` and written
+/// after the known ones (amendment 3: tolerant parsing, nothing lost on a rewrite).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct TrashMeta {
     version: u32,
     items: Vec<TrashEntry>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
+}
+
+/// The top of `trash.json` as read: the items stay raw until each one is checked on its own, so
+/// one bad item does not make the whole file unreadable.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TrashHead {
+    version: u32,
+    items: Vec<Value>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct TrashEntry {
     id: String,
     title: String,
     /// File name inside `.trash/`.
     file: String,
     deleted_at: Option<u64>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct FolderMeta {
     version: u32,
     path: Option<PathBuf>,
     notes: Vec<NoteEntry>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
+}
+
+impl FolderMeta {
+    fn empty(path: Option<PathBuf>) -> Self {
+        Self {
+            version: META_VERSION,
+            path,
+            notes: Vec::new(),
+            extra: Map::new(),
+        }
+    }
+}
+
+/// The top of `folder.json` as read; see [`TrashHead`].
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FolderHead {
+    version: u32,
+    #[serde(default)]
+    path: Option<PathBuf>,
+    notes: Vec<Value>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct NoteEntry {
     id: String,
     title: String,
     /// Only the file name, without folder.
     file: String,
     order: u32,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
+}
+
+impl NoteEntry {
+    fn new(id: String, title: String, file: String, order: u32) -> Self {
+        Self {
+            id,
+            title,
+            file,
+            order,
+            extra: Map::new(),
+        }
+    }
+}
+
+/// What reading `folder.json` found.
+#[derive(Debug)]
+enum MetaRead {
+    /// No file: a new scope, or one Hangar has not indexed yet. Written on the next save.
+    Absent,
+    /// A file that cannot be used (broken JSON, unknown version, too large, a link, unreadable).
+    /// Never rewritten. `path` is the working folder if the JSON at least names one.
+    Broken {
+        path: Option<PathBuf>,
+    },
+    Read(FolderMeta),
+}
+
+/// `trash.json` as read, with what a rewrite must keep.
+#[derive(Debug, Clone, Default)]
+struct TrashIndex {
+    items: Vec<TrashEntry>,
+    extra: Map<String, Value>,
+    /// The file exists but cannot be used: it is never rewritten.
+    broken: bool,
 }
 
 /// What the frontend receives for [`NotesError::ReadOnly`], so it can show its calm hint.
@@ -264,41 +355,15 @@ impl Serialize for NotesError {
     }
 }
 
-/// The version of a note file as an editor holds it (security review B8): modification time in
-/// nanoseconds and length, opaque to the window. A write by another program changes at least one
-/// of them on every file system with sub-second times; on one with whole seconds, a change of the
-/// same length within the same second goes unnoticed.
-pub fn version(meta: &fs::Metadata) -> String {
-    let nanos = meta
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |since| since.as_nanos());
-    format!("{nanos}-{}", meta.len())
-}
-
-/// The metadata of a file through a handle of its own, as [`read_capped_with_meta`] takes it, so
-/// both give the same version of the same file.
-fn handle_meta(path: &Path) -> io::Result<fs::Metadata> {
-    fs::File::open(path)?.metadata()
-}
-
-/// At most `max` bytes of a regular file with the metadata of the same handle; `Ok(None)` when
-/// it holds more.
-fn read_capped_with_meta(path: &Path, max: usize) -> io::Result<Option<(Vec<u8>, fs::Metadata)>> {
-    use std::io::Read as _;
-    if !fs::symlink_metadata(path)?.file_type().is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "not a regular file",
-        ));
-    }
-    let file = fs::File::open(path)?;
-    let meta = file.metadata()?;
-    let mut bytes = Vec::new();
-    let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
-    (&file).take(limit).read_to_end(&mut bytes)?;
-    Ok((bytes.len() <= max).then_some((bytes, meta)))
+/// The version of a note as an editor holds it (security review B8, contract "notes-shared 1"
+/// amendment 3): the SHA-256 of the file's bytes in lowercase hex, opaque to the window. Unlike
+/// modification time and length it sees every change of the content, also one of the same length
+/// within the same clock tick, and a rename or a copy that keeps the bytes keeps it.
+pub fn content_version(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn io_error(path: &Path) -> impl FnOnce(io::Error) -> NotesError + '_ {
@@ -436,11 +501,19 @@ pub fn untitled_title(base: &str, existing: &[String]) -> String {
         .unwrap_or_else(|| base.to_owned())
 }
 
-/// A plain `.md` file name: a single path component, no folder, no `..`, none of the characters
-/// Windows refuses in a name and no control character. Metadata on disk (`folder.json`,
-/// `trash.json`) is a file like any other; an entry naming anything else must never make the
-/// store read, rename or write outside its folder, and `:` would name an NTFS alternate data
-/// stream (`x.md:hidden`) of a file instead of the file.
+/// The longest file name taken from an index entry, in bytes; every file system Hangar runs on
+/// allows 255 characters at most, and the store never makes a longer one.
+const MAX_ENTRY_NAME_BYTES: usize = 255;
+
+/// A plain `.md` file name: a single path component, no folder, no `..`, no root or drive, none
+/// of the characters Windows refuses in a name, no control character, no leading dot (hidden and
+/// temporary files, [`is_hidden_or_temp`]), at most [`MAX_ENTRY_NAME_BYTES`] and no device name
+/// Windows reserves (`CON.md`, `COM1.md`).
+/// Metadata on disk (`folder.json`, `trash.json`) comes from a shared folder and is untrusted; an
+/// entry naming anything else must never make the store read, rename or write outside its folder,
+/// and `:` would name an NTFS alternate data stream (`x.md:hidden`) of a file instead of the file.
+/// The lister adopts only names that pass this too, so an adopted file is never dropped on the
+/// next read.
 fn plain_markdown_name(name: &str) -> bool {
     let mut parts = Path::new(name).components();
     let single = matches!(
@@ -450,14 +523,24 @@ fn plain_markdown_name(name: &str) -> bool {
     let clean = !name
         .chars()
         .any(|c| c.is_control() || FORBIDDEN_CHARS.contains(c));
-    single && clean && is_markdown(name)
+    let stem = Path::new(name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default();
+    single
+        && clean
+        && name.len() <= MAX_ENTRY_NAME_BYTES
+        && !is_hidden_or_temp(name)
+        && !stem.is_empty()
+        && !is_reserved_on_windows(stem)
+        && is_markdown(name)
 }
 
-/// Whether `path` is a symbolic link, a junction or another name surrogate (`symlink_metadata`
-/// does not follow it). Logged by path only: the notes tree never follows one, so a link placed
-/// in it cannot make the store read or move files elsewhere.
+/// Whether `path` is a symbolic link, a junction or another reparse point (`symlink_metadata`
+/// does not follow it, [`is_link_meta`]). Logged by path only: the notes tree never follows one,
+/// so a link placed in it cannot make the store read or move files elsewhere.
 fn is_link(path: &Path) -> bool {
-    let link = fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink());
+    let link = fs::symlink_metadata(path).is_ok_and(|meta| is_link_meta(&meta));
     if link {
         log_link(path);
     }
@@ -474,7 +557,7 @@ fn log_link(path: &Path) {
 /// A folder of the notes tree itself, not a link or junction to one.
 fn is_plain_dir(path: &Path) -> bool {
     match fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_symlink() => {
+        Ok(meta) if is_link_meta(&meta) => {
             log_link(path);
             false
         }
@@ -543,6 +626,14 @@ pub fn check_id(id: &str) -> Result<String, NotesError> {
     }
 }
 
+/// The working folder an unusable `folder.json` still names, if it is JSON with a string `path`,
+/// so the scope keeps its place in the overview. Only a hint: the caller checks that the path
+/// gives the same scope key again.
+fn path_hint(bytes: &[u8]) -> Option<PathBuf> {
+    let value: Value = serde_json::from_slice(bytes).ok()?;
+    value.get("path")?.as_str().map(PathBuf::from)
+}
+
 /// Reads a regular file of at most `max` bytes. `Ok(None)`: file missing. `Err`: reason without
 /// content (larger, a link, a folder).
 fn read_limited(path: &Path, max: usize) -> Result<Option<Vec<u8>>, String> {
@@ -582,7 +673,15 @@ fn lock_scope(dir: &Path, wait: Duration) -> io::Result<ScopeLock> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let file = options.open(dir.join(SCOPE_LOCK_FILE))?;
+    let path = dir.join(SCOPE_LOCK_FILE);
+    // A lock file that is a link would be opened (and created) wherever it points.
+    if fs::symlink_metadata(&path).is_ok_and(|meta| is_link_meta(&meta) || !meta.is_file()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the scope lock is not a regular file",
+        ));
+    }
+    let file = options.open(&path)?;
     let deadline = Instant::now() + wait;
     loop {
         match file.try_lock() {
@@ -606,16 +705,69 @@ fn lock_scope(dir: &Path, wait: Duration) -> io::Result<ScopeLock> {
 enum Hold {
     /// Reading: the lock is taken only if the sync has to save, and released again.
     WhileSyncing,
-    /// Changing the scope: the lock is held from the read until the returned [`Folder`] drops.
-    UntilDone,
+    /// Writing a note's text: the lock is held from the read until the returned [`Folder`] drops.
+    /// An unreadable `folder.json` does not stop it; the index is not changed.
+    ForText,
+    /// Changing the index: as [`Hold::ForText`], and refused while `folder.json` is unreadable,
+    /// since the change could not be saved without replacing that file.
+    ForIndex,
 }
 
 struct Folder {
     key: String,
     dir: PathBuf,
     meta: FolderMeta,
-    /// Held while the scope is being changed ([`Hold::UntilDone`]).
+    /// `folder.json` exists but cannot be used ([`MetaRead::Broken`]): it is never saved over.
+    index_broken: bool,
+    /// Held while the scope is being changed ([`Hold::ForText`], [`Hold::ForIndex`]).
     _lock: Option<ScopeLock>,
+}
+
+/// The error of a change that would have to rewrite an unreadable index: storage code `io`,
+/// nothing written.
+fn broken_index(path: &Path) -> NotesError {
+    NotesError::Io {
+        path: path.to_path_buf(),
+        source: io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the index cannot be read and is not rewritten",
+        ),
+    }
+}
+
+/// Whether a folder entry may be followed: a canonical lowercase UUID and a plain `.md` name.
+fn trusted_note_entry(entry: &NoteEntry) -> bool {
+    plain_markdown_name(&entry.file) && check_id(&entry.id).is_ok_and(|id| id == entry.id)
+}
+
+/// Each raw entry as `T` if it parses and `trusted` accepts it; the rest are skipped, and their
+/// number is logged against `path` (the index file), never their content.
+fn checked_entries<T: serde::de::DeserializeOwned>(
+    path: &Path,
+    raw: Vec<Value>,
+    trusted: impl Fn(&T) -> bool,
+) -> Vec<T> {
+    let total = raw.len();
+    let kept: Vec<T> = raw
+        .into_iter()
+        .filter_map(|value| serde_json::from_value::<T>(value).ok())
+        .filter(|entry| trusted(entry))
+        .collect();
+    if kept.len() < total {
+        let cause = format!("{} malformed or unsafe entries skipped", total - kept.len());
+        eprintln!("hangar-note: {}", storage_log(path, &cause));
+    }
+    kept
+}
+
+/// Whether a directory entry is a note file the lister may adopt: a regular file (no link, no
+/// reparse point) under a name an entry may carry, so hidden and temporary files of either app
+/// never show up as notes.
+fn is_note_file(entry: &fs::DirEntry, name: &str) -> bool {
+    plain_markdown_name(name)
+        && entry
+            .metadata()
+            .is_ok_and(|meta| meta.is_file() && !is_link_meta(&meta))
 }
 
 impl Folder {
@@ -647,7 +799,7 @@ impl Folder {
             if except.is_some_and(|e| e.to_lowercase() == lower) {
                 return true;
             }
-            !taken.contains(&lower) && !self.dir.join(name).exists()
+            !taken.contains(&lower) && !present(&self.dir.join(name))
         };
         let mut candidate = format!("{stem}.md");
         let mut n = 2;
@@ -669,6 +821,9 @@ impl Folder {
 
     fn save(&self) -> Result<(), NotesError> {
         let path = self.dir.join(META_FILE);
+        if self.index_broken {
+            return Err(broken_index(&path));
+        }
         let json = serde_json::to_vec_pretty(&self.meta)
             .map_err(|e| io_error(&path)(io::Error::new(io::ErrorKind::InvalidData, e)))?;
         write_atomic(&path, &json).map_err(io_error(&path))
@@ -679,7 +834,9 @@ impl Folder {
     fn sync(&mut self) -> Result<bool, NotesError> {
         let before = self.meta.notes.len();
         let dir = self.dir.clone();
-        self.meta.notes.retain(|n| dir.join(&n.file).is_file());
+        self.meta
+            .notes
+            .retain(|n| is_regular_file(&dir.join(&n.file)));
         let mut changed = self.meta.notes.len() != before;
         let known: HashSet<String> = self
             .meta
@@ -693,8 +850,7 @@ impl Folder {
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
             };
-            let is_file = entry.file_type().is_ok_and(|t| t.is_file());
-            if is_file && is_markdown(&name) && !known.contains(&name.to_lowercase()) {
+            if !known.contains(&name.to_lowercase()) && is_note_file(&entry, &name) {
                 found.push(name);
             }
         }
@@ -709,12 +865,7 @@ impl Folder {
             let order = self.next_order();
             let id = free_stable_id(&self.key, &name, &ids);
             ids.insert(id.clone());
-            self.meta.notes.push(NoteEntry {
-                id,
-                title,
-                file: name,
-                order,
-            });
+            self.meta.notes.push(NoteEntry::new(id, title, name, order));
             changed = true;
         }
         Ok(changed)
@@ -791,7 +942,7 @@ fn move_to_free_name(
 
 /// `name` in `dir` if free, otherwise `stem (2).ext`, `stem (3).ext` and so on.
 fn free_name(dir: &Path, name: &str) -> String {
-    if !dir.join(name).exists() {
+    if !present(&dir.join(name)) {
         return name.to_owned();
     }
     let path = Path::new(name);
@@ -804,7 +955,7 @@ fn free_name(dir: &Path, name: &str) -> String {
         .unwrap_or_default();
     (2u32..)
         .map(|n| format!("{stem} ({n}){ext}"))
-        .find(|candidate| !dir.join(candidate).exists())
+        .find(|candidate| !present(&dir.join(candidate)))
         .unwrap_or_else(|| name.to_owned())
 }
 
@@ -876,15 +1027,14 @@ fn migrate_general(old: &Path, new: &Path) -> io::Result<()> {
     let moved = merge_dir(old, new, &[META_FILE])?;
     let old_meta_path = old.join(META_FILE);
     let new_meta_path = new.join(META_FILE);
-    let old_meta = NotesStore::read_meta(old);
-    let new_meta = if new_meta_path.exists() {
-        NotesStore::read_meta(new)
-    } else {
-        Some(FolderMeta {
-            version: META_VERSION,
-            path: None,
-            notes: Vec::new(),
-        })
+    let old_meta = match NotesStore::read_meta(old) {
+        MetaRead::Read(meta) => Some(meta),
+        MetaRead::Absent | MetaRead::Broken { .. } => None,
+    };
+    let new_meta = match NotesStore::read_meta(new) {
+        MetaRead::Read(meta) => Some(meta),
+        MetaRead::Absent => Some(FolderMeta::empty(None)),
+        MetaRead::Broken { .. } => None,
     };
     if let (Some(mut old_meta), Some(mut meta)) = (old_meta, new_meta) {
         let mut ids: HashSet<String> = meta.notes.iter().map(|n| n.id.clone()).collect();
@@ -908,9 +1058,9 @@ fn migrate_general(old: &Path, new: &Path) -> io::Result<()> {
             };
             meta.notes.push(NoteEntry {
                 id,
-                title: entry.title,
                 file: file.clone(),
                 order,
+                ..entry
             });
             order = order.saturating_add(1);
         }
@@ -1063,47 +1213,46 @@ impl NotesStore {
         }
     }
 
-    fn read_meta(dir: &Path) -> Option<FolderMeta> {
+    /// Reads `folder.json` from a shared, untrusted folder. Entries that do not parse or name an
+    /// unsafe file are skipped ([`checked_entries`]); a plain `.md` file of the folder behind one
+    /// comes back on the next sync under an ID derived from its name. Unknown fields are kept.
+    fn read_meta(dir: &Path) -> MetaRead {
         let path = dir.join(META_FILE);
+        let broken = |cause: &str, path_hint: Option<PathBuf>| {
+            eprintln!(
+                "hangar-note: not rewriting unreadable {}",
+                storage_log(&path, cause)
+            );
+            MetaRead::Broken { path: path_hint }
+        };
         let bytes = match read_limited(&path, MAX_META_BYTES) {
             Ok(Some(bytes)) => bytes,
-            Ok(None) => return None,
-            Err(reason) => {
-                eprintln!("hangar-note: ignoring {}", storage_log(&path, &reason));
-                return None;
-            }
+            Ok(None) => return MetaRead::Absent,
+            Err(reason) => return broken(&reason, None),
         };
-        match serde_json::from_slice::<FolderMeta>(&bytes) {
-            Ok(mut meta) if meta.version == META_VERSION => {
-                // An entry pointing elsewhere is dropped; a plain `.md` file of the folder comes
-                // back on the next sync under a new ID.
-                meta.notes.retain(|n| {
-                    plain_markdown_name(&n.file) && check_id(&n.id).is_ok_and(|id| id == n.id)
-                });
-                Some(meta)
-            }
-            Ok(_) => {
-                eprintln!(
-                    "hangar-note: ignoring {}",
-                    storage_log(&path, "unknown version")
-                );
-                None
-            }
+        match serde_json::from_slice::<FolderHead>(&bytes) {
+            Ok(head) if head.version == META_VERSION => MetaRead::Read(FolderMeta {
+                version: head.version,
+                path: head.path,
+                notes: checked_entries(&path, head.notes, trusted_note_entry),
+                extra: head.extra,
+            }),
+            Ok(head) => broken("unknown version", head.path),
             Err(error) => {
                 let cause = format!("JSON error {:?} on line {}", error.classify(), error.line());
-                eprintln!("hangar-note: ignoring {}", storage_log(&path, &cause));
-                None
+                broken(&cause, path_hint(&bytes))
             }
         }
     }
 
     /// Opens the scope. With `create` it is created; otherwise the result is `None` if it is
-    /// missing. An unusable `folder.json` is set aside and rebuilt from the files. Read only,
-    /// nothing is created, set aside, locked or saved.
+    /// missing. An unusable `folder.json` is left as it is: the notes come from the files, nothing
+    /// is saved over it, and [`Hold::ForIndex`] is refused. Read only, nothing is created,
+    /// locked or saved.
     ///
     /// While writable, `folder.json` is read again under the scope lock before anything is saved
-    /// ([`Hold`]): with [`Hold::UntilDone`] the lock stays with the returned folder, so the
-    /// caller's change and its save see no write of Hangar in between.
+    /// ([`Hold`]): with [`Hold::ForText`] and [`Hold::ForIndex`] the lock stays with the returned
+    /// folder, so the caller's change and its save see no write of Hangar in between.
     fn open(
         &self,
         folder: &NoteFolder,
@@ -1127,60 +1276,77 @@ impl NotesStore {
             create_private_dir(&dir).map_err(io_error(&dir))?;
         }
         if !writable {
-            return Self::load(key, dir, folder, false).map(|(opened, _)| Some(opened));
+            return Self::load(key, dir, folder).map(|(opened, _)| Some(opened));
         }
         if hold == Hold::WhileSyncing {
-            let (opened, changed) = Self::load(key.clone(), dir.clone(), folder, false)?;
+            let (opened, changed) = Self::load(key.clone(), dir.clone(), folder)?;
             if !changed {
                 return Ok(Some(opened));
             }
         }
         let held = self.lock_scope(&dir)?;
-        let (mut opened, changed) = Self::load(key, dir, folder, true)?;
+        let (mut opened, changed) = Self::load(key, dir, folder)?;
+        if hold == Hold::ForIndex && opened.index_broken {
+            return Err(broken_index(&opened.dir.join(META_FILE)));
+        }
         if changed {
             opened.save()?;
         }
-        if hold == Hold::UntilDone {
+        if hold != Hold::WhileSyncing {
             opened._lock = Some(held);
         }
         Ok(Some(opened))
     }
 
-    /// Reads `folder.json` from disk and syncs it with the files. `repair`: an unusable
-    /// `folder.json` is set aside (only under the scope lock). Returns whether it needs saving.
-    fn load(
-        key: String,
-        dir: PathBuf,
-        folder: &NoteFolder,
-        repair: bool,
-    ) -> Result<(Folder, bool), NotesError> {
-        let meta_path = dir.join(META_FILE);
-        let (meta, mut changed) = match Self::read_meta(&dir) {
-            Some(meta) => (meta, false),
-            None => {
-                if repair && meta_path.exists() {
-                    let aside = dir.join(format!(
-                        "{META_FILE}.broken-{}",
-                        millis(SystemTime::now()).unwrap_or(0)
-                    ));
-                    fs::rename(&meta_path, &aside).map_err(io_error(&meta_path))?;
-                }
-                let meta = FolderMeta {
-                    version: META_VERSION,
-                    path: folder.path.clone(),
-                    notes: Vec::new(),
-                };
-                (meta, true)
-            }
+    /// Reads `folder.json` from disk and syncs it with the files. Returns whether it needs saving,
+    /// which an unusable `folder.json` never does: it is not replaced.
+    fn load(key: String, dir: PathBuf, folder: &NoteFolder) -> Result<(Folder, bool), NotesError> {
+        let (meta, mut changed, index_broken) = match Self::read_meta(&dir) {
+            MetaRead::Read(meta) => (meta, false, false),
+            MetaRead::Absent => (FolderMeta::empty(folder.path.clone()), true, false),
+            MetaRead::Broken { .. } => (FolderMeta::empty(folder.path.clone()), false, true),
         };
         let mut opened = Folder {
             key,
             dir,
             meta,
+            index_broken,
             _lock: None,
         };
         changed |= opened.sync()?;
-        Ok((opened, changed))
+        Ok((opened, changed && !index_broken))
+    }
+
+    /// The notes of a scope for the overview and the search, read only: `folder.json`'s path and
+    /// entries, or, where it is unusable, the files under IDs derived from their names. `None`
+    /// without a `folder.json` (the scope shows up once it is opened) or with a broken one that
+    /// names no working folder of this key (its scope is unknown).
+    fn scope_notes(key: &str, dir: &Path) -> Option<(Option<PathBuf>, Vec<NoteEntry>)> {
+        match Self::read_meta(dir) {
+            MetaRead::Read(meta) => Some((meta.path, meta.notes)),
+            MetaRead::Absent => None,
+            MetaRead::Broken { path } => {
+                let path = if key == GENERAL_KEY {
+                    None
+                } else {
+                    let path = path?;
+                    let folder = NoteFolder::at(path.clone());
+                    if folder_key(&folder).ok()? != key {
+                        return None;
+                    }
+                    Some(path)
+                };
+                let mut opened = Folder {
+                    key: key.to_owned(),
+                    dir: dir.to_path_buf(),
+                    meta: FolderMeta::empty(path.clone()),
+                    index_broken: true,
+                    _lock: None,
+                };
+                opened.sync().ok()?;
+                Some((path, opened.meta.notes))
+            }
+        }
     }
 
     fn opened(&self, folder: &NoteFolder) -> Result<Folder, NotesError> {
@@ -1188,9 +1354,9 @@ impl NotesStore {
             .ok_or(NotesError::UnknownNote)
     }
 
-    /// The scope for a change, with its lock held until the folder drops.
+    /// The scope for a change of its index, with its lock held until the folder drops.
     fn opened_for_change(&self, folder: &NoteFolder) -> Result<Folder, NotesError> {
-        self.open(folder, false, Hold::UntilDone)?
+        self.open(folder, false, Hold::ForIndex)?
             .ok_or(NotesError::UnknownNote)
     }
 
@@ -1208,7 +1374,11 @@ impl NotesStore {
         if !is_plain_dir(&dir) {
             return None;
         }
-        let path = Self::read_meta(&dir)?.path?;
+        let path = match Self::read_meta(&dir) {
+            MetaRead::Read(meta) => meta.path?,
+            MetaRead::Broken { path } => path?,
+            MetaRead::Absent => return None,
+        };
         let folder = NoteFolder { path: Some(path) };
         (folder_key(&folder).ok()? == key).then_some(folder)
     }
@@ -1237,21 +1407,21 @@ impl NotesStore {
             if !is_folder_key(&key) || !is_plain_dir(&dir) {
                 continue;
             }
-            // Read only: an overview must not rewrite anything. Without a readable folder.json the
-            // original path is unknown; the scope shows up as soon as it is opened again.
-            let Some(meta) = Self::read_meta(&dir) else {
+            // Read only: an overview must not rewrite anything. Without a folder.json, or with a
+            // broken one that names no path, the original path is unknown; the scope shows up as
+            // soon as it is opened again.
+            let Some((path, notes)) = Self::scope_notes(&key, &dir) else {
                 continue;
             };
-            let files: Vec<PathBuf> = meta
-                .notes
+            let files: Vec<PathBuf> = notes
                 .iter()
                 .map(|n| dir.join(&n.file))
-                .filter(|p| p.is_file())
+                .filter(|p| is_regular_file(p))
                 .collect();
             let info = FolderInfo {
                 folder_key: key.clone(),
-                name: meta.path.as_deref().map(display_name),
-                path: meta.path,
+                name: path.as_deref().map(display_name),
+                path,
                 note_count: files.len(),
                 updated_at: files.iter().filter_map(|p| modified(p)).max(),
             };
@@ -1327,9 +1497,8 @@ impl NotesStore {
         self.read_note_versioned(folder, id).map(|(text, _)| text)
     }
 
-    /// The text of a note with the [`version`] of the file it came from, so an editor can tell
-    /// later whether something else changed the file meanwhile (security review B8). The version
-    /// is taken from the same handle the text was read through.
+    /// The text of a note with the [`content_version`] of the bytes it came from, so an editor can
+    /// tell later whether something else changed the file meanwhile (security review B8).
     pub fn read_note_versioned(
         &self,
         folder: &NoteFolder,
@@ -1338,8 +1507,8 @@ impl NotesStore {
         let _guard = lock(&self.guard);
         let opened = self.opened(folder)?;
         let path = opened.file(opened.entry(id)?);
-        let read = read_capped_with_meta(&path, MAX_NOTE_BYTES).map_err(io_error(&path))?;
-        let Some((bytes, meta)) = read else {
+        let read = read_capped(&path, MAX_NOTE_BYTES).map_err(io_error(&path))?;
+        let Some(bytes) = read else {
             // The size only names the problem; the content was never read past the limit.
             let size = fs::metadata(&path)
                 .ok()
@@ -1350,8 +1519,9 @@ impl NotesStore {
                 max: MAX_NOTE_BYTES,
             });
         };
+        let version = content_version(&bytes);
         let text = String::from_utf8(bytes).map_err(|_| NotesError::NotText)?;
-        Ok((text, version(&meta)))
+        Ok((text, version))
     }
 
     pub fn write_note(
@@ -1363,10 +1533,13 @@ impl NotesStore {
         self.write_note_checked(folder, id, content, None).map(drop)
     }
 
-    /// Writes a note; with `expected`, only while the file is still at that [`version`]
-    /// ([`NotesError::Changed`] otherwise, and nothing is written). Returns the version of the
-    /// file written. Another program may still write between the check and the rename; the window
-    /// for that is the length of one write, where without the check it was the whole edit.
+    /// Writes a note under the scope lock (contract "notes-shared 1", amendment 3): the lock is
+    /// taken, the file is read again and hashed, and with `expected` the text is written only
+    /// while that hash is still `expected` ([`NotesError::Changed`] otherwise, and nothing is
+    /// written). The atomic write happens while the lock is still held, so a writer that takes the
+    /// same lock (Hangar under the contract) cannot land between the check and the rename.
+    /// Returns the [`content_version`] of the bytes written, which is what the next read gives.
+    /// An unreadable `folder.json` does not stop it: the index is not touched.
     pub fn write_note_checked(
         &self,
         folder: &NoteFolder,
@@ -1382,20 +1555,26 @@ impl NotesStore {
         }
         self.check_writable()?;
         let _guard = lock(&self.guard);
-        let opened = self.opened(folder)?;
+        // The scope lock stays with `opened` until this returns.
+        let opened = self
+            .open(folder, false, Hold::ForText)?
+            .ok_or(NotesError::UnknownNote)?;
         let path = opened.file(opened.entry(id)?);
         if let Some(expected) = expected {
-            let current = handle_meta(&path).map_err(io_error(&path))?;
-            if version(&current) != expected {
+            // A file above the limit was never read by an editor, so it is never at `expected`.
+            let current = read_capped(&path, MAX_NOTE_BYTES)
+                .map_err(io_error(&path))?
+                .map(|bytes| content_version(&bytes));
+            if current.as_deref() != Some(expected) {
                 return Err(NotesError::Changed);
             }
         }
-        // The version comes from the written file's own handle, not from a look at the path after
-        // the rename, which could already see a file Hangar saved in between.
-        let written = write_atomic_versioned(&path, content.as_bytes()).map_err(io_error(&path))?;
-        let written = version(&written);
-        self.watch.own_as(&path, Some(written.clone()));
-        Ok(written)
+        let bytes = content.as_bytes();
+        // For the poll only: the state comes from the written file's own handle, not from a look
+        // at the path after the rename, which could already see a file Hangar saved in between.
+        let written = write_atomic_versioned(&path, bytes).map_err(io_error(&path))?;
+        self.watch.own_as(&path, Some(stat_version(&written)));
+        Ok(content_version(bytes))
     }
 
     /// Creates an empty note and returns its ID.
@@ -1404,19 +1583,17 @@ impl NotesStore {
         self.check_writable()?;
         let _guard = lock(&self.guard);
         let mut opened = self
-            .open(folder, true, Hold::UntilDone)?
+            .open(folder, true, Hold::ForIndex)?
             .ok_or(NotesError::InvalidFolder("cannot be created"))?;
         let file = create_free_file(&opened.dir, || opened.free_file_name(&title, None))
             .map_err(io_error(&opened.dir))?;
         let path = opened.dir.join(&file);
         let id = new_id();
         let order = opened.next_order();
-        opened.meta.notes.push(NoteEntry {
-            id: id.clone(),
-            title,
-            file,
-            order,
-        });
+        opened
+            .meta
+            .notes
+            .push(NoteEntry::new(id.clone(), title, file, order));
         opened.save()?;
         self.own(&[&path, &opened.dir.join(META_FILE)]);
         Ok(id)
@@ -1501,16 +1678,20 @@ impl NotesStore {
         opened.meta.notes.retain(|n| n.id != entry.id);
         opened.save()?;
         // Without the record the file is still adopted by `list_trash`, only under a new ID.
-        // Read again here, under the scope lock that `opened` holds.
-        let mut items = Self::read_trash(&trash);
-        items.push(TrashEntry {
-            id: entry.id,
-            title: entry.title,
-            file,
-            deleted_at: Some(stamp),
-        });
-        if let Err(error) = Self::save_trash(&trash, items) {
-            eprintln!("hangar-note: trash record not saved: {error}");
+        // Read again here, under the scope lock that `opened` holds. An unreadable trash.json is
+        // left as it is, so the deleted note goes without a record.
+        let mut index = Self::read_trash(&trash);
+        if !index.broken {
+            index.items.push(TrashEntry {
+                id: entry.id,
+                title: entry.title,
+                file,
+                deleted_at: Some(stamp),
+                extra: Map::new(),
+            });
+            if let Err(error) = Self::save_trash(&trash, index) {
+                eprintln!("hangar-note: trash record not saved: {error}");
+            }
         }
         self.own(&[
             &from,
@@ -1530,31 +1711,51 @@ impl NotesStore {
             && validate_title(&entry.title).is_ok_and(|title| title == entry.title)
     }
 
-    fn read_trash(trash: &Path) -> Vec<TrashEntry> {
+    /// Reads `trash.json` from a shared, untrusted folder: items that do not parse or are not
+    /// [`Self::trusted_entry`] are skipped, unknown fields are kept, and an unusable file is marked
+    /// `broken` so nobody rewrites it.
+    fn read_trash(trash: &Path) -> TrashIndex {
         let path = trash.join(TRASH_META_FILE);
-        match read_limited(&path, MAX_META_BYTES) {
-            Ok(Some(bytes)) => match serde_json::from_slice::<TrashMeta>(&bytes) {
-                Ok(meta) if meta.version == TRASH_META_VERSION => {
-                    meta.items.into_iter().filter(Self::trusted_entry).collect()
-                }
-                _ => {
-                    eprintln!("hangar-note: ignoring {}", storage_log(&path, "unreadable"));
-                    Vec::new()
-                }
-            },
-            Ok(None) => Vec::new(),
-            Err(reason) => {
-                eprintln!("hangar-note: ignoring {}", storage_log(&path, &reason));
-                Vec::new()
+        let broken = |cause: &str| {
+            eprintln!(
+                "hangar-note: not rewriting unreadable {}",
+                storage_log(&path, cause)
+            );
+            TrashIndex {
+                broken: true,
+                ..TrashIndex::default()
             }
+        };
+        match read_limited(&path, MAX_META_BYTES) {
+            Ok(Some(bytes)) => match serde_json::from_slice::<TrashHead>(&bytes) {
+                Ok(head) if head.version == TRASH_META_VERSION => TrashIndex {
+                    items: checked_entries(&path, head.items, Self::trusted_entry),
+                    extra: head.extra,
+                    broken: false,
+                },
+                Ok(_) => broken("unknown version"),
+                Err(error) => broken(&format!(
+                    "JSON error {:?} on line {}",
+                    error.classify(),
+                    error.line()
+                )),
+            },
+            Ok(None) => TrashIndex::default(),
+            Err(reason) => broken(&reason),
         }
     }
 
-    fn save_trash(trash: &Path, items: Vec<TrashEntry>) -> Result<(), NotesError> {
+    /// Writes `trash.json` with the index's items and the unknown fields it was read with. Never
+    /// called for a broken index.
+    fn save_trash(trash: &Path, index: TrashIndex) -> Result<(), NotesError> {
         let path = trash.join(TRASH_META_FILE);
+        if index.broken {
+            return Err(broken_index(&path));
+        }
         let meta = TrashMeta {
             version: TRASH_META_VERSION,
-            items,
+            items: index.items,
+            extra: index.extra,
         };
         let json = serde_json::to_vec_pretty(&meta)
             .map_err(|e| io_error(&path)(io::Error::new(io::ErrorKind::InvalidData, e)))?;
@@ -1563,18 +1764,22 @@ impl NotesStore {
 
     /// The trash records matched with the files: records without a file are dropped, `.md` files
     /// without a record (deleted before records existed) are adopted under their [`stable_id`].
-    /// Returns whether the records differ from `trash.json`; the caller saves under the lock.
-    fn synced_trash(key: &str, trash: &Path) -> Result<(Vec<TrashEntry>, bool), NotesError> {
-        let mut items = Self::read_trash(trash);
+    /// Returns whether the records differ from `trash.json`; the caller saves under the lock,
+    /// unless the index is broken.
+    fn synced_trash(key: &str, trash: &Path) -> Result<(TrashIndex, bool), NotesError> {
+        let mut index = Self::read_trash(trash);
+        let items = &mut index.items;
         let before = items.clone();
-        items.retain(|item| trash.join(&item.file).is_file());
+        items.retain(|item| is_regular_file(&trash.join(&item.file)));
         let known: HashSet<String> = items.iter().map(|i| i.file.to_lowercase()).collect();
         let mut found: Vec<String> = fs::read_dir(trash)
             .map_err(io_error(trash))?
             .flatten()
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-            .filter_map(|e| e.file_name().into_string().ok())
-            .filter(|name| is_markdown(name) && !known.contains(&name.to_lowercase()))
+            .filter_map(|e| {
+                let name = e.file_name().into_string().ok()?;
+                is_note_file(&e, &name).then_some(name)
+            })
+            .filter(|name| !known.contains(&name.to_lowercase()))
             .collect();
         found.sort();
         let scope = format!("{key}/{TRASH_DIR}");
@@ -1589,10 +1794,11 @@ impl NotesStore {
                 title,
                 file,
                 deleted_at,
+                extra: Map::new(),
             });
         }
-        let changed = items != before;
-        Ok((items, changed))
+        let changed = *items != before && !index.broken;
+        Ok((index, changed))
     }
 
     /// Deleted notes of the scope, the most recently deleted first; `[]` without a trash.
@@ -1604,7 +1810,7 @@ impl NotesStore {
         if !is_plain_dir(&dir) || !is_plain_dir(&trash) {
             return Ok(Vec::new());
         }
-        let (mut items, changed) = Self::synced_trash(&key, &trash)?;
+        let (mut index, changed) = Self::synced_trash(&key, &trash)?;
         if changed && self.writable() {
             // Read again under the scope lock, so a record Hangar added meanwhile stays.
             let _held = self.lock_scope(&dir)?;
@@ -1612,9 +1818,10 @@ impl NotesStore {
             if changed {
                 Self::save_trash(&trash, fresh.clone())?;
             }
-            items = fresh;
+            index = fresh;
         }
-        let mut list: Vec<TrashInfo> = items
+        let mut list: Vec<TrashInfo> = index
+            .items
             .into_iter()
             .map(|item| TrashInfo {
                 id: item.id,
@@ -1637,12 +1844,13 @@ impl NotesStore {
         if !is_plain_dir(&trash) {
             return Err(NotesError::UnknownNote);
         }
-        let (mut items, _) = Self::synced_trash(&opened.key, &trash)?;
-        let index = items
+        let (mut index, _) = Self::synced_trash(&opened.key, &trash)?;
+        let position = index
+            .items
             .iter()
             .position(|item| item.id == id)
             .ok_or(NotesError::UnknownNote)?;
-        let item = items.remove(index);
+        let item = index.items.remove(position);
         let from = trash.join(&item.file);
         let file = move_to_free_name(&from, &opened.dir, || {
             opened.free_file_name(&item.title, None)
@@ -1655,14 +1863,15 @@ impl NotesStore {
         };
         let order = opened.next_order();
         let path = opened.dir.join(&file);
-        opened.meta.notes.push(NoteEntry {
-            id: restored.clone(),
-            title: item.title,
-            file,
-            order,
-        });
+        opened
+            .meta
+            .notes
+            .push(NoteEntry::new(restored.clone(), item.title, file, order));
         opened.save()?;
-        Self::save_trash(&trash, items)?;
+        // An unreadable trash.json is left as it is; the restored file is simply gone from it.
+        if !index.broken {
+            Self::save_trash(&trash, index)?;
+        }
         self.own(&[
             &from,
             &path,
@@ -1718,9 +1927,9 @@ impl NotesStore {
                     if !is_plain_dir(&dir) {
                         return None;
                     }
-                    let meta = Self::read_meta(&dir)?;
-                    let path = if key == GENERAL_KEY { None } else { meta.path };
-                    Some((key, dir, path, meta.notes))
+                    let (path, notes) = Self::scope_notes(&key, &dir)?;
+                    let path = if key == GENERAL_KEY { None } else { path };
+                    Some((key, dir, path, notes))
                 })
                 .collect::<Vec<_>>()
         };
@@ -2106,19 +2315,60 @@ mod tests {
         assert!(general_meta["path"].is_null());
     }
 
+    /// Amendment: fields Hangar Note does not know survive every rewrite, at the top of both
+    /// index files and in their entries, and the note keeps its ID.
     #[test]
-    fn an_unknown_field_is_hangars_rejection_too() {
+    fn unknown_fields_survive_a_rewrite() {
         let t = TempNotes::new("unknown-field");
-        let id = t.0.create_note(&general(), "a").unwrap();
-        let path = t.0.root().join(GENERAL_KEY).join(META_FILE);
-        let mut meta: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let folder = general();
+        let id = t.0.create_note(&folder, "a").unwrap();
+        let gone = t.0.create_note(&folder, "gone").unwrap();
+        t.0.delete_note(&folder, &gone).unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        let meta_path = dir.join(META_FILE);
+        let trash_path = dir.join(TRASH_DIR).join(TRASH_META_FILE);
+        let read =
+            |path: &Path| -> Value { serde_json::from_slice(&fs::read(path).unwrap()).unwrap() };
+        let mut meta = read(&meta_path);
         meta["notes"][0]["color"] = "mint".into();
-        fs::write(&path, meta.to_string()).unwrap();
-        // Like Hangar: the metadata is set aside and the note adopted again under a new ID.
-        let notes = t.0.list_notes(&general()).unwrap();
-        assert_eq!(notes.len(), 1);
-        assert_ne!(notes[0].id, id);
+        meta["notes"][0]["pinned"] = serde_json::json!({ "since": 3 });
+        meta["sortMode"] = "manual".into();
+        fs::write(&meta_path, serde_json::to_vec_pretty(&meta).unwrap()).unwrap();
+        let mut trash = read(&trash_path);
+        trash["items"][0]["reason"] = "marker-reason-3e1".into();
+        trash["retentionDays"] = 30.into();
+        fs::write(&trash_path, serde_json::to_vec_pretty(&trash).unwrap()).unwrap();
+
+        // Every change that rewrites the files: a new note, a rename, a delete and a restore.
+        let notes = t.0.list_notes(&folder).unwrap();
+        assert_eq!(notes[0].id, id, "the ID stays");
+        t.0.create_note(&folder, "b").unwrap();
+        t.0.rename_note(&folder, &id, "a renamed").unwrap();
+        let other = t.0.create_note(&folder, "c").unwrap();
+        t.0.delete_note(&folder, &other).unwrap();
+        t.0.restore_note(&folder, &other).unwrap();
+
+        let meta = read(&meta_path);
+        assert_eq!(meta["sortMode"], "manual");
+        let entry = meta["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == id.as_str())
+            .unwrap();
+        assert_eq!(entry["title"], "a renamed");
+        assert_eq!(entry["color"], "mint");
+        assert_eq!(entry["pinned"]["since"], 3);
+        let trash = read(&trash_path);
+        assert_eq!(trash["retentionDays"], 30);
+        assert_eq!(trash["items"][0]["id"], gone.as_str());
+        assert_eq!(trash["items"][0]["reason"], "marker-reason-3e1");
+        // The known fields still come first, in Hangar's order.
+        let text = fs::read_to_string(&meta_path).unwrap();
+        let at = |key: &str| text.find(&format!("\"{key}\"")).unwrap();
+        assert!(
+            at("version") < at("path") && at("path") < at("notes") && at("notes") < at("sortMode")
+        );
     }
 
     #[test]
@@ -2251,14 +2501,68 @@ mod tests {
         let id = t.0.create_note(&folder, "important").unwrap();
         t.0.write_note(&folder, &id, "content").unwrap();
         let dir = t.0.root().join(folder_key(&folder).unwrap());
-        fs::write(dir.join(META_FILE), "{ broken").unwrap();
-        let notes = t.0.list_notes(&folder).unwrap();
-        assert_eq!(notes.len(), 1);
-        assert_eq!(notes[0].title, "important");
-        assert_eq!(t.0.read_note(&folder, &notes[0].id).unwrap(), "content");
-        assert!(names(&dir)
-            .iter()
-            .any(|n| n.starts_with("folder.json.broken-")));
+        // Broken JSON, an unknown version and a file far too large: none is ever rewritten.
+        for broken in [
+            b"{ broken".to_vec(),
+            br#"{"version":2,"path":null,"notes":[]}"#.to_vec(),
+            vec![b' '; MAX_META_BYTES + 1],
+        ] {
+            fs::write(dir.join(META_FILE), &broken).unwrap();
+            let notes = t.0.list_notes(&folder).unwrap();
+            assert_eq!(notes.len(), 1);
+            assert_eq!(notes[0].title, "important");
+            let (text, version) = t.0.read_note_versioned(&folder, &notes[0].id).unwrap();
+            assert_eq!(text, "content");
+            // The text can still be saved; the index cannot be changed.
+            t.0.write_note_checked(&folder, &notes[0].id, "content", Some(&version))
+                .unwrap();
+            for refused in [
+                t.0.create_note(&folder, "new").map(drop),
+                t.0.rename_note(&folder, &notes[0].id, "other"),
+                t.0.delete_note(&folder, &notes[0].id),
+            ] {
+                assert_eq!(refused.unwrap_err().code(), "io");
+            }
+            assert_eq!(fs::read(dir.join(META_FILE)).unwrap(), broken);
+            assert_eq!(names(&dir), [SCOPE_LOCK_FILE, META_FILE, "important.md"]);
+            // None of these names the working folder, so the overview and the search cannot
+            // place the scope; it still opens by its path.
+            assert!(t.0.search("content").unwrap().is_empty());
+        }
+        // The broken JSON still names the path: the scope keeps its place in the overview.
+        let path = serde_json::to_string(folder.path.as_ref().unwrap()).unwrap();
+        fs::write(
+            dir.join(META_FILE),
+            format!("{{\"version\":1,\"path\":{path},\"notes\":7}}"),
+        )
+        .unwrap();
+        let listed = t.0.list_folders().unwrap();
+        assert_eq!(listed[1].path, folder.path);
+        assert_eq!(listed[1].note_count, 1);
+        assert_eq!(t.0.search("content").unwrap().len(), 1);
+        // Once fixed, everything works again.
+        fs::remove_file(dir.join(META_FILE)).unwrap();
+        t.0.create_note(&folder, "new").unwrap();
+    }
+
+    /// An unreadable trash.json is never emptied: deleting and restoring still move the files,
+    /// the list comes from the files, and the file keeps its bytes.
+    #[test]
+    fn a_broken_trash_index_is_not_rewritten() {
+        let t = TempNotes::new("broken-trash");
+        let folder = general();
+        let gone = t.0.create_note(&folder, "gone").unwrap();
+        t.0.delete_note(&folder, &gone).unwrap();
+        let trash = t.0.root().join(GENERAL_KEY).join(TRASH_DIR);
+        fs::write(trash.join(TRASH_META_FILE), "{ broken").unwrap();
+        let other = t.0.create_note(&folder, "other").unwrap();
+        t.0.delete_note(&folder, &other).unwrap();
+        let listed = t.0.list_trash(&folder).unwrap();
+        assert_eq!(listed.len(), 2);
+        let restored = t.0.restore_note(&folder, &listed[0].id).unwrap();
+        assert!(t.0.read_note(&folder, &restored).is_ok());
+        assert_eq!(t.0.list_trash(&folder).unwrap().len(), 1);
+        assert_eq!(fs::read(trash.join(TRASH_META_FILE)).unwrap(), b"{ broken");
     }
 
     #[test]
@@ -2329,12 +2633,12 @@ mod tests {
         std::thread::sleep(hold);
         fs::write(dir.join(file), "from Hangar").unwrap();
         let order = meta.notes.iter().map(|n| n.order + 1).max().unwrap_or(0);
-        meta.notes.push(NoteEntry {
-            id: new_id(),
-            title: file.trim_end_matches(".md").to_owned(),
-            file: file.to_owned(),
+        meta.notes.push(NoteEntry::new(
+            new_id(),
+            file.trim_end_matches(".md").to_owned(),
+            file.to_owned(),
             order,
-        });
+        ));
         write_atomic(&path, &serde_json::to_vec_pretty(&meta).unwrap()).unwrap();
     }
 
@@ -2437,14 +2741,22 @@ mod tests {
             "io"
         );
         assert_eq!(quick.delete_note(&project(), &id).unwrap_err().code(), "io");
-        // Reading needs no lock, and writing the text of a note does not either.
+        // Writing a note's text takes the lock too (amendment 3); reading needs none.
+        assert_eq!(
+            quick
+                .write_note(&project(), &id, "text")
+                .unwrap_err()
+                .code(),
+            "io"
+        );
         assert_eq!(quick.list_notes(&project()).unwrap().len(), 1);
-        quick.write_note(&project(), &id, "text").unwrap();
+        assert_eq!(quick.read_note(&project(), &id).unwrap(), "");
         assert_eq!(fs::read(dir.join(META_FILE)).unwrap(), before);
         assert!(!dir.join("New.md").exists());
 
         drop(held);
         quick.create_note(&project(), "New").unwrap();
+        quick.write_note(&project(), &id, "text").unwrap();
     }
 
     #[test]
@@ -2476,19 +2788,97 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "mine");
     }
 
-    /// The version a write returns is the one of the file it wrote, taken before the rename, and
-    /// it is what a look at the file right afterwards gives too.
+    /// Amendment 3: the version is the content's hash, so a change of the same length that keeps
+    /// the modification time (a coarse clock, a restored time stamp) is still a conflict, and a
+    /// rewrite with the same bytes is none.
+    #[test]
+    fn the_version_is_the_hash_of_the_content() {
+        let t = TempNotes::new("shared-hash");
+        let id = t.0.create_note(&project(), "Note").unwrap();
+        t.0.write_note(&project(), &id, "marker-aaaa").unwrap();
+        let (_, read) = t.0.read_note_versioned(&project(), &id).unwrap();
+        assert_eq!(read, content_version(b"marker-aaaa"));
+        // Known value, computed independently (Python hashlib): SHA-256 of "abc".
+        assert_eq!(
+            content_version(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        let path = t.0.note_path(&project(), &id).unwrap();
+        let stamp = fs::metadata(&path).unwrap().modified().unwrap();
+        fs::write(&path, "marker-bbbb").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(stamp)
+            .unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), stamp);
+        let refused = t.0.write_note_checked(&project(), &id, "mine", Some(&read));
+        assert!(matches!(refused, Err(NotesError::Changed)), "{refused:?}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "marker-bbbb");
+        // The same bytes again (another program saved without a change): no conflict.
+        fs::write(&path, "marker-aaaa").unwrap();
+        t.0.write_note_checked(&project(), &id, "mine", Some(&read))
+            .unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "mine");
+        // A file grown past the limit was never read by an editor: always a conflict.
+        let (_, now) = t.0.read_note_versioned(&project(), &id).unwrap();
+        fs::write(&path, "x".repeat(MAX_NOTE_BYTES + 1)).unwrap();
+        assert!(matches!(
+            t.0.write_note_checked(&project(), &id, "mine", Some(&now)),
+            Err(NotesError::Changed)
+        ));
+    }
+
+    /// Amendment 3: a note write waits for the scope lock and checks the hash only once it holds
+    /// it, so Hangar's save under the lock is seen and not replaced.
+    #[test]
+    fn a_note_write_waits_for_hangars_lock_and_sees_its_save() {
+        let t = TempNotes::new("shared-text-lock");
+        let id = t.0.create_note(&project(), "Note").unwrap();
+        let (_, read) = t.0.read_note_versioned(&project(), &id).unwrap();
+        let dir = t.0.root().join(folder_key(&project()).unwrap());
+        let path = t.0.note_path(&project(), &id).unwrap();
+        let (taken, wait_taken) = std::sync::mpsc::channel();
+        let hangar = {
+            let (dir, path) = (dir.clone(), path.clone());
+            std::thread::spawn(move || {
+                let _held = lock_scope(&dir, SCOPE_LOCK_WAIT).unwrap();
+                taken.send(()).unwrap();
+                std::thread::sleep(Duration::from_millis(250));
+                write_atomic(&path, b"marker-hangar-6f2").unwrap();
+            })
+        };
+        wait_taken.recv().unwrap();
+        let started = Instant::now();
+        let refused = t.0.write_note_checked(&project(), &id, "mine", Some(&read));
+        assert!(started.elapsed() >= Duration::from_millis(100), "it waited");
+        hangar.join().unwrap();
+        assert!(matches!(refused, Err(NotesError::Changed)), "{refused:?}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "marker-hangar-6f2");
+    }
+
+    /// The version a write returns is the hash of the bytes it wrote, and it is what the next read
+    /// gives.
     #[test]
     fn a_write_returns_the_version_of_the_file_it_wrote() {
         let t = TempNotes::new("shared-written-version");
         let id = t.0.create_note(&project(), "Note").unwrap();
         let path = t.0.note_path(&project(), &id).unwrap();
         let mut expected = None;
-        for text in ["first", "second, longer", ""] {
+        for text in ["first", "second, longer", "", "äöü 😀\r\n"] {
             let written =
                 t.0.write_note_checked(&project(), &id, text, expected.as_deref())
                     .unwrap();
-            assert_eq!(written, version(&handle_meta(&path).unwrap()), "{text:?}");
+            assert_eq!(
+                written,
+                content_version(&fs::read(&path).unwrap()),
+                "{text:?}"
+            );
+            assert_eq!(written.len(), 64);
+            assert!(written
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
             let (read_text, read) = t.0.read_note_versioned(&project(), &id).unwrap();
             assert_eq!(
                 (read_text.as_str(), read.as_str()),
@@ -2801,6 +3191,132 @@ mod tests {
         assert!(!plain_markdown_name("a\\b.md"));
     }
 
+    /// The shared folder is untrusted: every entry of folder.json and trash.json with a path,
+    /// a root, a drive, a device name, a hidden or temporary name, an overlong name or a forged ID
+    /// is skipped and never followed; the rest of the file still counts.
+    #[test]
+    fn unsafe_index_entries_are_skipped_and_never_followed() {
+        let unsafe_names = [
+            "../outside.md",
+            "..\\outside.md",
+            "sub/x.md",
+            "/abs.md",
+            "\\abs.md",
+            "\\\\server\\share\\x.md",
+            "C:x.md",
+            "C:\\x.md",
+            "CON.md",
+            "nul.md",
+            "COM1.md",
+            "lpt9.MD",
+            ".hidden.md",
+            ".x.md.12.0.tmp",
+            "x.md.tmp",
+            ".md",
+            "",
+        ];
+        let long = format!("{}.md", "a".repeat(MAX_ENTRY_NAME_BYTES));
+        for name in unsafe_names.iter().copied().chain([long.as_str()]) {
+            assert!(!plain_markdown_name(name), "{name:?}");
+        }
+        for name in ["Plan.md", "Con tract.md", "CONSOLE.md", "a.b.md", "x.MD"] {
+            assert!(plain_markdown_name(name), "{name:?}");
+        }
+
+        let t = TempNotes::new("untrusted-entries");
+        let folder = general();
+        let id = t.0.create_note(&folder, "own").unwrap();
+        let gone = t.0.create_note(&folder, "gone").unwrap();
+        t.0.delete_note(&folder, &gone).unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        let trash = dir.join(TRASH_DIR);
+        fs::write(t.0.root().join("outside.md"), "marker-foreign-5a2").unwrap();
+        let read =
+            |path: &Path| -> Value { serde_json::from_slice(&fs::read(path).unwrap()).unwrap() };
+        let forged = |n: usize| format!("00000000-0000-4000-8000-{n:012}");
+        let mut meta = read(&dir.join(META_FILE));
+        let mut record = read(&trash.join(TRASH_META_FILE));
+        for (n, name) in unsafe_names.iter().enumerate() {
+            let entry =
+                serde_json::json!({ "id": forged(n), "title": "x", "file": name, "order": 9 });
+            meta["notes"].as_array_mut().unwrap().push(entry);
+            let item =
+                serde_json::json!({ "id": forged(n), "title": "x", "file": name, "deletedAt": 1 });
+            record["items"].as_array_mut().unwrap().push(item);
+        }
+        // Forged IDs on a plain name, and an entry that does not even have the right shape.
+        meta["notes"].as_array_mut().unwrap().extend([
+            serde_json::json!({ "id": "../x", "title": "x", "file": "own.md", "order": 1 }),
+            serde_json::json!({ "id": id.to_uppercase(), "title": "x", "file": "own.md", "order": 1 }),
+            serde_json::json!({ "id": forged(98), "title": "x", "file": "own.md", "order": -1 }),
+            serde_json::json!("marker-not-an-object"),
+        ]);
+        record["items"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({ "id": forged(99), "file": 3 }));
+        fs::write(dir.join(META_FILE), meta.to_string()).unwrap();
+        fs::write(trash.join(TRASH_META_FILE), record.to_string()).unwrap();
+
+        let listed = t.0.list_notes(&folder).unwrap();
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert_eq!(listed[0].id, id, "the good entry still counts");
+        let trashed = t.0.list_trash(&folder).unwrap();
+        assert_eq!(trashed.len(), 1, "{trashed:?}");
+        assert_eq!(trashed[0].id, gone);
+        for n in (0..unsafe_names.len()).chain([98, 99]) {
+            assert!(t.0.read_note(&folder, &forged(n)).is_err());
+            assert!(t.0.restore_note(&folder, &forged(n)).is_err());
+        }
+        assert!(t.0.search("marker-foreign").unwrap().is_empty());
+        assert_eq!(
+            fs::read_to_string(t.0.root().join("outside.md")).unwrap(),
+            "marker-foreign-5a2"
+        );
+        // A rewrite keeps the good entries only; the files around are untouched.
+        t.0.create_note(&folder, "next").unwrap();
+        let rewritten = read(&dir.join(META_FILE));
+        assert_eq!(rewritten["notes"].as_array().unwrap().len(), 2);
+        assert!(t.0.root().join("outside.md").is_file());
+    }
+
+    /// A note file or trash file that is a link to a file elsewhere is not a note: not listed, not
+    /// read, not moved. File symlinks need rights on Windows; without them the test is skipped.
+    #[test]
+    fn linked_note_files_are_never_followed() {
+        let t = TempNotes::new("file-links");
+        let folder = general();
+        t.0.create_note(&folder, "own").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        let outside = t.1.path().join("outside.md");
+        fs::write(&outside, "marker-linked-8d4").unwrap();
+        #[cfg(windows)]
+        let link = |at: &Path| std::os::windows::fs::symlink_file(&outside, at);
+        #[cfg(unix)]
+        let link = |at: &Path| std::os::unix::fs::symlink(&outside, at);
+        if let Err(error) = link(&dir.join("Linked.md")) {
+            eprintln!("no file symlinks here ({error}); skipped");
+            return;
+        }
+        fs::create_dir_all(dir.join(TRASH_DIR)).unwrap();
+        link(&dir.join(TRASH_DIR).join("1-Linked.md")).unwrap();
+        // An entry naming the link is dropped as well.
+        let mut meta: Value =
+            serde_json::from_slice(&fs::read(dir.join(META_FILE)).unwrap()).unwrap();
+        let forged = "00000000-0000-4000-8000-000000000042";
+        meta["notes"].as_array_mut().unwrap().push(
+            serde_json::json!({ "id": forged, "title": "x", "file": "Linked.md", "order": 5 }),
+        );
+        fs::write(dir.join(META_FILE), meta.to_string()).unwrap();
+
+        let notes = t.0.list_notes(&folder).unwrap();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(t.0.read_note(&folder, forged).is_err());
+        assert!(t.0.list_trash(&folder).unwrap().is_empty());
+        assert!(t.0.search("marker-linked").unwrap().is_empty());
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "marker-linked-8d4");
+    }
+
     /// `:` names an NTFS alternate data stream of a file, and Windows refuses the other
     /// characters in names: an entry with any of them is not trusted (security review N2).
     #[test]
@@ -3086,6 +3602,32 @@ mod tests {
         t.0.delete_note(&folder, &gone).unwrap();
         fs::write(trash.join(TRASH_META_FILE), "{ broken").unwrap();
         assert_eq!(t.0.list_trash(&folder).unwrap()[0].title, "gone");
+        assert_eq!(fs::read(trash.join(TRASH_META_FILE)).unwrap(), b"{ broken");
+    }
+
+    /// Amendment 2: the temporary files of an atomic write (either app's) and any other dotfile
+    /// or `*.tmp` never show up as notes, in a scope or in its trash, and are not adopted.
+    #[test]
+    fn hidden_and_temporary_files_are_not_notes() {
+        let t = TempNotes::new("hidden-temp");
+        let folder = project();
+        t.0.create_note(&folder, "own").unwrap();
+        let dir = t.0.root().join(folder_key(&folder).unwrap());
+        let trash = dir.join(TRASH_DIR);
+        fs::create_dir_all(&trash).unwrap();
+        for place in [&dir, &trash] {
+            for name in [".own.md.4711.0.tmp", ".Hidden.md", "half.md.tmp", "x.TMP"] {
+                fs::write(place.join(name), "marker-temp-0b7").unwrap();
+            }
+        }
+        let notes = t.0.list_notes(&folder).unwrap();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(t.0.list_trash(&folder).unwrap().is_empty());
+        assert!(t.0.search("marker-temp").unwrap().is_empty());
+        assert!(!fs::read_to_string(dir.join(META_FILE))
+            .unwrap()
+            .contains("Hidden"));
+        assert!(t.0.outside_changes().is_empty());
     }
 
     #[test]

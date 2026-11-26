@@ -2,8 +2,8 @@
 //!
 //! Hangar writes the same folder as Hangar Note at the same time, so the notes area and the sticky
 //! notes must learn about Hangar's changes without anyone pressing a key. A light poll does that:
-//! once a second [`Watch::poll`] takes the version ([`crate::notes::version`]) of every file that
-//! matters (each scope's `folder.json`, its `.md` notes and `.trash/trash.json`) and names the
+//! once a second [`Watch::poll`] takes the state ([`stat_version`], modification time and length)
+//! of every file that matters (each scope's `folder.json`, its `.md` notes and `.trash/trash.json`) and names the
 //! scopes where something differs from the last look.
 //!
 //! **Why a poll and not the `notify` crate:** a poll needs no dependency and behaves the same on
@@ -13,7 +13,12 @@
 //!
 //! **Own writes are not news:** the store records the state it left a file in ([`Watch::own`]);
 //! a difference that matches it is skipped, so typing in the notes area does not reload its own
-//! list every second. A later change by Hangar gives another version and is reported.
+//! list every second. A later change by Hangar gives another state and is reported.
+//!
+//! **Detection only.** The poll uses cheap file states; whether a save may overwrite a note is
+//! decided by the content hash under the scope lock (`notes.rs`, `write_note_checked`). Hidden
+//! and temporary files (`.<name>.<pid>.<n>.tmp` of either app, `.lock`) and links are never
+//! looked at.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -21,8 +26,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use crate::fsio::lock;
-use crate::notes::{is_folder_key, version, TRASH_DIR};
+use crate::fsio::{is_hidden_or_temp, is_link_meta, is_regular_dir, lock};
+use crate::notes::{is_folder_key, TRASH_DIR};
 
 /// How often the folder is looked at; changes show up within about this long.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(1);
@@ -39,27 +44,41 @@ pub struct Snapshot {
     scopes: BTreeSet<String>,
 }
 
-fn is_markdown(name: &str) -> bool {
-    Path::new(name)
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+/// A note's file name as the poll sees it: `.md`, and no hidden or temporary file.
+fn is_note_name(name: &str) -> bool {
+    !is_hidden_or_temp(name)
+        && Path::new(name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("md"))
 }
 
-/// A folder itself, never a link or junction (the store does not follow those either). Silent:
-/// this runs every second, and the store logs links when it meets them.
+/// The cheap state of a file for change detection: modification time in nanoseconds and length.
+/// Never a conflict decision (that is the content hash, `notes::content_version`).
+pub fn stat_version(meta: &fs::Metadata) -> String {
+    let nanos = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_nanos());
+    format!("{nanos}-{}", meta.len())
+}
+
+/// A folder itself, never a link, junction or reparse point (the store does not follow those
+/// either). Silent: this runs every second, and the store logs links when it meets them.
 fn plain_dir(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
+    is_regular_dir(path)
 }
 
-/// The state of a file now: its version, `None` when it is gone or not a regular file.
+/// The state of a file now, `None` when it is gone or not a regular file (a link, a reparse
+/// point, a folder).
 pub fn state_of(path: &Path) -> Option<String> {
     let meta = fs::symlink_metadata(path).ok()?;
-    if !meta.file_type().is_file() {
+    if !meta.file_type().is_file() || is_link_meta(&meta) {
         return None;
     }
-    // Through the path again, so the version matches what `own` records for the same file.
-    fs::metadata(path).ok().map(|meta| version(&meta))
+    // Through the path again, so the state matches what `own` records for the same file.
+    fs::metadata(path).ok().map(|meta| stat_version(&meta))
 }
 
 /// Takes the versions of every watched file under `root`.
@@ -102,7 +121,7 @@ pub fn scan(root: &Path) -> Snapshot {
             .flatten()
             .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
             .filter_map(|entry| entry.file_name().into_string().ok())
-            .filter(|name| is_markdown(name))
+            .filter(|name| is_note_name(name))
             .collect();
         names.sort();
         for name in names {
@@ -263,9 +282,13 @@ mod tests {
         fs::create_dir_all(root.join(other)).unwrap();
         assert_eq!(watch.poll(), BTreeSet::from([other.to_owned()]));
 
-        // Files that are no notes are not watched.
+        // Files that are no notes are not watched: the lock, other files, and the temporary
+        // files of an atomic write by either app (dotfiles, `*.tmp`), even named like a note.
         fs::write(scope.join(".lock"), "").unwrap();
         fs::write(scope.join("picture.png"), "x").unwrap();
+        fs::write(scope.join(".a.md.4711.0.tmp"), "half").unwrap();
+        fs::write(scope.join(".hidden.md"), "x").unwrap();
+        fs::write(scope.join("b.md.tmp"), "x").unwrap();
         assert!(watch.poll().is_empty());
     }
 

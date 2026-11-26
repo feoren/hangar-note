@@ -1,16 +1,68 @@
 //! File helpers every store uses: atomic writes, private folders and files, capped reads.
 //! Written the same way as Hangar's `persist.rs` (MIT, same owner), so files Hangar and Hangar
 //! Note write look and behave alike: a temporary file `.<name>.<pid>.<n>.tmp` in the same folder,
-//! `sync_all`, then a rename over the target.
+//! `sync_all`, then a rename over the target. On Windows the rename is tried again for at most
+//! [`RENAME_RETRY_BUDGET`] while another program holds the target open (ADR 0005, amendment 2).
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read as _, Write as _};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const TEMP_EXT: &str = "tmp";
+
+/// How long an atomic write keeps trying the rename over a target another program holds open
+/// (contract "notes-shared 1", amendment 2). Hangar reads and writes the same files; on Windows a
+/// rename over a file that is open without `FILE_SHARE_DELETE` fails until that handle closes,
+/// which for a reader of a small note is a few milliseconds.
+pub const RENAME_RETRY_BUDGET: Duration = Duration::from_secs(1);
+/// The pause between two tries of that rename.
+const RENAME_RETRY_STEP: Duration = Duration::from_millis(15);
+
+/// Whether `name` is a temporary or hidden file of the notes folder rather than a note: every
+/// dotfile (the temporary files of an atomic write, `.<name>.<pid>.<n>.tmp`, of either app, the
+/// scope lock `.lock`, the trash folder) and every `*.tmp`. Listers and the watcher skip these,
+/// so another app's write in progress never shows up as a note.
+pub fn is_hidden_or_temp(name: &str) -> bool {
+    name.starts_with('.')
+        || Path::new(name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case(TEMP_EXT))
+}
+
+/// Whether `meta` (from `symlink_metadata`, which does not follow) is a link of any kind: a
+/// symbolic link, a junction, or on Windows any reparse point at all. Hangar creates none in its
+/// local data folder, so a reparse point there is never followed. Non-link reparse points (cloud
+/// placeholders, deduplicated files) are refused as well, on purpose: telling them apart needs
+/// the reparse tag, which the standard library does not expose.
+pub fn is_link_meta(meta: &fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+        meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// A plain file at `path`, without following a link: not a folder, not a link, not a reparse
+/// point.
+pub fn is_regular_file(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_file() && !is_link_meta(&meta))
+}
+
+/// A plain folder at `path`, without following a link or junction.
+pub fn is_regular_dir(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir() && !is_link_meta(&meta))
+}
 
 /// What a failed file operation means for the person, as a fixed code (ADR 0002, "Errors for
 /// people"). The window and the local channel get only this code, never the operating system's
@@ -261,6 +313,17 @@ fn write_atomic_with(
     data: &[u8],
     create: fn(&Path) -> io::Result<File>,
 ) -> io::Result<fs::Metadata> {
+    write_atomic_within(path, data, create, RENAME_RETRY_BUDGET)
+}
+
+/// [`write_atomic_with`] with the rename's retry budget as a parameter, so a test of the timeout
+/// is quick.
+fn write_atomic_within(
+    path: &Path,
+    data: &[u8],
+    create: fn(&Path) -> io::Result<File>,
+    budget: Duration,
+) -> io::Result<fs::Metadata> {
     let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -280,13 +343,59 @@ fn write_atomic_with(
         file.sync_all()?;
         let written = file.metadata()?;
         drop(file);
-        fs::rename(&temp, path)?;
+        rename_over(&temp, path, budget)?;
         Ok(written)
     })();
     if result.is_err() {
+        // Never an in-place write instead: the target keeps its old content, the temporary file
+        // goes.
         let _ = fs::remove_file(&temp);
     }
     result
+}
+
+/// `fs::rename(from, to)`, tried again every [`RENAME_RETRY_STEP`] for at most `budget` while the
+/// error says another program holds a file open ([`is_held_open`]). Any other error, or the last
+/// one after the budget, is returned as is.
+fn rename_over(from: &Path, to: &Path, budget: Duration) -> io::Result<()> {
+    let deadline = Instant::now() + budget;
+    loop {
+        match fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(error) if is_held_open(&error) && Instant::now() < deadline => {
+                std::thread::sleep(RENAME_RETRY_STEP);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// Whether a failed rename means only that another program holds the target (or the temporary
+/// file) open: on Windows `ERROR_ACCESS_DENIED` (what a replace over a file open without
+/// `FILE_SHARE_DELETE` gives), `ERROR_SHARING_VIOLATION` and `ERROR_LOCK_VIOLATION`. A real lack of
+/// rights gives `ERROR_ACCESS_DENIED` too and costs one budget of waiting before the error.
+/// Elsewhere a rename replaces an open file, so nothing is retried.
+fn is_held_open(error: &io::Error) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{
+            ERROR_ACCESS_DENIED, ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION,
+        };
+        error
+            .raw_os_error()
+            .and_then(|code| u32::try_from(code).ok())
+            .is_some_and(|code| {
+                matches!(
+                    code,
+                    ERROR_ACCESS_DENIED | ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION
+                )
+            })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = error;
+        false
+    }
 }
 
 /// Folders 0700 on Unix. On Windows the folder lives in the user profile and inherits its ACL.
@@ -312,16 +421,48 @@ fn create_private_file(path: &Path) -> io::Result<File> {
     options.open(path)
 }
 
-/// Opens `path` for reading only if it is a regular file: a link, folder, FIFO or device named
-/// like a note is refused, since it could lead outside the folder or never end.
-fn open_regular(path: &Path) -> io::Result<File> {
-    if !fs::symlink_metadata(path)?.file_type().is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "not a regular file",
-        ));
+fn not_regular() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")
+}
+
+/// Opens `path` for reading only if it is a regular file: a link, junction, reparse point,
+/// folder, FIFO or device named like a note is refused, since it could lead outside the folder or
+/// never end. The check is made on the opened handle, so a link swapped in between a look and the
+/// open is refused too.
+///
+/// - Windows: opened with `FILE_FLAG_OPEN_REPARSE_POINT`, which opens a reparse point itself
+///   instead of its target; the handle's attributes then show it and it is refused.
+/// - Unix: a look without following (`lstat`), the open, then the handle's device and inode must
+///   be the ones of that look.
+pub fn open_regular(path: &Path) -> io::Result<File> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        let meta = file.metadata()?;
+        if !meta.is_file() || is_link_meta(&meta) {
+            return Err(not_regular());
+        }
+        Ok(file)
     }
-    File::open(path)
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        let seen = fs::symlink_metadata(path)?;
+        if !seen.file_type().is_file() {
+            return Err(not_regular());
+        }
+        let file = File::open(path)?;
+        let opened = file.metadata()?;
+        if !opened.is_file() || opened.dev() != seen.dev() || opened.ino() != seen.ino() {
+            return Err(not_regular());
+        }
+        Ok(file)
+    }
 }
 
 /// At most `max` bytes of a regular file; `Ok(None)` when it holds more.
@@ -671,6 +812,139 @@ mod tests {
             "keep"
         );
         assert_eq!(names(dir.path()), ["blocked.md"]);
+    }
+
+    /// Opens `path` the way a reader that does not allow deletes holds it: without
+    /// `FILE_SHARE_DELETE`, so a rename over it fails until the handle closes.
+    #[cfg(windows)]
+    fn hold_open(path: &Path) -> File {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+        OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(path)
+            .unwrap()
+    }
+
+    /// Amendment 2: a target another program holds open for a moment is replaced once it lets go,
+    /// within the retry budget; nothing is written in place meanwhile.
+    #[cfg(windows)]
+    #[test]
+    fn a_rename_waits_for_a_target_held_open_for_a_moment() {
+        let dir = TempDir::new("fsio-held-short");
+        let path = dir.path().join("held.md");
+        fs::write(&path, "marker-old-4a1").unwrap();
+        let held = hold_open(&path);
+        // Without the retry the very first rename fails: proof that the handle blocks it.
+        let blocked = fs::write(dir.path().join("probe.md"), "x")
+            .and_then(|()| fs::rename(dir.path().join("probe.md"), &path))
+            .unwrap_err();
+        assert!(is_held_open(&blocked), "{blocked:?}");
+        let _ = fs::remove_file(dir.path().join("probe.md"));
+        let (go, gone) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            drop(held);
+            go.send(()).unwrap();
+        });
+        let started = Instant::now();
+        write_atomic(&path, b"marker-new-4a1").unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(150));
+        assert!(started.elapsed() < RENAME_RETRY_BUDGET);
+        gone.recv().unwrap();
+        holder.join().unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"marker-new-4a1");
+        assert_eq!(names(dir.path()), ["held.md"]);
+    }
+
+    /// Amendment 2: a target held open past the budget ends in an error; the target keeps its
+    /// content and the temporary file is gone.
+    #[cfg(windows)]
+    #[test]
+    fn a_target_held_open_too_long_fails_and_leaves_no_temporary_file() {
+        let dir = TempDir::new("fsio-held-long");
+        let path = dir.path().join("held.md");
+        fs::write(&path, "marker-old-9c3").unwrap();
+        let held = hold_open(&path);
+        let budget = Duration::from_millis(120);
+        let started = Instant::now();
+        let error =
+            write_atomic_within(&path, b"marker-new-9c3", create_private_file, budget).unwrap_err();
+        assert!(started.elapsed() >= budget);
+        assert!(is_held_open(&error), "{error:?}");
+        assert_eq!(StorageCode::of(&error), StorageCode::Denied);
+        drop(held);
+        assert_eq!(fs::read(&path).unwrap(), b"marker-old-9c3");
+        assert_eq!(names(dir.path()), ["held.md"]);
+    }
+
+    #[test]
+    fn hidden_and_temporary_names_are_no_notes() {
+        for name in [
+            ".lock",
+            ".trash",
+            ".Plan.md.4711.3.tmp",
+            ".x.md",
+            "Plan.md.tmp",
+            "x.TMP",
+        ] {
+            assert!(is_hidden_or_temp(name), "{name}");
+        }
+        for name in ["Plan.md", "a.tmp.md", "folder.json"] {
+            assert!(!is_hidden_or_temp(name), "{name}");
+        }
+        // The name an atomic write gives its temporary file is one of them.
+        let dir = TempDir::new("fsio-temp-name");
+        let path = dir.path().join("Plan.md");
+        thread_local! {
+            static SEEN: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+        }
+        fn spy(path: &Path) -> io::Result<File> {
+            SEEN.with(|seen| {
+                *seen.borrow_mut() = path.file_name().unwrap().to_string_lossy().into_owned();
+            });
+            create_private_file(path)
+        }
+        write_atomic_with(&path, b"x", spy).unwrap();
+        let temp_name = SEEN.with(|seen| seen.borrow().clone());
+        let pid = std::process::id().to_string();
+        let parts: Vec<&str> = temp_name.split('.').collect();
+        assert_eq!(parts[..4], ["", "Plan", "md", pid.as_str()], "{temp_name}");
+        assert!(parts[4].bytes().all(|b| b.is_ascii_digit()), "{temp_name}");
+        assert_eq!(parts[5], "tmp");
+        assert!(is_hidden_or_temp(&temp_name));
+    }
+
+    /// A link to a file elsewhere is never read through, and a folder junction counts as no
+    /// folder. File symlinks need rights on Windows; without them that half is skipped.
+    #[test]
+    fn links_are_not_regular_files_or_folders() {
+        let dir = TempDir::new("fsio-links");
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("x.md"), "marker-outside-5d0").unwrap();
+        let inside = dir.path().join("inside");
+        fs::create_dir_all(&inside).unwrap();
+        assert!(is_regular_dir(&inside));
+        assert!(is_regular_file(&outside.join("x.md")));
+        if crate::test_support::make_dir_link(&outside, &inside.join("linked")) {
+            assert!(!is_regular_dir(&inside.join("linked")));
+            assert!(open_regular(&inside.join("linked").join("x.md")).is_ok());
+        }
+        #[cfg(windows)]
+        let file_link =
+            std::os::windows::fs::symlink_file(outside.join("x.md"), inside.join("l.md"));
+        #[cfg(unix)]
+        let file_link = std::os::unix::fs::symlink(outside.join("x.md"), inside.join("l.md"));
+        match file_link {
+            Ok(()) => {
+                assert!(!is_regular_file(&inside.join("l.md")));
+                assert!(open_regular(&inside.join("l.md")).is_err());
+                assert!(read_capped(&inside.join("l.md"), 100).is_err());
+            }
+            Err(error) => eprintln!("no file symlinks here ({error}); skipped"),
+        }
     }
 
     #[test]

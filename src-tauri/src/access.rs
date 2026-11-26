@@ -4,7 +4,8 @@
 //!   folder named by [`ROOT_ENV`] (the development root).
 //! - **Shared with Hangar.** Hangar and Hangar Note both write the folder at the same time; there
 //!   is no handover. Every read-modify-write of a scope's index files holds the scope lock
-//!   (`notes.rs`, `<scope>/.lock`), and every note write by an editor carries the version it read.
+//!   (`notes.rs`, `<scope>/.lock`); every note write holds it too and carries the version (the
+//!   content hash) the editor read.
 //! - **Writer lock.** `notes/.writer.lock`, held open with an exclusive OS file lock
 //!   (`File::try_lock`, `LockFileEx` on Windows, `flock` on Unix) for as long as the app runs. It
 //!   keeps a second Hangar Note (another user session, a second copy) from writing alongside the

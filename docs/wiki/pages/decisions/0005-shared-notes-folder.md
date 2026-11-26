@@ -68,8 +68,10 @@ Option 2, contract "notes-shared 1".
 - A read-only Hangar Note takes no scope lock and creates no lock file.
 
 ### Notes
-- Every note write by an editor carries the version it read (`<mtime_ns>-<len>`) and is refused
-  with `changed` when the file has another one; the editor then offers to reload or copy.
+- Every note write by an editor carries the version it read and is refused with `changed` when
+  the file has another one; the editor then offers to reload or copy. The version was
+  `<mtime_ns>-<len>` until amendment 3, now it is the SHA-256 of the content, checked under the
+  scope lock (see "Amendments").
 - A new note is created with "create new" semantics: if Hangar took the name between the check
   and the creation, the next free name is used, never the existing file.
 - Rename and restore move with `rename_no_replace`, never over an existing file.
@@ -110,10 +112,73 @@ existing file. Hangar may keep its own notes UI; nothing is handed over.
   - The version check and the write of a note are not one step: a save of Hangar that lands
     between Hangar Note's check and its rename (the length of one write, a few milliseconds) is
     replaced. Closing this needs a lock on note files too, which the contract does not have yet.
+    (Amendment 3 closes this for every Hangar that takes the scope lock around its note writes.)
 - Changes made within a few milliseconds of an own write to the same file can be taken for the
   app's own and not reported; the next change, or the next reload of the list, shows them.
 - `.handover.json` from ADR 0002 has no meaning any more; a Hangar that writes it changes nothing.
 - The frontend's `notHandedOver` hint was removed with the backend state.
+
+## Amendments
+
+### 2026-11-26: adopted with Hangar and the owner
+Hangar (lead of the contract) and the owner adopted "notes-shared 1" with these amendments. Both
+apps implement them; numbering as agreed (amendment 1 concerns Hangar's side only).
+
+**Amendment 2: atomic writes next to an open file.**
+- The temporary file stays `.<name>.<pid>.<n>.tmp` in the target's folder (`<name>` the target's
+  full file name, `<pid>` the process id, `<n>` a per-process counter), written, `sync_all`, then
+  renamed over the target.
+- On Windows the rename fails while the other app holds the target open without
+  `FILE_SHARE_DELETE` (`ERROR_ACCESS_DENIED`, also `ERROR_SHARING_VIOLATION` and
+  `ERROR_LOCK_VIOLATION`). The rename is then tried again every 15 ms for at most 1 s; after that
+  the write fails with the storage code `denied`. There is never a fallback to writing the target
+  in place, and the temporary file is removed on every failure. Other platforms replace an open
+  file, so nothing is retried there.
+- Listers and the watcher skip every dotfile and every `*.tmp`, so the other app's temporary
+  files (and `.lock`) never show up as notes. A note's file name in an index entry may not start
+  with a dot either.
+
+**Amendment 3: the version is the content hash, checked under the lock.**
+- A note's version is the SHA-256 of its bytes in lowercase hex (64 characters), taken when the
+  note is read and returned as `version`. The window treats it as an opaque string, as before.
+- Every note write takes the scope lock `<scope>/.lock` (same wait as for the index files), reads
+  the file again, hashes it and compares with the version the editor holds; on a mismatch it
+  answers `changed` and writes nothing, else it writes atomically while still holding the lock and
+  returns the hash of the bytes it wrote (what the next read gives).
+- The one-second poll keeps using modification time and length to notice changes; only the
+  conflict decision is the hash. A rename keeps the hash, and so does another program saving the
+  same bytes again.
+
+**Untrusted shared folder.** `folder.json`, `trash.json` and the files around them come from a
+folder another program writes:
+- Each entry is parsed and checked on its own. An entry that does not parse, has an ID that is not
+  a canonical lowercase UUID, or a file name that is not a plain `.md` name (a path, a root or
+  drive, `..`, a separator, a character Windows refuses, a control character, a leading dot, a
+  device name such as `CON.md`, more than 255 bytes) is skipped and never followed; the log names
+  the scope, the file kind and the number skipped, no title. The lister adopts only file names
+  that would pass the same check.
+- Links are never followed: symbolic links, junctions and, on Windows, every reparse point count
+  as "not a folder" or "not a note", for scope folders, the trash, note files and the lock file.
+  A note is opened with `FILE_FLAG_OPEN_REPARSE_POINT` and refused when the handle is not a plain
+  file, so a link swapped in after a look is refused too.
+- The size caps stay: 1 MiB per note, 4 MiB per index file.
+- An index file that exists but cannot be used (broken JSON, unknown version, too large, a link,
+  unreadable) is never rewritten, set aside or emptied. The scope's notes are listed from the
+  files under IDs derived from scope and file name, can be read and their text saved; changes
+  that need the index (create, rename, delete, restore for `folder.json`) are refused with the
+  storage code `io` until the file is fixed. A broken `trash.json` is likewise left as is: deleting
+  and restoring still move the files, without a record. This replaces the earlier "set aside as
+  `folder.json.broken-<millis>` and rebuild" for these two files.
+- Unknown fields survive: both files and their entries are parsed tolerantly (no
+  `deny_unknown_fields` on Hangar Note's side any more); every unknown field is kept (`#[serde(flatten)]
+  extra`) and written back after the known ones, which stay in Hangar's order. Unknown fields are
+  written back sorted by name, not in their original order. Hangar Note itself still adds no field.
+  A field of a deleted note's entry does not move into its trash record, nor back on a restore.
+
+Residual risk after the amendments: a Hangar that does not yet take the scope lock around its note
+writes can still land a save between Hangar Note's check and rename; a Hangar that still parses with
+`deny_unknown_fields` rejects files that carry fields only a newer Hangar wrote (Hangar Note keeps
+them, it does not add them).
 
 ## Evidence
 - Code: `src-tauri/src/access.rs` (access without marker), `src-tauri/src/notes.rs` (`lock_scope`,
@@ -128,6 +193,20 @@ existing file. Hangar may keep its own notes UI; nothing is handed over.
   `a_write_returns_the_version_of_the_file_it_wrote`,
   `a_new_note_never_replaces_a_file_that_appeared`, `a_delete_moves_the_text_hangar_saved_last`,
   `hangars_changes_are_seen_and_own_changes_are_not`, and the tests of `watch.rs`.
+- Amendments, tests, Windows 11, Rust stable, 2026-11-26: `fsio.rs`
+  `a_rename_waits_for_a_target_held_open_for_a_moment` (target opened without
+  `FILE_SHARE_DELETE` for 200 ms; the first plain rename fails, the write succeeds after it),
+  `a_target_held_open_too_long_fails_and_leaves_no_temporary_file`,
+  `hidden_and_temporary_names_are_no_notes` (the exact temporary name),
+  `links_are_not_regular_files_or_folders`; `notes.rs` `the_version_is_the_hash_of_the_content`
+  (same length, restored modification time: still `changed`),
+  `a_note_write_waits_for_hangars_lock_and_sees_its_save`,
+  `a_write_returns_the_version_of_the_file_it_wrote`, `a_held_lock_ends_in_a_storage_error_after_the_wait`,
+  `unsafe_index_entries_are_skipped_and_never_followed`, `linked_note_files_are_never_followed`,
+  `hidden_and_temporary_files_are_not_notes`, `broken_metadata_loses_no_notes`,
+  `a_broken_trash_index_is_not_rewritten`, `unknown_fields_survive_a_rewrite`. File symlinks need a
+  privilege on Windows that the test run did not have; those halves were skipped there and run on
+  Unix, junctions were tested.
 
 > [!question] Unverified
 > The scope lock on a network share or a synced folder (OneDrive, Seafile) is only as reliable as

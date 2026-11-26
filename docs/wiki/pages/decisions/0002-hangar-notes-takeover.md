@@ -97,7 +97,9 @@ writes Hangar's existing notes folders and formats unchanged; nothing is migrate
   `trash.json`, `vault.json` or the inner meta line of a `.note` while any Hangar release that rejects
   unknown fields is supported. Additional data (colors, color names, sticky window places) lives in
   Hangar Note's own `meta.json` keyed by scope and note id, and for shared notes in a sealed sidecar
-  only once Hangar tolerates it (see the phases).
+  only once Hangar tolerates it (see the phases). Amended 2026-11-26 by
+  [[0005-shared-notes-folder]]: Hangar Note itself no longer parses `folder.json` and `trash.json`
+  with `deny_unknown_fields`; it keeps every unknown field on a rewrite and still adds none.
 
 ### Detection and start
 - Hangar Note writes `<Hangar Note local data>/install.json` on every start:
