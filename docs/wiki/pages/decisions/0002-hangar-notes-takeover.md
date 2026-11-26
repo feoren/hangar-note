@@ -148,6 +148,21 @@ writes Hangar's existing notes folders and formats unchanged; nothing is migrate
 - Hangar Note never holds the team ring and never reads the keychain entry `team/<team key>`;
   it asks Hangar to open and seal each team note. Saving follows Hangar's save rule unchanged: no
   seal while the key is renewed or the ring is not fresh.
+- **Conditions agreed with Hangar (2026-11-26):**
+  1. `team/open` returns Hangar ADR 0006's verdict together with the plaintext: the old-key mark
+     and the state in the seen ledger. Hangar Note shows it and honours it: before "Send to
+     session" or moving such a note to the private notes it asks first, as Hangar does today.
+  2. `team/seal` follows Hangar's write rule exactly: always the newest key, refused while the key
+     is renewed or the ring is not fresh. A refusal comes back as its error code (`renewing`,
+     `stale`); there is never a fallback, and Hangar Note keeps the text in the editor with the
+     same "not saved" handling as for any other failed save.
+  3. Each call has a size limit (the `.note` maximum of Hangar's project notes) and Hangar applies
+     a rate limit; Hangar Note treats `busy` as "try again shortly", never as a lost save.
+  4. `team/open` and `team/seal` take a vault id plus the working folder, and only for vaults of
+     folders Hangar already knows; never an arbitrary path. Hangar Note reads and writes the
+     `.note` files itself, Hangar only transforms bytes.
+  5. Team routes take only the separate team token; hello and request share one connection; the
+     endpoint file carries the low integrity label (see "Local channel").
 - Solo vaults (recovery code) work without Hangar: Hangar Note reads and writes the solo ring in the
   keychain entry `hangar-notes/notes/<vault>`.
 - Team notes need a running Hangar, even to read them; without it, the team area shows one calm

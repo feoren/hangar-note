@@ -71,3 +71,8 @@ Created pages/decisions/0003-version-scheme.md (accepted): Hangar's scheme `X.Y.
 `X.Y.Z+B`, build number set only when building, no `buildNumberBase`, the code carries the
 upcoming version, `src/changelog.json` in 12 languages, `src/versionSync.test.ts`, the rules for
 the release script. Updated index.md and pages/overview.md.
+
+## [2026-11-26] schema | ADR 0002 conditions for team operations
+Recorded the five conditions agreed with Hangar for `team/open` and `team/seal` (verdict with the
+plaintext, exact write rule without fallback, size and rate limits, known vaults only, separate
+token on one connection) in pages/decisions/0002-hangar-notes-takeover.md.
