@@ -1,21 +1,22 @@
-//! The icon in the notification area (ADR 0001): "All notes", "New note", "Show all notes",
-//! "Quit"; a left click opens "All notes". "Quit" lets every open note save first
-//! (`windows::quit`).
+//! The icon in the notification area (ADR 0001): "All notes" (the notes area), "New note" (a
+//! sticky note in General), "Show all notes" (every sticky note to the front), "Quit"; a left
+//! click opens the notes area. "Quit" lets every editor save first (`windows::quit`).
 //!
 //! The texts come from the windows, which own all translations (`set_tray_labels`). Until the
 //! first window has loaded, the menu shows the English defaults. Where the platform has no
 //! working tray (some Linux desktops), building it fails, closing "All notes" closes it, and
 //! closing the last window quits.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager as _, Runtime};
 
+use crate::fsio::lock;
+use crate::service::NotesService;
 use crate::settings::SettingsStore;
-use crate::store::Store;
 use crate::windows;
 
 pub const TRAY_ID: &str = "main";
@@ -34,6 +35,8 @@ pub struct TrayLabels {
     pub show_all: String,
     pub quit: String,
     pub tooltip: String,
+    /// The provisional title of a new note ("Note" becomes "Note 3").
+    pub untitled: String,
 }
 
 impl Default for TrayLabels {
@@ -44,6 +47,7 @@ impl Default for TrayLabels {
             show_all: "Show all notes".into(),
             quit: "Quit".into(),
             tooltip: "Hangar Note".into(),
+            untitled: "Note".into(),
         }
     }
 }
@@ -72,9 +76,14 @@ impl TrayLabels {
             show_all: clean(&self.show_all, fallback.show_all),
             quit: clean(&self.quit, fallback.quit),
             tooltip: clean(&self.tooltip, fallback.tooltip),
+            untitled: clean(&self.untitled, fallback.untitled),
         }
     }
 }
+
+/// The texts the menu shows now; "New note" takes its provisional title from them.
+#[derive(Debug, Default)]
+pub struct CurrentLabels(Mutex<TrayLabels>);
 
 pub fn present<R: Runtime>(app: &AppHandle<R>) -> bool {
     app.tray_by_id(TRAY_ID).is_some()
@@ -90,14 +99,24 @@ fn menu<R: Runtime>(app: &AppHandle<R>, labels: &TrayLabels) -> tauri::Result<Me
 }
 
 fn on_menu<R: Runtime>(app: &AppHandle<R>, item: &str) {
-    let store = app.state::<Arc<Store>>();
     let result = match item {
         HUB_ITEM => windows::open_hub(app),
         NEW_ITEM => {
-            windows::create_note(app, &store, &app.state::<SettingsStore>(), None).map(|_| ())
+            let base = app
+                .try_state::<CurrentLabels>()
+                .map(|labels| lock(&labels.0).untitled.clone())
+                .unwrap_or_else(|| TrayLabels::default().untitled);
+            windows::create_sticky(
+                app,
+                &app.state::<Arc<NotesService>>(),
+                &app.state::<SettingsStore>(),
+                None,
+                &base,
+            )
+            .map(|_| ())
         }
         SHOW_ALL_ITEM => {
-            windows::show_all_notes(app, &store);
+            windows::show_all_stickies(app);
             Ok(())
         }
         QUIT_ITEM => {
@@ -144,6 +163,9 @@ pub fn set_labels<R: Runtime>(app: &AppHandle<R>, labels: &TrayLabels) -> tauri:
         return Ok(());
     };
     let labels = labels.cleaned();
+    if let Some(current) = app.try_state::<CurrentLabels>() {
+        *lock(&current.0) = labels.clone();
+    }
     tray.set_menu(Some(menu(app, &labels)?))?;
     tray.set_tooltip(Some(&labels.tooltip))?;
     Ok(())
@@ -161,6 +183,7 @@ mod tests {
             show_all: "x".repeat(200),
             quit: " ".into(),
             tooltip: String::new(),
+            untitled: "Notiz".into(),
         }
         .cleaned();
         assert_eq!(labels.all_notes, "Alle Notizen");
@@ -173,7 +196,8 @@ mod tests {
     #[test]
     fn labels_arrive_as_in_the_contract() {
         let labels: TrayLabels = serde_json::from_value(serde_json::json!({
-            "allNotes": "a", "newNote": "b", "showAll": "c", "quit": "d", "tooltip": "e"
+            "allNotes": "a", "newNote": "b", "showAll": "c", "quit": "d", "tooltip": "e",
+            "untitled": "f"
         }))
         .unwrap();
         assert_eq!(labels.show_all, "c");

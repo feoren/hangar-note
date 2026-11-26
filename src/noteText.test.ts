@@ -1,75 +1,112 @@
+// Checklist, word count, excerpt and capture cases taken from Hangar's src/noteText.test.ts.
 import { describe, expect, it } from "vitest";
 
 import {
-  filterNotes,
-  MAX_TITLE_CHARS,
-  matchesQuery,
+  appendCapture,
+  checklistProgress,
+  editorText,
+  isListLine,
+  isTaskLine,
+  EXCERPT_ITEM_SEPARATOR,
   noteExcerpt,
-  noteTitle,
   taskMarkOffset,
   toggleLinePrefix,
+  toggleTaskAtLine,
   toggleWrap,
+  wordCount,
 } from "./noteText";
 
-describe("noteTitle", () => {
-  it("is the first non-empty line without Markdown marks", () => {
-    expect(noteTitle("Einkaufen\nMilch")).toBe("Einkaufen");
-    expect(noteTitle("\n\n   \n  Später  \nmehr")).toBe("Später");
-    expect(noteTitle("# Plan für **Montag**")).toBe("Plan für Montag");
-    expect(noteTitle("- [ ] Anrufen")).toBe("Anrufen");
-    expect(noteTitle("- [x] ~~Erledigt~~")).toBe("Erledigt");
-    expect(noteTitle("1. Erster Punkt")).toBe("Erster Punkt");
-    expect(noteTitle("> Zitat mit *Betonung*")).toBe("Zitat mit Betonung");
-    expect(noteTitle("Code `npm run`")).toBe("Code npm run");
-    expect(noteTitle("Zeile\r\nzwei")).toBe("Zeile");
+describe("checklists", () => {
+  const text = "# Plan\n- [x] one\n- [ ] two\n  * [X] nested\n1. [ ] numbered\n- [] no\n";
+
+  it("counts ticked and all tasks", () => {
+    expect(checklistProgress(text)).toEqual({ done: 2, total: 4 });
+    expect(checklistProgress("nothing")).toEqual({ done: 0, total: 0 });
   });
 
-  it("keeps characters that only look like marks", () => {
-    expect(noteTitle("2 * 3 = 6")).toBe("2 * 3 = 6");
-    expect(noteTitle("snake_case_name")).toBe("snake_case_name");
+  it("ignores tasks inside code blocks", () => {
+    expect(checklistProgress("```\n- [ ] code\n```\n- [ ] real\n~~~\n- [x] x\n~~~")).toEqual({
+      done: 0,
+      total: 1,
+    });
   });
 
-  it("is null for a note without visible text", () => {
-    expect(noteTitle("")).toBeNull();
-    expect(noteTitle("\n  \n")).toBeNull();
-    expect(noteTitle("#\n- \n- [ ] ")).toBeNull();
+  it("toggles exactly the given line and keeps line endings", () => {
+    expect(toggleTaskAtLine(text, 2)).toBe(text.replace("- [ ] two", "- [x] two"));
+    expect(toggleTaskAtLine(text, 1)).toBe(text.replace("- [x] one", "- [ ] one"));
+    expect(toggleTaskAtLine("a\r\n- [ ] b\r\n", 1)).toBe("a\r\n- [x] b\r\n");
+    expect(toggleTaskAtLine(text, 0)).toBe(text);
+    expect(toggleTaskAtLine(text, 99)).toBe(text);
+    expect(toggleTaskAtLine("```\n- [ ] c\n```", 1)).toBe("```\n- [ ] c\n```");
   });
 
-  it("is cut with an ellipsis, not in the middle of a character", () => {
-    const title = noteTitle("😀".repeat(100));
-    expect(title).not.toBeNull();
-    expect(Array.from(title ?? "")).toHaveLength(MAX_TITLE_CHARS);
-    expect(title?.endsWith("…")).toBe(true);
+  it("finds task lines and the box position", () => {
+    expect(isTaskLine(text, 3)).toBe(true);
+    expect(isTaskLine(text, 5)).toBe(false);
+    expect(taskMarkOffset("  - [ ] x")).toBe(5);
+    expect(taskMarkOffset("- x")).toBeNull();
+  });
+
+  it("recognizes list items", () => {
+    expect(isListLine("- a")).toBe(true);
+    expect(isListLine("  12. a")).toBe(true);
+    expect(isListLine("-a")).toBe(false);
+    expect(isListLine("text")).toBe(false);
+  });
+});
+
+describe("wordCount", () => {
+  it("counts words, not symbols", () => {
+    expect(wordCount("", "en")).toBe(0);
+    expect(wordCount("  \n ", "en")).toBe(0);
+    expect(wordCount("# Hello world\n- [ ] two words", "en")).toBe(4);
   });
 });
 
 describe("noteExcerpt", () => {
-  it("joins the lines after the title", () => {
-    expect(noteExcerpt("Titel\n\n- [ ] Milch\n- [x] Brot")).toBe("Milch · Brot");
-    expect(noteExcerpt("Nur ein Titel")).toBe("");
-    expect(noteExcerpt("")).toBe("");
+  it("skips the title line and Markdown characters", () => {
+    expect(noteExcerpt("# Plan\n\n- [ ] write **tests**\n> quote", "Plan")).toBe(
+      "write tests · quote",
+    );
+    expect(noteExcerpt("Plan", "Plan")).toBe("");
+  });
+
+  // A checklist reads as separate entries, not as one sentence without punctuation.
+  it("sets list items and checklist entries apart, prose runs on", () => {
+    expect(noteExcerpt("Todo\n- [ ] milk\n- [x] bread\n* eggs\n1. butter", "Todo")).toBe(
+      ["milk", "bread", "eggs", "butter"].join(EXCERPT_ITEM_SEPARATOR),
+    );
+    expect(noteExcerpt("Log\nfirst line\nsecond line", "Log")).toBe("first line second line");
+    expect(noteExcerpt("Mix\nintro text\n- one\n- two\nafter", "Mix")).toBe(
+      "intro text · one · two · after",
+    );
+  });
+
+  it("shortens long text", () => {
+    const excerpt = noteExcerpt("x\n" + "word ".repeat(80), "x");
+    expect(Array.from(excerpt)).toHaveLength(120);
+    expect(excerpt.endsWith("…")).toBe(true);
   });
 });
 
-describe("search in All notes", () => {
-  const notes = [
-    { id: "a", preview: "Einkaufen\n- Milch\n- Brot" },
-    { id: "b", preview: "Café am Montag" },
-    { id: "c", preview: "Release notes\nVersion 0.1.0" },
-  ];
-
-  it("finds every term anywhere, case- and accent-insensitive", () => {
-    expect(filterNotes(notes, "milch").map((n) => n.id)).toEqual(["a"]);
-    expect(filterNotes(notes, "CAFE").map((n) => n.id)).toEqual(["b"]);
-    expect(filterNotes(notes, "brot einkaufen").map((n) => n.id)).toEqual(["a"]);
-    expect(filterNotes(notes, "brot montag")).toEqual([]);
-    expect(filterNotes(notes, "0.1").map((n) => n.id)).toEqual(["c"]);
+describe("appendCapture", () => {
+  it("adds time, source and the output as a code block", () => {
+    expect(appendCapture("# Log\n\n", "error: x\r\n", "14:32", "Claude Code")).toBe(
+      "# Log\n\n_14:32 · Claude Code_\n\n```\nerror: x\n```\n",
+    );
+    expect(appendCapture("", "a", "9:01", "")).toBe("_9:01_\n\n```\na\n```\n");
   });
 
-  it("shows everything for an empty query and keeps the order", () => {
-    expect(filterNotes(notes, "").map((n) => n.id)).toEqual(["a", "b", "c"]);
-    expect(filterNotes(notes, "   ").map((n) => n.id)).toEqual(["a", "b", "c"]);
-    expect(matchesQuery("anything", "")).toBe(true);
+  it("uses a longer fence when the output contains one", () => {
+    expect(appendCapture("", "```js\nx\n```", "1", "")).toContain("````\n```js");
+  });
+
+  it("keeps the session title on one plain line in the heading", () => {
+    // The program sets the title (OSC 0/2); it must not break out of the italic heading.
+    expect(appendCapture("", "a", "9:01", "x_y *b* `c` [d](e)\n# Head\u0007")).toBe(
+      "_9:01 · x\\_y \\*b\\* \\`c\\` \\[d\\](e) # Head_\n\n```\na\n```\n",
+    );
+    expect(appendCapture("", "a", "9:01", "\r\n\u001b\t")).toBe("_9:01_\n\n```\na\n```\n");
   });
 });
 
@@ -115,5 +152,15 @@ describe("formatting toggles", () => {
     expect(taskMarkOffset("  * [x] a")).toBe(5);
     expect(taskMarkOffset("1. [ ] a")).toBe(4);
     expect(taskMarkOffset("- a")).toBeNull();
+  });
+});
+
+describe("editorText", () => {
+  it("keeps only LF line ends, as the editor does, so the cursor fits the document", () => {
+    const raw = "# Plan\r\n- [ ] eins\r\n- [x] zwei\rdrei\n";
+    const text = editorText(raw);
+    expect(text).toBe("# Plan\n- [ ] eins\n- [x] zwei\ndrei\n");
+    expect(text.split("\n")).toHaveLength(raw.split(/\r\n?|\n/).length);
+    expect(editorText("schon LF\n")).toBe("schon LF\n");
   });
 });

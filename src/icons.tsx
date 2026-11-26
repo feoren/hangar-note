@@ -93,3 +93,23 @@ export function TaskIcon(props: IconProps) {
     </Svg>
   );
 }
+
+export function EyeIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z" />
+      <circle cx="8" cy="8" r="1.9" />
+    </Svg>
+  );
+}
+
+/** A note on a screen: "on the desktop". */
+export function DesktopIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="1.75" y="2.5" width="12.5" height="8.5" rx="1.25" />
+      <path d="M6 14h4M8 11v3" />
+      <path d="M8.5 4.75h3v2.5" />
+    </Svg>
+  );
+}

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { createTranslator } from "./i18n";
 import {
+  hubShortcutLabel,
   isBrowserKey,
   letterOf,
+  matchHubShortcut,
   matchNoteShortcut,
   platformOf,
   shortcutLabel,
@@ -183,5 +185,40 @@ describe("shortcutLabel", () => {
     expect(platformOf("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/130")).toBe("windows");
     expect(platformOf("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)")).toBe("mac");
     expect(platformOf("Mozilla/5.0 (X11; Linux x86_64)")).toBe("linux");
+  });
+});
+
+describe("notes area shortcuts", () => {
+  it("start a quick note with Ctrl+Shift+N and rename with F2", () => {
+    expect(
+      matchHubShortcut(press({ key: "N", code: "KeyN", ctrl: true, shift: true }), "windows"),
+    ).toBe("quickNote");
+    expect(
+      matchHubShortcut(press({ key: "N", code: "KeyN", meta: true, shift: true }), "mac"),
+    ).toBe("quickNote");
+    expect(matchHubShortcut(press({ key: "F2", code: "F2" }), "linux")).toBe("rename");
+  });
+
+  it("leave everything else to the text fields", () => {
+    // Ctrl+N alone stays free, and AltGr (Ctrl+Alt) never triggers a shortcut.
+    expect(matchHubShortcut(press({ key: "n", code: "KeyN", ctrl: true }), "windows")).toBeNull();
+    expect(
+      matchHubShortcut(
+        press({ key: "N", code: "KeyN", ctrl: true, shift: true, alt: true }),
+        "windows",
+      ),
+    ).toBeNull();
+    expect(matchHubShortcut(press({ key: "F2", code: "F2", shift: true }), "windows")).toBeNull();
+    // On a Cyrillic layout the key position counts.
+    expect(
+      matchHubShortcut(press({ key: "Т", code: "KeyN", ctrl: true, shift: true }), "linux"),
+    ).toBe("quickNote");
+  });
+
+  it("name their keys", () => {
+    const de = createTranslator("de");
+    expect(hubShortcutLabel("quickNote", "windows", de)).toBe("Strg+Umschalt+N");
+    expect(hubShortcutLabel("quickNote", "mac", de)).toBe("⇧⌘N");
+    expect(hubShortcutLabel("rename", "windows", de)).toBe("F2");
   });
 });

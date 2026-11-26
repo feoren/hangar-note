@@ -10,9 +10,10 @@ import { reuseRoot } from "./hotRoot";
 import { I18nContext } from "./i18n";
 
 // The backend opens every window with the same URL; the label picks the view (windows.rs): `hub`
-// is "All notes", `note-<id>` one note. Each view loads only its own code, so "All notes" does not
-// parse the editor.
-const Hub = lazy(() => import("./Hub").then((module) => ({ default: module.Hub })));
+// is the notes area, `note-<scope>-<id>` one sticky note. Each view loads only its own code.
+const NotesArea = lazy(() =>
+  import("./NotesArea").then((module) => ({ default: module.NotesArea })),
+);
 const NoteWindow = lazy(() =>
   import("./NoteWindow").then((module) => ({ default: module.NoteWindow })),
 );
@@ -29,8 +30,8 @@ function windowLabel(): string {
 }
 
 const label = windowLabel();
-const noteId = label.startsWith(NOTE_PREFIX) ? label.slice(NOTE_PREFIX.length) : null;
-document.documentElement.dataset.window = noteId === null ? "hub" : "note";
+const sticky = label.startsWith(NOTE_PREFIX);
+document.documentElement.dataset.window = sticky ? "note" : "hub";
 
 function Root() {
   const app = useAppSettings();
@@ -39,7 +40,11 @@ function Root() {
   return (
     <I18nContext.Provider value={app.t}>
       <Suspense fallback={null}>
-        {noteId === null ? <Hub app={app} /> : <NoteWindow id={noteId} theme={app.theme} />}
+        {sticky ? (
+          <NoteWindow label={label} theme={app.theme} colorNames={app.settings.colorNames} />
+        ) : (
+          <NotesArea app={app} />
+        )}
       </Suspense>
     </I18nContext.Provider>
   );

@@ -23,3 +23,9 @@ index.md and pages/overview.md.
 ## [2026-11-26] schema | ADR 0002 handover marker
 Added the handover marker `notes/.handover.json` (read only until Hangar writes it) and the
 development root `HANGAR_NOTE_NOTES_ROOT` to pages/decisions/0002-hangar-notes-takeover.md.
+
+## [2026-11-26] schema | Phase 1 of ADR 0002 as built
+Added the section "Phase 1 as built" to pages/decisions/0002-hangar-notes-takeover.md (deviations
+with reasons). Created pages/concepts/hangar-notes-format.md and pages/syntheses/local-channel.md.
+Noted in pages/decisions/0001-foundation.md that its own storage is replaced. Updated index.md and
+pages/overview.md.

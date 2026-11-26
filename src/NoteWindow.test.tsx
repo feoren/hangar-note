@@ -3,22 +3,27 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { NoteContent } from "./api";
+import type { OpenedNote, Status } from "./api";
 import type { EditorOptions } from "./editor";
 import { createTranslator, I18nContext } from "./i18n";
 
 const ID = "1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5";
+const LABEL = `note-general-${ID}`;
+const GENERAL = { path: null };
 
-const note: NoteContent = {
+const note: OpenedNote = {
+  folderKey: "general",
+  path: null,
   id: ID,
-  color: "lemon",
-  bounds: null,
-  open: true,
-  onTop: false,
-  createdAt: 1,
-  updatedAt: 2,
+  title: "Einkaufen",
   text: "Einkaufen",
+  color: "lemon",
+  onDesktop: true,
+  onTop: false,
+  autoTitled: false,
 };
+
+const writable: Status = { access: { state: "writable" }, rootKind: "development", project: null };
 
 const api = vi.hoisted(() => {
   const handlers = new Map<string, () => void>();
@@ -29,29 +34,40 @@ const api = vi.hoisted(() => {
     });
   return {
     handlers,
-    readNote: vi.fn(),
-    writeNote: vi.fn(),
+    getSticky: vi.fn(),
+    getStatus: vi.fn(),
+    renameNote: vi.fn(),
+    writeSticky: vi.fn(),
     deleteNote: vi.fn(),
     noteFlushed: vi.fn(),
     closeNote: vi.fn(),
     onCloseRequested: listener("close"),
     onDeleteRequested: listener("delete"),
     onFlushRequested: listener("flush"),
+    onLookChanged: vi.fn((label: string, handler: (look: { color: string }) => void) => {
+      handlers.set(`look:${label}`, () => {
+        handler({ color: "mint" });
+      });
+      return Promise.resolve(() => undefined);
+    }),
   };
 });
 
 vi.mock("./api", () => ({
   MAX_NOTE_BYTES: 1024 * 1024,
   utf8Bytes: (text: string) => new TextEncoder().encode(text).length,
-  readNote: api.readNote,
-  writeNote: api.writeNote,
+  getSticky: api.getSticky,
+  getStatus: api.getStatus,
+  renameNote: api.renameNote,
+  writeSticky: api.writeSticky,
   deleteNote: api.deleteNote,
   noteFlushed: api.noteFlushed,
   closeNote: api.closeNote,
   onCloseRequested: api.onCloseRequested,
   onDeleteRequested: api.onDeleteRequested,
   onFlushRequested: api.onFlushRequested,
-  createNote: vi.fn(() => Promise.resolve()),
+  onLookChanged: api.onLookChanged,
+  newSticky: vi.fn(() => Promise.resolve()),
   openHub: vi.fn(() => Promise.resolve(null)),
   setNoteColor: vi.fn(),
   setNoteOnTop: vi.fn(),
@@ -77,6 +93,9 @@ vi.mock("./editor", () => ({
         content.focus();
       },
       format: vi.fn(),
+      load: vi.fn(),
+      toggleTask: vi.fn(),
+      setReadOnly: vi.fn(),
       destroy: () => {
         content.remove();
       },
@@ -105,7 +124,7 @@ async function render() {
   await act(async () => {
     root.render(
       <I18nContext.Provider value={t}>
-        <NoteWindow id={ID} theme="light" />
+        <NoteWindow label={LABEL} theme="light" colorNames={{}} />
       </I18nContext.Provider>,
     );
     await Promise.resolve();
@@ -137,8 +156,8 @@ async function type(text: string) {
   });
 }
 
-async function request(event: "delete" | "flush") {
-  const handler = api.handlers.get(`${event}:${ID}`);
+async function request(event: "delete" | "flush" | "close" | "look") {
+  const handler = api.handlers.get(`${event}:${LABEL}`);
   expect(handler, event).toBeDefined();
   await act(async () => {
     handler?.();
@@ -149,9 +168,11 @@ async function request(event: "delete" | "flush") {
 
 beforeEach(() => {
   Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
-  api.readNote.mockResolvedValue(note);
-  api.writeNote.mockResolvedValue(note);
-  api.deleteNote.mockResolvedValue({});
+  api.getSticky.mockResolvedValue(note);
+  api.getStatus.mockResolvedValue(writable);
+  api.writeSticky.mockResolvedValue(null);
+  api.renameNote.mockResolvedValue(null);
+  api.deleteNote.mockResolvedValue(null);
   api.noteFlushed.mockResolvedValue(null);
   api.closeNote.mockResolvedValue(null);
 });
@@ -190,25 +211,26 @@ describe("note window", () => {
 
   it("listens only to requests for its own window", async () => {
     await render();
-    expect(api.onCloseRequested).toHaveBeenCalledWith(ID, expect.any(Function));
-    expect(api.onDeleteRequested).toHaveBeenCalledWith(ID, expect.any(Function));
-    expect(api.onFlushRequested).toHaveBeenCalledWith(ID, expect.any(Function));
+    expect(api.onCloseRequested).toHaveBeenCalledWith(LABEL, expect.any(Function));
+    expect(api.onDeleteRequested).toHaveBeenCalledWith(LABEL, expect.any(Function));
+    expect(api.onFlushRequested).toHaveBeenCalledWith(LABEL, expect.any(Function));
+    expect(api.onLookChanged).toHaveBeenCalledWith(LABEL, expect.any(Function));
   });
 
-  it("saves first and then deletes itself when All notes asks", async () => {
+  it("saves first and then deletes itself when the notes area asks", async () => {
     await render();
     await type("Einkaufen und Brot");
     await request("delete");
-    expect(api.writeNote).toHaveBeenCalledWith(ID, "Einkaufen und Brot");
-    expect(api.deleteNote).toHaveBeenCalledWith(ID);
-    const saved = api.writeNote.mock.invocationCallOrder[0] ?? Infinity;
+    expect(api.writeSticky).toHaveBeenCalledWith("Einkaufen und Brot");
+    expect(api.deleteNote).toHaveBeenCalledWith(GENERAL, ID);
+    const saved = api.writeSticky.mock.invocationCallOrder[0] ?? Infinity;
     const deleted = api.deleteNote.mock.invocationCallOrder[0] ?? -Infinity;
     expect(saved).toBeLessThan(deleted);
     expect(api.noteFlushed).not.toHaveBeenCalled();
   });
 
   it("keeps the note and its text when the save before a delete fails", async () => {
-    api.writeNote.mockRejectedValue(new Error("disk full"));
+    api.writeSticky.mockRejectedValue(new Error("disk full"));
     await render();
     await type("Nur hier");
     await request("delete");
@@ -221,13 +243,54 @@ describe("note window", () => {
     await render();
     await type("Letzte Zeile");
     await request("flush");
-    expect(api.writeNote).toHaveBeenCalledWith(ID, "Letzte Zeile");
+    expect(api.writeSticky).toHaveBeenCalledWith("Letzte Zeile");
     expect(api.noteFlushed).toHaveBeenCalledWith(true);
 
-    api.writeNote.mockRejectedValue(new Error("disk full"));
+    api.writeSticky.mockRejectedValue(new Error("disk full"));
     await type("Noch eine Zeile");
     await request("flush");
     expect(api.noteFlushed).toHaveBeenLastCalledWith(false);
+  });
+
+  it("takes its title from the first line while it has a provisional one", async () => {
+    api.getSticky.mockResolvedValue({ ...note, title: "Notiz 2", autoTitled: true, text: "" });
+    await render();
+    await type("# Einkaufsliste\n- Milch");
+    await request("close");
+    expect(api.renameNote).toHaveBeenCalledWith(GENERAL, ID, "Einkaufsliste", false);
+    expect(api.closeNote).toHaveBeenCalled();
+    expect(api.deleteNote).not.toHaveBeenCalled();
+  });
+
+  it("goes to the trash when a new note is closed empty", async () => {
+    api.getSticky.mockResolvedValue({ ...note, title: "Notiz 2", autoTitled: true, text: "" });
+    await render();
+    await request("close");
+    expect(api.deleteNote).toHaveBeenCalledWith(GENERAL, ID);
+    expect(api.closeNote).not.toHaveBeenCalled();
+  });
+
+  it("keeps a note of its own title and stays read only while Hangar keeps the notes", async () => {
+    api.getStatus.mockResolvedValue({
+      ...writable,
+      access: { state: "readOnly", reason: "notHandedOver" },
+    });
+    await render();
+    expect(container.textContent).toContain(t("note.readOnly"));
+    await focus(get(".cm-content", HTMLElement));
+    expect(bar()).toBeNull();
+    await request("close");
+    expect(api.renameNote).not.toHaveBeenCalled();
+    expect(api.deleteNote).not.toHaveBeenCalled();
+    expect(api.closeNote).toHaveBeenCalled();
+  });
+
+  it("takes a color chosen in the notes area", async () => {
+    await render();
+    await request("look");
+    const note = get(".note", HTMLElement);
+    expect(note.style.getPropertyValue("--note-bg")).not.toBe("");
+    expect(note.getAttribute("style")).toContain("#dcf5e5");
   });
 
   it("works its menu with the keyboard and gives the focus back on Escape", async () => {

@@ -1,30 +1,37 @@
 // One sticky note in its own frameless window (ADR 0001): a header row as the drag region with
 // "New note", the menu and "Close"; the Markdown editor; a slim formatting bar while the focus is
 // anywhere in the note. Typing is saved 500 ms after the last keystroke, at once on blur and
-// close, and before the backend deletes the note from "All notes" or quits.
+// close, and before the backend deletes the note from the notes area, quits or flushes.
+//
+// Any note can sit on the desktop (ADR 0002); while it does, this window is its only editor. Its
+// title follows the first line as in the notes area, and a new note closed empty goes to the trash.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   closeNote,
-  createNote,
   deleteNote,
+  getStatus,
+  getSticky,
   MAX_NOTE_BYTES,
+  newSticky,
   noteFlushed,
   onCloseRequested,
   onDeleteRequested,
   onFlushRequested,
+  onLookChanged,
   openHub,
-  readNote,
+  renameNote,
   setNoteColor,
   setNoteOnTop,
   utf8Bytes,
   windowReady,
-  writeNote,
-  type NoteMeta,
+  writeSticky,
+  type NoteFolder,
+  type OpenedNote,
 } from "./api";
 import {
-  colorLabelKey,
+  colorName,
   NOTE_COLORS,
   noteTone,
   toneVariables,
@@ -32,26 +39,31 @@ import {
   type Theme,
 } from "./colors";
 import { createNoteEditor, type Format, type NoteEditor } from "./editor";
-import { useT } from "./i18n";
+import { DICTIONARIES, LANGUAGES, useT } from "./i18n";
 import { BulletIcon, CheckIcon, CloseIcon, MoreIcon, PlusIcon, TaskIcon } from "./icons";
 import { focusFirstItem, moveMenuFocus } from "./menuKeys";
+import { nextAutoTitle } from "./notes";
 import { createSaver, type SaveState } from "./saver";
 import { currentPlatform, matchNoteShortcut, shortcutLabel, type NoteAction } from "./shortcuts";
 
 interface Props {
-  id: string;
+  /** The window's label (`note-<scope>-<id>`); requests to this window carry it. */
+  label: string;
   theme: Theme;
+  colorNames: Partial<Record<NoteColor, string>>;
 }
 
 const PLATFORM = currentPlatform();
+const UNTITLED_BASES = LANGUAGES.map((language) => DICTIONARIES[language]["notes.untitled"]);
 
 type KeyedAction = Exclude<NoteAction, "leave">;
 
 const FORMATS: readonly (Format & KeyedAction)[] = ["bold", "italic", "strike", "bullet", "task"];
 
-export function NoteWindow({ id, theme }: Props) {
+export function NoteWindow({ label, theme, colorNames }: Props) {
   const t = useT();
-  const [note, setNote] = useState<NoteMeta | null>(null);
+  const [note, setNote] = useState<OpenedNote | null>(null);
+  const [writable, setWritable] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [tooLarge, setTooLarge] = useState(false);
@@ -62,10 +74,12 @@ export function NoteWindow({ id, theme }: Props) {
   const menu = useRef<HTMLDivElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const closing = useRef(false);
+  const noteRef = useRef<OpenedNote | null>(null);
+  const textRef = useRef("");
   const [saver] = useState(() =>
     createSaver({
       save: async (text) => {
-        await writeNote(id, text);
+        await writeSticky(text);
       },
       onState: (state) => {
         setSaveState(state);
@@ -78,30 +92,52 @@ export function NoteWindow({ id, theme }: Props) {
     latest.current = { t };
   });
 
+  const folder = (open: OpenedNote): NoteFolder => ({ path: open.path });
+
+  /** The title follows the first line while the note has a provisional one. */
+  const retitle = useCallback(async () => {
+    const open = noteRef.current;
+    if (!open) return;
+    const title = nextAutoTitle(open, textRef.current, UNTITLED_BASES);
+    if (title === null) return;
+    try {
+      await renameNote(folder(open), open.id, title, false);
+      noteRef.current = { ...open, title };
+    } catch {
+      // It keeps its title; the next blur tries again.
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    readNote(id)
-      .then((content) => {
+    Promise.all([getSticky(), getStatus()])
+      .then(([content, status]) => {
         const element = host.current;
         if (cancelled || !element) return;
+        const canWrite = status.access.state === "writable";
+        noteRef.current = content;
+        textRef.current = content.text;
         setNote(content);
+        setWritable(canWrite);
         editor.current = createNoteEditor(element, {
           text: content.text,
           label: latest.current.t("note.editorLabel"),
           placeholder: latest.current.t("note.placeholder"),
           taskLabel: latest.current.t("note.task"),
+          readOnly: !canWrite,
           onChange: (text) => {
+            textRef.current = text;
             const large = utf8Bytes(text) > MAX_NOTE_BYTES;
             setTooLarge(large);
             // The backend refuses it anyway; the last version that fits stays on disk.
             if (!large) saver.change(text);
           },
           onFocus: (has) => {
-            if (!has) void saver.flush();
+            if (!has) void saver.flush().then(retitle);
           },
         });
         // An empty note is there to be written in.
-        if (content.text === "") editor.current.focus();
+        if (content.text === "" && canWrite) editor.current.focus();
       })
       .catch(() => {
         if (!cancelled) setLoadFailed(true);
@@ -114,7 +150,7 @@ export function NoteWindow({ id, theme }: Props) {
       editor.current?.destroy();
       editor.current = null;
     };
-  }, [id, saver]);
+  }, [saver, retitle]);
 
   // Not disposed on unmount: StrictMode unmounts once in development, and the window's end is a
   // destroy anyway. What is still pending goes out right away.
@@ -129,55 +165,78 @@ export function NoteWindow({ id, theme }: Props) {
     if (closing.current) return;
     closing.current = true;
     // A failed write (full disk, folder gone) keeps the window: closing it would throw away the
-    // text that only exists here. The note shows "Not saved" and the user can retry.
+    // text that only exists here. The note shows "Not saved" and the person can retry.
     if (!(await saver.flush())) {
       closing.current = false;
       return;
     }
+    const open = noteRef.current;
     try {
-      await closeNote(id);
+      if (open && writable && open.autoTitled && textRef.current.trim() === "") {
+        // A new note left empty is not kept (Hangar's quick note).
+        await deleteNote(folder(open), open.id);
+        saver.dispose();
+        return;
+      }
+      await retitle();
+      await closeNote();
     } catch {
       closing.current = false;
     }
-  }, [id, saver]);
+  }, [saver, retitle, writable]);
 
   const remove = useCallback(async () => {
     setMenuOpen(false);
-    // Saved first, so "Undo" in "All notes" brings back every word. A failed write keeps the note,
-    // as on close: its text exists only here. "All notes", if it asked, learns why.
+    // Saved first, so "Undo" in the notes area brings back every word. A failed write keeps the
+    // note, as on close: its text exists only here. The notes area, if it asked, learns why.
     if (!(await saver.flush())) {
       void noteFlushed(false).catch(() => null);
       return;
     }
+    const open = noteRef.current;
+    if (!open) return;
     try {
-      await deleteNote(id);
+      await deleteNote(folder(open), open.id);
       // The window is gone now; a late blur must not write to a note in the trash.
       saver.dispose();
     } catch {
       // Not deleted: the note stays, and so does saving what is typed next.
     }
-  }, [id, saver]);
+  }, [saver]);
 
-  // Requests from the backend (windows.rs): Alt+F4, a delete from "All notes", quitting.
+  // Requests from the backend (windows.rs): Alt+F4, a delete from the notes area, quitting, and a
+  // color chosen in the notes area.
   useEffect(() => {
     const listeners = [
-      onCloseRequested(id, () => {
+      onCloseRequested(label, () => {
         void close();
       }),
-      onDeleteRequested(id, () => {
+      onDeleteRequested(label, () => {
         void remove();
       }),
-      onFlushRequested(id, () => {
+      onFlushRequested(label, () => {
         void saver
           .flush()
           .then((saved) => noteFlushed(saved))
           .catch(() => null);
       }),
+      onLookChanged(label, (look) => {
+        const open = noteRef.current;
+        if (!open) return;
+        const next = { ...open, color: look.color };
+        noteRef.current = next;
+        setNote(next);
+      }),
     ].map((listening) => listening.catch(() => null));
     return () => {
       for (const listening of listeners) void listening.then((stop) => stop?.());
     };
-  }, [id, close, remove, saver]);
+  }, [label, close, remove, saver]);
+
+  const createNew = useCallback(() => {
+    if (!writable) return;
+    void newSticky(t("notes.untitled")).catch(() => null);
+  }, [t, writable]);
 
   // Shortcuts (shortcuts.ts) in the capture phase, before CodeMirror sees them: its default
   // keymap binds Mod-i to "select parent syntax".
@@ -198,14 +257,14 @@ export function NoteWindow({ id, theme }: Props) {
       }
       event.preventDefault();
       event.stopPropagation();
-      if (action === "newNote") void createNote().catch(() => null);
+      if (action === "newNote") createNew();
       else editor.current?.format(action);
     };
     window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
     };
-  }, [menuOpen]);
+  }, [menuOpen, createNew]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -227,22 +286,33 @@ export function NoteWindow({ id, theme }: Props) {
   }, [menuOpen]);
 
   const pickColor = (color: NoteColor) => {
-    void setNoteColor(id, color)
-      .then(setNote)
+    const open = noteRef.current;
+    if (!open) return;
+    void setNoteColor(folder(open), open.id, color)
+      .then((saved) => {
+        const next = { ...open, color: saved };
+        noteRef.current = next;
+        setNote(next);
+      })
       .catch(() => null);
   };
 
   const toggleOnTop = () => {
-    if (!note) return;
-    void setNoteOnTop(id, !note.onTop)
-      .then(setNote)
+    const open = noteRef.current;
+    if (!open) return;
+    void setNoteOnTop(!open.onTop)
+      .then((onTop) => {
+        const next = { ...open, onTop };
+        noteRef.current = next;
+        setNote(next);
+      })
       .catch(() => null);
   };
 
   const color = note?.color ?? "lemon";
   const style = toneVariables(noteTone(color, theme));
-  const withKeys = (label: string, action: KeyedAction) =>
-    t("common.withShortcut", { label, keys: shortcutLabel(action, PLATFORM, t) });
+  const withKeys = (text: string, action: KeyedAction) =>
+    t("common.withShortcut", { label: text, keys: shortcutLabel(action, PLATFORM, t) });
   const formatLabel = (format: Format) => t(`format.${format}`);
 
   return (
@@ -265,9 +335,8 @@ export function NoteWindow({ id, theme }: Props) {
           className="icon-button"
           title={withKeys(t("note.new"), "newNote")}
           aria-label={t("note.new")}
-          onClick={() => {
-            void createNote().catch(() => null);
-          }}
+          disabled={!writable}
+          onClick={createNew}
         >
           <PlusIcon />
         </button>
@@ -317,8 +386,8 @@ export function NoteWindow({ id, theme }: Props) {
                 role="menuitemradio"
                 aria-checked={option === color}
                 className="swatch"
-                title={t(colorLabelKey(option))}
-                aria-label={t(colorLabelKey(option))}
+                title={colorName(option, colorNames, t)}
+                aria-label={colorName(option, colorNames, t)}
                 style={{ background: noteTone(option, theme).header }}
                 onClick={() => {
                   pickColor(option);
@@ -350,18 +419,22 @@ export function NoteWindow({ id, theme }: Props) {
             <span className="menu-check" />
             {t("note.allNotes")}
           </button>
-          <div className="menu-separator" role="separator" />
-          <button
-            type="button"
-            role="menuitem"
-            className="menu-item danger"
-            onClick={() => {
-              void remove();
-            }}
-          >
-            <span className="menu-check" />
-            {t("note.delete")}
-          </button>
+          {writable && (
+            <>
+              <div className="menu-separator" role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item danger"
+                onClick={() => {
+                  void remove();
+                }}
+              >
+                <span className="menu-check" />
+                {t("note.delete")}
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -370,13 +443,19 @@ export function NoteWindow({ id, theme }: Props) {
         {!note && !loadFailed && <p className="note-message muted">{t("note.loading")}</p>}
       </div>
 
+      {!writable && (
+        <p className="note-message note-error" role="status">
+          {t("note.readOnly")}
+        </p>
+      )}
+
       {(tooLarge || saveState === "failed") && (
         <p className="note-message note-error" role="status">
           {tooLarge ? t("note.tooLarge") : t("note.saveFailed")}
         </p>
       )}
 
-      {focused && (
+      {focused && writable && (
         <div className="format-bar" role="toolbar" aria-label={t("format.bar")}>
           {FORMATS.map((format) => (
             <button

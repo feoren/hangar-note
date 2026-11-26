@@ -1,13 +1,16 @@
-//! `settings.json` next to the notes (ADR 0001): language, theme and the color of new notes.
-//! "Start with the system" is not stored here: it is the OS state itself (autostart plugin).
+//! `settings.json` in Hangar Note's data folder (ADR 0001): language, theme, the color of new
+//! notes and the personal names of the colors (ADR 0002, "Color categories"). "Start with the
+//! system" is not stored here: it is the OS state itself (autostart plugin).
 
+use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::store::{read_capped, write_atomic, NoteColor};
+use crate::fsio::{lock, read_capped, write_atomic};
+use crate::meta::NoteColor;
 
 pub const SETTINGS_FILE: &str = "settings.json";
 pub const SETTINGS_VERSION: u32 = 1;
@@ -16,6 +19,8 @@ pub const LANGUAGES: [&str; 12] = [
     "de", "en", "el", "es", "fr", "it", "ja", "pl", "pt", "ru", "tr", "zh",
 ];
 const MAX_SETTINGS_BYTES: usize = 64 * 1024;
+/// A color's own name is a short label for a chip, not a description.
+pub const MAX_COLOR_NAME_CHARS: usize = 40;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -36,6 +41,9 @@ pub struct Settings {
     pub theme: Theme,
     #[serde(default)]
     pub new_note_color: NoteColor,
+    /// The person's names of the colors ("Work", "Ideas"); a color without one shows its own name.
+    #[serde(default)]
+    pub color_names: BTreeMap<NoteColor, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +58,8 @@ struct SettingsFile {
 pub enum SettingsError {
     #[error("Unknown language")]
     UnknownLanguage,
+    #[error("Invalid color name: at most {MAX_COLOR_NAME_CHARS} characters, no line breaks")]
+    InvalidColorName,
     #[error("File {path} cannot be written: {source}")]
     Io {
         path: PathBuf,
@@ -65,10 +75,32 @@ impl Serialize for SettingsError {
 }
 
 pub fn validate(settings: &Settings) -> Result<(), SettingsError> {
-    match &settings.language {
-        Some(code) if !LANGUAGES.contains(&code.as_str()) => Err(SettingsError::UnknownLanguage),
-        _ => Ok(()),
+    if let Some(code) = &settings.language {
+        if !LANGUAGES.contains(&code.as_str()) {
+            return Err(SettingsError::UnknownLanguage);
+        }
     }
+    let bad_name = settings.color_names.values().any(|name| {
+        name.trim() != name
+            || name.is_empty()
+            || name.chars().count() > MAX_COLOR_NAME_CHARS
+            || name.chars().any(char::is_control)
+    });
+    if bad_name {
+        return Err(SettingsError::InvalidColorName);
+    }
+    Ok(())
+}
+
+/// Color names as the window typed them: trimmed, empty ones removed (the color's own name shows).
+pub fn tidy(mut settings: Settings) -> Settings {
+    settings.color_names = settings
+        .color_names
+        .into_iter()
+        .map(|(color, name)| (color, name.trim().to_owned()))
+        .filter(|(_, name)| !name.is_empty())
+        .collect();
+    settings
 }
 
 /// The stored settings; a missing, unreadable or invalid file gives the defaults, so a broken
@@ -85,9 +117,14 @@ pub fn load(path: &Path) -> Settings {
     };
     match serde_json::from_slice::<SettingsFile>(&bytes) {
         Ok(file) if file.version == SETTINGS_VERSION => {
-            let mut settings = file.settings;
+            let mut settings = tidy(file.settings);
+            if let Some(code) = &settings.language {
+                if !LANGUAGES.contains(&code.as_str()) {
+                    settings.language = None;
+                }
+            }
             if validate(&settings).is_err() {
-                settings.language = None;
+                settings.color_names.clear();
             }
             settings
         }
@@ -124,14 +161,12 @@ impl SettingsStore {
     }
 
     pub fn get(&self) -> Settings {
-        self.current
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        lock(&self.current).clone()
     }
 
     pub fn set(&self, settings: Settings) -> Result<Settings, SettingsError> {
-        let mut current = self.current.lock().unwrap_or_else(PoisonError::into_inner);
+        let settings = tidy(settings);
+        let mut current = lock(&self.current);
         save(&self.path, &settings)?;
         *current = settings.clone();
         Ok(settings)
@@ -157,6 +192,7 @@ mod tests {
             language: Some("pl".into()),
             theme: Theme::Dark,
             new_note_color: NoteColor::Mint,
+            color_names: BTreeMap::from([(NoteColor::Sky, "Arbeit".to_owned())]),
         };
         store.set(changed.clone()).unwrap();
         assert_eq!(SettingsStore::open(dir.path()).get(), changed);
@@ -165,7 +201,8 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({
-                "version": 1, "language": "pl", "theme": "dark", "newNoteColor": "mint"
+                "version": 1, "language": "pl", "theme": "dark", "newNoteColor": "mint",
+                "colorNames": { "sky": "Arbeit" }
             })
         );
     }
@@ -192,6 +229,34 @@ mod tests {
         assert_eq!(loaded.language, None);
         assert_eq!(loaded.theme, Theme::Light);
         assert_eq!(loaded.new_note_color, NoteColor::Sky);
+    }
+
+    #[test]
+    fn color_names_are_short_single_lines() {
+        let dir = TempDir::new("settings-names");
+        let store = SettingsStore::open(dir.path());
+        let named = |name: &str| Settings {
+            color_names: BTreeMap::from([(NoteColor::Mint, name.to_owned())]),
+            ..Settings::default()
+        };
+        assert!(matches!(
+            store.set(named(
+                "a
+b"
+            )),
+            Err(SettingsError::InvalidColorName)
+        ));
+        assert!(matches!(
+            store.set(named(&"x".repeat(MAX_COLOR_NAME_CHARS + 1))),
+            Err(SettingsError::InvalidColorName)
+        ));
+        // Blank means "no own name"; outer spaces go.
+        assert!(store.set(named("  ")).unwrap().color_names.is_empty());
+        let saved = store.set(named(" Ideen ")).unwrap();
+        assert_eq!(saved.color_names[&NoteColor::Mint], "Ideen");
+        // Files from v1 without names still load.
+        fs::write(store.path(), r#"{"version":1,"theme":"dark"}"#).unwrap();
+        assert!(load(store.path()).color_names.is_empty());
     }
 
     #[test]

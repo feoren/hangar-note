@@ -9,6 +9,9 @@
 // the B is elsewhere; layouts without Latin letters (Cyrillic, Greek) fall back to the key's
 // position (`event.code`). Digits always match by position: with Shift held, `event.key` is the
 // symbol above the digit, and that differs per layout.
+//
+// The notes area (Hangar's notes panel) has two of its own: Ctrl+Shift+N starts a quick note and
+// F2 renames the open note, as in Hangar.
 
 import type { Translate } from "./i18n";
 
@@ -71,6 +74,23 @@ export function matchNoteShortcut(event: KeyInfo, platform: Platform): NoteActio
     default:
       return null;
   }
+}
+
+export type HubAction = "quickNote" | "rename";
+
+/** The action for a key press in the notes area, or `null`. */
+export function matchHubShortcut(event: KeyInfo, platform: Platform): HubAction | null {
+  const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+  if (event.key === "F2" && plain) return "rename";
+  if (commandKey(event, platform) && event.shiftKey && letterOf(event) === "n") return "quickNote";
+  return null;
+}
+
+/** "Strg+Umschalt+N" or "⇧⌘N", for tooltips and hints. */
+export function hubShortcutLabel(action: HubAction, platform: Platform, t: Translate): string {
+  if (action === "rename") return "F2";
+  if (platform === "mac") return "⇧⌘N";
+  return [t("key.ctrl"), t("key.shift"), "N"].join("+");
 }
 
 /**

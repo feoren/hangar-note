@@ -4,7 +4,8 @@
 // click. Tab indents list items only; elsewhere it leaves the editor like any input field.
 //
 // The note's shortcuts (Ctrl+B and friends) are not bound here: they live in shortcuts.ts and the
-// note window calls the formatting functions below.
+// windows call the formatting functions below. The same editor serves the sticky notes and the
+// notes area; `load` puts another note in, `setReadOnly` locks it while Hangar keeps the notes.
 
 import {
   defaultKeymap,
@@ -15,7 +16,7 @@ import {
 } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
-import { EditorSelection, EditorState, type Range } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, type Range } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -28,7 +29,7 @@ import {
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 
-import { taskMarkOffset, toggleLinePrefix, toggleWrap } from "./noteText";
+import { editorText, taskMarkOffset, toggleLinePrefix, toggleWrap } from "./noteText";
 
 export type Format = "bold" | "italic" | "strike" | "bullet" | "task";
 
@@ -36,6 +37,12 @@ export interface NoteEditor {
   focus: () => void;
   /** Applies a formatting toggle to the selection or the current lines. */
   format: (format: Format) => void;
+  /** New content with an empty undo history (another note); cursor at the end. */
+  load: (text: string) => void;
+  /** Ticks or unticks the task on line `index` (0-based); from the preview. */
+  toggleTask: (index: number) => void;
+  /** Read only: the text can be read, selected and copied, but not changed. */
+  setReadOnly: (readOnly: boolean) => void;
   destroy: () => void;
 }
 
@@ -47,6 +54,7 @@ export interface EditorOptions {
   taskLabel: string;
   onChange: (text: string) => void;
   onFocus: (focused: boolean) => void;
+  readOnly?: boolean;
 }
 
 const MARKS: Record<"bold" | "italic" | "strike", string> = {
@@ -145,6 +153,8 @@ function taskDecorations(view: EditorView, label: string): DecorationSet {
 
 /** Flips "[ ]" and "[x]" at `from` (start of a task marker). */
 function flipTask(view: EditorView, from: number): boolean {
+  // A dispatch is not stopped by `readOnly`, so a read-only note keeps its boxes as they are.
+  if (view.state.readOnly) return false;
   const mark = view.state.sliceDoc(from, from + 3);
   if (!/^\[[ xX]\]$/.test(mark)) return false;
   view.dispatch({
@@ -210,6 +220,7 @@ function indentList(more: boolean) {
 
 function applyFormat(view: EditorView, format: Format): void {
   const { state } = view;
+  if (state.readOnly) return;
   const range = state.selection.main;
   if (format === "bullet" || format === "task") {
     const first = state.doc.lineAt(range.from);
@@ -234,12 +245,15 @@ function applyFormat(view: EditorView, format: Format): void {
 }
 
 export function createNoteEditor(parent: HTMLElement, options: EditorOptions): NoteEditor {
-  const view = new EditorView({
-    parent,
-    state: EditorState.create({
-      doc: options.text,
-      selection: EditorSelection.cursor(options.text.length),
+  let readOnly = options.readOnly === true;
+  const lock = new Compartment();
+  const state = (raw: string) => {
+    const text = editorText(raw);
+    return EditorState.create({
+      doc: text,
+      selection: EditorSelection.cursor(text.length),
       extensions: [
+        lock.of(EditorState.readOnly.of(readOnly)),
         history(),
         keymap.of([
           { key: "Tab", run: indentList(true), shift: indentList(false) },
@@ -258,8 +272,9 @@ export function createNoteEditor(parent: HTMLElement, options: EditorOptions): N
           if (update.focusChanged) options.onFocus(update.view.hasFocus);
         }),
       ],
-    }),
-  });
+    });
+  };
+  const view = new EditorView({ parent, state: state(options.text) });
   return {
     focus: () => {
       view.focus();
@@ -267,6 +282,21 @@ export function createNoteEditor(parent: HTMLElement, options: EditorOptions): N
     format: (format) => {
       applyFormat(view, format);
       view.focus();
+    },
+    load: (text) => {
+      view.setState(state(text));
+    },
+    toggleTask: (index) => {
+      const number = index + 1;
+      if (number < 1 || number > view.state.doc.lines) return;
+      const line = view.state.doc.line(number);
+      const offset = taskMarkOffset(line.text);
+      if (offset !== null) flipTask(view, line.from + offset - 1);
+    },
+    setReadOnly: (next) => {
+      if (next === readOnly) return;
+      readOnly = next;
+      view.dispatch({ effects: lock.reconfigure(EditorState.readOnly.of(next)) });
     },
     destroy: () => {
       view.destroy();

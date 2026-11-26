@@ -32,6 +32,28 @@ tauri-plugin-autostart = "2.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-# Note IDs (UUID v4, ADR 0001), so file names never depend on user text. Already in the tree
-# through tauri; MIT/Apache-2.0, uuid-rs.
+# Note IDs (UUID v4, as Hangar's notes.rs). Already in the tree through tauri; MIT/Apache-2.0,
+# uuid-rs.
 uuid = { version = "1", default-features = false, features = ["std", "v4"] }
+# The scope key of a working folder: the first 32 hex digits of SHA-256 over the normalized path,
+# exactly as Hangar computes it (Hangar ADR 0004). Hangar uses the same crate and version; already
+# in the tree through tauri-codegen. MIT/Apache-2.0, RustCrypto.
+sha2 = "0.10"
+# The 32 random bytes of the local channel's token (ADR 0002, "Local channel"), straight from the
+# operating system's source. Already in the tree through uuid at this version; MIT/Apache-2.0,
+# rust-random. The alternative, two UUID v4 as in Hangar's gate, gives 244 bits, not 256.
+getrandom = "0.4"
+# The local data folder (`dirs::data_local_dir`, the base of Tauri's `app_local_data_dir`) for the
+# `capture` client, which runs before Tauri starts. Already in the tree through tauri at this
+# version; MIT/Apache-2.0, dirs-dev.
+dirs = "7"
+# "Export" saves a note through the system's save dialog, opened by the backend so the window
+# never chooses a path (as Hangar's `export_note`). Official Tauri plugin (MIT/Apache-2.0,
+# plugins-workspace), the version Hangar uses; adds rfd. Only the Rust side is used, so the
+# frontend gets no dialog permission.
+tauri-plugin-dialog = "2.8"
+# "Copy as Markdown": the backend puts the note's text on the clipboard. Hangar found that
+# WebView2 refuses `navigator.clipboard` and uses this official plugin for the same reason
+# (MIT/Apache-2.0, plugins-workspace; adds arboard, on Windows clipboard-win). Only the Rust side
+# is used, so the frontend gets no clipboard permission.
+tauri-plugin-clipboard-manager = "2.5"

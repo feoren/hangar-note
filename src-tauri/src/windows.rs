@@ -1,15 +1,16 @@
-//! The windows (ADR 0001). The backend creates and owns all of them; the frontend asks for them
-//! through commands and never holds a permission to create or close arbitrary windows.
+//! The windows (ADR 0001, ADR 0002). The backend creates and owns all of them; the frontend asks
+//! for them through commands and never holds a permission to create or close arbitrary windows.
 //!
-//! - `hub`: "All notes", a normal window. Closing it hides it while the tray icon exists.
-//! - `note-<id>`: one frameless window per open note. Closing it hides the note (it stays in the
-//!   list); its place and size are remembered, debounced, and restored on the next start.
+//! - `hub`: the notes area (scope chips, search, list, editor with preview). Closing it hides it
+//!   while the tray icon exists.
+//! - `note-<scope>-<id>`: a sticky note on the desktop, one frameless window per note. While it
+//!   exists it is the note's only editor; the notes area shows "On the desktop" instead.
 //!
 //! Windows open hidden and show themselves once their view has rendered (`window_ready`), so no
 //! empty white frame flashes up; a fallback shows them after a few seconds in any case.
 //!
-//! Whatever would end a note window (closing, deleting from "All notes", quitting) first lets the
-//! note save what was just typed: only its view has that text (`replies`).
+//! Whatever would end an editor (closing, deleting from the notes area, quitting, Hangar's
+//! `flush`) first lets it save what was just typed: only its view has that text (`replies`).
 
 use std::collections::HashMap;
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -23,62 +24,97 @@ use tauri::{
 };
 
 use crate::bounds::{self, Area};
-use crate::replies::{self, DeleteStep, NoteReply, QuitMemory, QuitStep, Replies};
+use crate::export::ExportError;
+use crate::meta::{Bounds, MetaError, NoteLook};
+use crate::notes::{check_id, is_folder_key, NoteFolder, NotesError, GENERAL_KEY, READ_ONLY_CODE};
+use crate::replies::{self, Asked, DeleteStep, NoteReply, QuitMemory, QuitStep, Replies};
+use crate::requests::{HubRequest, Requests};
+use crate::service::{NoteKey, NotesService, OpenedNote, ServiceError};
 use crate::settings::{SettingsError, SettingsStore, Theme};
-use crate::store::{normalize_id, Bounds, NoteMeta, Store, StoreError, TrashItem};
 
 pub const HUB_LABEL: &str = "hub";
 pub const NOTE_PREFIX: &str = "note-";
 /// The one app URL; `src/main.tsx` picks the view by the window's label.
 const APP_URL: &str = "index.html";
 const TITLE: &str = "Hangar Note";
-const HUB_WIDTH: f64 = 440.0;
-const HUB_HEIGHT: f64 = 600.0;
-const HUB_MIN_WIDTH: f64 = 340.0;
-const HUB_MIN_HEIGHT: f64 = 400.0;
+const HUB_WIDTH: f64 = 980.0;
+const HUB_HEIGHT: f64 = 660.0;
+const HUB_MIN_WIDTH: f64 = 420.0;
+const HUB_MIN_HEIGHT: f64 = 420.0;
 /// Quiet time after the last move or resize before the place is written.
 pub const BOUNDS_DELAY: Duration = Duration::from_millis(500);
 /// A window whose view never reported ready is shown after this anyway.
 const SHOW_FALLBACK: Duration = Duration::from_secs(4);
 /// How long quitting waits for the remembered places to be written.
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
-/// How long deleting and quitting wait for a note to save before going ahead without its answer.
+/// How long deleting, quitting and `flush` wait for an editor to save before going ahead.
 pub const NOTE_REPLY_TIMEOUT: Duration = FLUSH_TIMEOUT;
 
-/// To the hub, without payload: the list changed, reload it.
+/// To the notes area, without payload: notes changed, reload the list.
 pub const NOTES_CHANGED_EVENT: &str = "notes-changed";
 /// To every window, with the new settings.
 pub const SETTINGS_CHANGED_EVENT: &str = "settings-changed";
-/// To a note window: the system asked it to close (Alt+F4); it saves, then calls `close_note`.
+/// To the notes area: requests wait (`take_hub_requests`), or "This project" changed.
+pub const HUB_REQUESTS_EVENT: &str = "hub-requests";
+/// To a sticky note: the system asked it to close (Alt+F4); it saves, then calls `close_note`.
 pub const CLOSE_REQUESTED_EVENT: &str = "note-close-requested";
-/// To a note window: "All notes" deletes it. It saves, then deletes itself (`delete_note`), or
-/// reports the failed save (`note_flushed`).
+/// To a sticky note: the notes area deletes it. It saves, then deletes itself, or reports the
+/// failed save (`note_flushed`).
 pub const DELETE_REQUESTED_EVENT: &str = "note-delete-requested";
-/// To every note window before quitting: save, then answer with `note_flushed`.
+/// To every editor (sticky notes and the notes area) before quitting or on Hangar's `flush`:
+/// save, then answer with `note_flushed`.
 pub const FLUSH_REQUESTED_EVENT: &str = "note-flush-requested";
-/// What the frontend receives for [`AppError::NotSaved`], so it can say what happened.
+/// To a sticky note, with its new color: the notes area changed it.
+pub const LOOK_CHANGED_EVENT: &str = "note-look-changed";
+/// What the frontend receives for [`AppError::NotSaved`].
 pub const NOT_SAVED_CODE: &str = "not-saved";
+/// What the notes area receives when it tries to write a note that sits on the desktop.
+pub const ON_DESKTOP_CODE: &str = "on-desktop";
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("This window may not change that note")]
     NotAllowed,
-    #[error("The open note could not save its text, so it was not deleted")]
+    #[error("The open note could not save its text")]
     NotSaved,
+    #[error("The note sits on the desktop; its sticky note is its editor")]
+    OnDesktop,
     #[error(transparent)]
-    Store(#[from] StoreError),
+    Service(#[from] ServiceError),
     #[error(transparent)]
     Settings(#[from] SettingsError),
+    #[error(transparent)]
+    Export(#[from] ExportError),
     #[error("Start with the system: {0}")]
     Autostart(String),
+    #[error("Clipboard: {0}")]
+    Clipboard(String),
+    #[error("Background task aborted: {0}")]
+    Task(String),
     #[error("Window: {0}")]
     Tauri(#[from] tauri::Error),
+}
+
+impl From<NotesError> for AppError {
+    fn from(error: NotesError) -> Self {
+        Self::Service(error.into())
+    }
+}
+
+impl From<MetaError> for AppError {
+    fn from(error: MetaError) -> Self {
+        Self::Service(error.into())
+    }
 }
 
 impl Serialize for AppError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
             Self::NotSaved => serializer.serialize_str(NOT_SAVED_CODE),
+            Self::OnDesktop => serializer.serialize_str(ON_DESKTOP_CODE),
+            Self::Service(ServiceError::Notes(NotesError::ReadOnly)) => {
+                serializer.serialize_str(READ_ONLY_CODE)
+            }
             other => serializer.serialize_str(&other.to_string()),
         }
     }
@@ -108,31 +144,42 @@ pub fn apply_theme<R: Runtime>(app: &AppHandle<R>, theme: Theme) {
     }
 }
 
-pub fn note_label(id: &str) -> String {
-    format!("{NOTE_PREFIX}{id}")
+pub fn sticky_label(key: &NoteKey) -> String {
+    format!("{NOTE_PREFIX}{}-{}", key.scope, key.id)
 }
 
-/// The note ID of a note window's label, `None` for any other window.
-pub fn note_id_of(label: &str) -> Option<String> {
-    let id = label.strip_prefix(NOTE_PREFIX)?;
-    normalize_id(id).ok().filter(|normal| normal == id)
-}
-
-/// Whether the window `label` may act on note `id`: "All notes" on every note, a note window
-/// only on its own note. A compromised note view thus cannot read or delete other notes.
-pub fn may_touch(label: &str, id: &str) -> bool {
-    if label == HUB_LABEL {
-        return true;
+/// The note of a sticky window's label, `None` for any other window. The ID must be in its
+/// normal (lowercase) form, so one note never has two labels.
+pub fn sticky_of(label: &str) -> Option<NoteKey> {
+    let rest = label.strip_prefix(NOTE_PREFIX)?;
+    let (scope, id) = if let Some(id) = rest.strip_prefix(&format!("{GENERAL_KEY}-")) {
+        (GENERAL_KEY, id)
+    } else {
+        let scope = rest.get(..32)?;
+        let id = rest.get(32..)?.strip_prefix('-')?;
+        (scope, id)
+    };
+    if !is_folder_key(scope) || scope != scope.to_ascii_lowercase() {
+        return None;
     }
-    match (note_id_of(label), normalize_id(id)) {
-        (Some(own), Ok(id)) => own == id,
-        _ => false,
-    }
+    let normal = check_id(id).ok()?;
+    (normal == id).then(|| NoteKey {
+        scope: scope.to_owned(),
+        id: normal,
+    })
 }
 
-pub fn check_access(label: &str, id: &str) -> Result<(), AppError> {
-    if may_touch(label, id) {
-        Ok(())
+/// Whether the window `label` may act on `key`: the notes area on every note, a sticky note only
+/// on its own. A compromised sticky view thus cannot read or delete other notes.
+pub fn may_touch(label: &str, key: &NoteKey) -> bool {
+    label == HUB_LABEL || sticky_of(label).as_ref() == Some(key)
+}
+
+/// The key of `folder` and `id`, if the window `label` may act on that note.
+pub fn checked_key(label: &str, folder: &NoteFolder, id: &str) -> Result<NoteKey, AppError> {
+    let key = NotesService::key(folder, id)?;
+    if may_touch(label, &key) {
+        Ok(key)
     } else {
         Err(AppError::NotAllowed)
     }
@@ -197,11 +244,11 @@ impl<V> Debouncer<V> {
 
 enum BoundsMessage {
     Moved(String, Bounds),
-    /// Write what is pending for one note (or all) now, then answer.
+    /// Write what is pending for one window (or all) now, then answer.
     Flush(Option<String>, mpsc::Sender<()>),
 }
 
-/// Writes the places of note windows on a thread of its own, [`BOUNDS_DELAY`] after the last
+/// Writes the places of sticky notes on a thread of its own, [`BOUNDS_DELAY`] after the last
 /// move: dragging a window sends dozens of events per second.
 #[derive(Debug)]
 pub struct BoundsSaver {
@@ -209,16 +256,20 @@ pub struct BoundsSaver {
 }
 
 impl BoundsSaver {
-    pub fn start(store: Arc<Store>) -> Self {
+    pub fn start(service: Arc<NotesService>) -> Self {
         let (sender, receiver) = mpsc::channel::<BoundsMessage>();
         std::thread::spawn(move || {
             let mut pending = Debouncer::new(BOUNDS_DELAY);
             let save = |items: Vec<(String, Bounds)>| {
-                for (id, bounds) in items {
-                    // A note deleted meanwhile has no entry any more; nothing to keep.
-                    match store.set_bounds(&id, bounds) {
-                        Ok(_) | Err(StoreError::UnknownNote) => {}
-                        Err(error) => eprintln!("hangar-note: window place not saved: {error}"),
+                for (label, bounds) in items {
+                    let Some(key) = sticky_of(&label) else {
+                        continue;
+                    };
+                    let result = service
+                        .meta()
+                        .update(&key.scope, &key.id, |look| look.bounds = Some(bounds));
+                    if let Err(error) = result {
+                        eprintln!("hangar-note: window place not saved: {error}");
                     }
                 }
             };
@@ -230,11 +281,11 @@ impl BoundsSaver {
                     None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
                 };
                 match message {
-                    Ok(BoundsMessage::Moved(id, bounds)) => {
-                        pending.push(id, bounds, Instant::now())
+                    Ok(BoundsMessage::Moved(label, bounds)) => {
+                        pending.push(label, bounds, Instant::now())
                     }
-                    Ok(BoundsMessage::Flush(id, done)) => {
-                        save(pending.take(id.as_deref()));
+                    Ok(BoundsMessage::Flush(label, done)) => {
+                        save(pending.take(label.as_deref()));
                         let _ = done.send(());
                     }
                     Err(RecvTimeoutError::Timeout) => {}
@@ -249,17 +300,17 @@ impl BoundsSaver {
         Self { sender }
     }
 
-    pub fn moved(&self, id: String, bounds: Bounds) {
-        let _ = self.sender.send(BoundsMessage::Moved(id, bounds));
+    pub fn moved(&self, label: String, bounds: Bounds) {
+        let _ = self.sender.send(BoundsMessage::Moved(label, bounds));
     }
 
-    /// Writes what is pending for `id` (or every note) and waits for it, at most
+    /// Writes what is pending for `label` (or every window) and waits for it, at most
     /// [`FLUSH_TIMEOUT`].
-    pub fn flush(&self, id: Option<&str>) {
+    pub fn flush(&self, label: Option<&str>) {
         let (done, wait) = mpsc::channel();
         if self
             .sender
-            .send(BoundsMessage::Flush(id.map(str::to_owned), done))
+            .send(BoundsMessage::Flush(label.map(str::to_owned), done))
             .is_ok()
         {
             let _ = wait.recv_timeout(FLUSH_TIMEOUT);
@@ -327,36 +378,42 @@ fn show_later<R: Runtime>(window: WebviewWindow<R>) {
     });
 }
 
-fn notify_hub<R: Runtime>(app: &AppHandle<R>) {
+pub fn notify_hub<R: Runtime>(app: &AppHandle<R>) {
     if app.get_webview_window(HUB_LABEL).is_some() {
         let _ = app.emit_to(HUB_LABEL, NOTES_CHANGED_EVENT, ());
     }
 }
 
-/// Opens a note's window or brings it to the front, and marks the note open.
-pub fn open_note<R: Runtime>(app: &AppHandle<R>, store: &Store, id: &str) -> Result<(), AppError> {
-    let meta = store.get(id)?;
-    let label = note_label(&meta.id);
-    if let Some(window) = app.get_webview_window(&label) {
-        show_and_focus(&window);
-    } else {
-        build_note_window(app, &meta, &label)?;
+/// Tells a sticky note its new look (the notes area changed its color).
+pub fn notify_sticky<R: Runtime>(app: &AppHandle<R>, key: &NoteKey, look: &NoteLook) {
+    let label = sticky_label(key);
+    if app.get_webview_window(&label).is_some() {
+        let _ = app.emit_to(&label, LOOK_CHANGED_EVENT, look);
     }
-    if !meta.open {
-        store.set_open(&meta.id, true)?;
-        // "All notes" keeps whether a note is open, so "Undo" after a delete reopens it.
-        notify_hub(app);
-    }
-    Ok(())
 }
 
-fn build_note_window<R: Runtime>(
+/// The folder of a sticky note's scope.
+fn folder_of(service: &NotesService, key: &NoteKey) -> Result<NoteFolder, AppError> {
+    service
+        .store()
+        .folder_for_key(&key.scope)
+        .ok_or_else(|| NotesError::UnknownNote.into())
+}
+
+/// The note shown in a sticky window, for the window itself.
+pub fn sticky_note(service: &NotesService, label: &str) -> Result<OpenedNote, AppError> {
+    let key = sticky_of(label).ok_or(AppError::NotAllowed)?;
+    let folder = folder_of(service, &key)?;
+    Ok(service.open_note(&folder, &key.id)?)
+}
+
+fn build_sticky<R: Runtime>(
     app: &AppHandle<R>,
-    meta: &NoteMeta,
+    look: &NoteLook,
     label: &str,
 ) -> Result<(), AppError> {
     let (all, primary) = monitors(app);
-    let placement = bounds::place(meta.bounds, &all, primary);
+    let placement = bounds::place(look.bounds, &all, primary);
     let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(APP_URL.into()))
         .title(TITLE)
         .decorations(false)
@@ -364,7 +421,7 @@ fn build_note_window<R: Runtime>(
         .maximizable(false)
         .inner_size(placement.width, placement.height)
         .min_inner_size(bounds::MIN_WIDTH, bounds::MIN_HEIGHT)
-        .always_on_top(meta.on_top)
+        .always_on_top(look.on_top)
         .theme(current_theme(app))
         .visible(false);
     if let Some((x, y)) = placement.position {
@@ -386,60 +443,122 @@ fn build_note_window<R: Runtime>(
     }
 }
 
-/// A new note in the color of new notes. Created from a note window, it opens one step below
-/// and to the right of that note.
-pub fn create_note<R: Runtime>(
+/// Puts a note on the desktop or brings its sticky note to the front.
+pub fn open_sticky<R: Runtime>(
     app: &AppHandle<R>,
-    store: &Store,
+    service: &NotesService,
+    folder: &NoteFolder,
+    id: &str,
+) -> Result<(), AppError> {
+    let key = NotesService::key(folder, id)?;
+    // Only a note that exists goes onto the desktop.
+    service.store().title(folder, &key.id)?;
+    let label = sticky_label(&key);
+    let look = service.meta().get(&key.scope, &key.id);
+    if let Some(window) = app.get_webview_window(&label) {
+        show_and_focus(&window);
+    } else {
+        build_sticky(app, &look, &label)?;
+    }
+    if !look.open {
+        service
+            .meta()
+            .update(&key.scope, &key.id, |look| look.open = true)?;
+        notify_hub(app);
+    }
+    Ok(())
+}
+
+/// A new note on the desktop, in the scope of the sticky note `from` (General from the tray),
+/// one step below and to the right of it.
+pub fn create_sticky<R: Runtime>(
+    app: &AppHandle<R>,
+    service: &NotesService,
     settings: &SettingsStore,
-    from_label: Option<&str>,
-) -> Result<NoteMeta, AppError> {
-    let from = from_label
-        .filter(|label| note_id_of(label).is_some())
+    from: Option<&str>,
+    base: &str,
+) -> Result<OpenedNote, AppError> {
+    let source = from.and_then(sticky_of);
+    let folder = match &source {
+        Some(key) => folder_of(service, key)?,
+        None => NoteFolder::general(),
+    };
+    let near = from
+        .filter(|_| source.is_some())
         .and_then(|label| app.get_webview_window(label))
         .and_then(|window| window_bounds(&window.as_ref().window()));
     let (all, _) = monitors(app);
-    let bounds = from.map(|b| bounds::cascade(b, &all));
-    let meta = store.create(settings.get().new_note_color, bounds)?;
-    build_note_window(app, &meta, &note_label(&meta.id))?;
+    let note = service.create_untitled(&folder, base, settings.get().new_note_color)?;
+    let key = NotesService::key(&folder, &note.id)?;
+    let look = service.meta().update(&key.scope, &key.id, |look| {
+        look.open = true;
+        look.bounds = near.map(|b| bounds::cascade(b, &all));
+    })?;
+    build_sticky(app, &look, &sticky_label(&key))?;
     notify_hub(app);
-    Ok(meta)
+    Ok(note)
 }
 
-/// Hides a note: its window goes, the note stays in the list.
-pub fn close_note<R: Runtime>(
+/// Takes a note off the desktop: its window goes, the notes area edits it again.
+pub fn close_sticky<R: Runtime>(
     app: &AppHandle<R>,
-    store: &Store,
+    service: &NotesService,
     saver: &BoundsSaver,
-    id: &str,
+    key: &NoteKey,
 ) -> Result<(), AppError> {
-    let meta = store.get(id)?;
-    saver.flush(Some(&meta.id));
-    store.set_open(&meta.id, false)?;
-    if let Some(window) = app.get_webview_window(&note_label(&meta.id)) {
+    let label = sticky_label(key);
+    saver.flush(Some(&label));
+    service
+        .meta()
+        .update(&key.scope, &key.id, |look| look.open = false)?;
+    if let Some(window) = app.get_webview_window(&label) {
         window.destroy()?;
     }
     notify_hub(app);
     Ok(())
 }
 
-/// Moves a note into the trash and removes its window. Asked by any window but the note's own
-/// while the note is open, the note saves first and deletes itself; if it cannot save, nothing is
-/// deleted ([`AppError::NotSaved`]) and its window keeps the text. Blocks up to
-/// [`NOTE_REPLY_TIMEOUT`], so it must not run on the main thread, through which the answer comes.
+/// "Back into the list" from the notes area: the sticky note saves first; if it cannot, it stays
+/// ([`AppError::NotSaved`]). Blocks up to [`NOTE_REPLY_TIMEOUT`], so not on the main thread.
+pub fn return_sticky<R: Runtime>(
+    app: &AppHandle<R>,
+    service: &NotesService,
+    saver: &BoundsSaver,
+    replies: &Replies,
+    key: &NoteKey,
+) -> Result<(), AppError> {
+    let label = sticky_label(key);
+    let asked = replies.ask(
+        &label,
+        |_| {
+            app.get_webview_window(&label).is_some()
+                && app.emit_to(&label, FLUSH_REQUESTED_EVENT, ()).is_ok()
+        },
+        NOTE_REPLY_TIMEOUT,
+    );
+    if asked == Asked::Answered(NoteReply::NotSaved) {
+        return Err(AppError::NotSaved);
+    }
+    close_sticky(app, service, saver, key)
+}
+
+/// Moves a note into the trash and removes its sticky window. Asked by any window but the note's
+/// own while it is on the desktop, the sticky note saves first and deletes itself; if it cannot
+/// save, nothing is deleted ([`AppError::NotSaved`]). Blocks up to [`NOTE_REPLY_TIMEOUT`].
 pub fn delete_note<R: Runtime>(
     app: &AppHandle<R>,
-    store: &Store,
+    service: &NotesService,
     saver: &BoundsSaver,
     replies: &Replies,
     caller: &str,
+    folder: &NoteFolder,
     id: &str,
-) -> Result<TrashItem, AppError> {
-    let meta = store.get(id)?;
-    let label = note_label(&meta.id);
+) -> Result<(), AppError> {
+    let key = NotesService::key(folder, id)?;
+    let label = sticky_label(&key);
     if caller != label {
         let asked = replies.ask(
-            &meta.id,
+            &label,
             |_| {
                 app.get_webview_window(&label).is_some()
                     && app.emit_to(&label, DELETE_REQUESTED_EVENT, ()).is_ok()
@@ -447,52 +566,65 @@ pub fn delete_note<R: Runtime>(
             NOTE_REPLY_TIMEOUT,
         );
         match replies::delete_step(asked) {
-            DeleteStep::Done(item) => return Ok(item),
+            DeleteStep::Done => return Ok(()),
             DeleteStep::Refuse => return Err(AppError::NotSaved),
             DeleteStep::DeleteHere => {}
         }
     }
-    saver.flush(Some(&meta.id));
-    let item = match store.delete(&meta.id) {
-        Ok(item) => item,
-        // The note deleted itself right after the wait gave up.
-        Err(StoreError::UnknownNote) => store
-            .list_trash()?
-            .into_iter()
-            .find(|item| item.id == meta.id)
-            .ok_or(StoreError::UnknownNote)?,
+    saver.flush(Some(&label));
+    match service.delete(folder, &key.id) {
+        Ok(()) => {}
+        // The sticky note deleted itself right after the wait gave up.
+        Err(ServiceError::Notes(NotesError::UnknownNote)) if caller != label => {}
         Err(error) => return Err(error.into()),
-    };
-    replies.answer(&meta.id, NoteReply::Deleted(item.clone()));
+    }
+    replies.answer(&label, NoteReply::Deleted);
     if let Some(window) = app.get_webview_window(&label) {
         window.destroy()?;
     }
     notify_hub(app);
-    Ok(item)
+    Ok(())
 }
 
-/// "Quit": every open note saves first. A note that could not save keeps the app open and comes
-/// to the front with its "Not saved" notice; "Quit" again within
-/// [`replies::QUIT_ANYWAY_WITHIN`] ends the app anyway. A note that does not answer in time does
-/// not block.
+/// Every editor that may hold unsaved text: the sticky notes and the notes area.
+fn editors<R: Runtime>(app: &AppHandle<R>) -> Vec<String> {
+    app.webview_windows()
+        .keys()
+        .filter(|label| *label == HUB_LABEL || sticky_of(label).is_some())
+        .cloned()
+        .collect()
+}
+
+fn ask_editors<R: Runtime>(app: &AppHandle<R>) -> Vec<(String, Asked)> {
+    let labels = editors(app);
+    app.state::<Replies>().ask_all(
+        &labels,
+        |label| app.emit_to(label, FLUSH_REQUESTED_EVENT, ()).is_ok(),
+        NOTE_REPLY_TIMEOUT,
+    )
+}
+
+/// Hangar's `flush`: every editor saves. `true` once all answered that everything is on disk.
+pub fn flush_all<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let results = ask_editors(app);
+    app.state::<BoundsSaver>().flush(None);
+    results.iter().all(|(_, asked)| {
+        matches!(
+            asked,
+            Asked::NoWindow | Asked::Answered(NoteReply::Saved | NoteReply::Deleted)
+        )
+    })
+}
+
+/// "Quit": every editor saves first. One that could not save keeps the app open and comes to the
+/// front; "Quit" again within [`replies::QUIT_ANYWAY_WITHIN`] ends the app anyway. An editor that
+/// does not answer in time does not block.
 pub fn quit<R: Runtime>(app: &AppHandle<R>) {
     let app = app.clone();
     let chosen_at = Instant::now();
-    // Off the main thread: the notes' answers arrive through it.
+    // Off the main thread: the answers arrive through it.
     std::thread::spawn(move || {
-        let ids: Vec<String> = app
-            .webview_windows()
-            .keys()
-            .filter_map(|label| note_id_of(label))
-            .collect();
-        let results = app.state::<Replies>().ask_all(
-            &ids,
-            |id| {
-                app.emit_to(note_label(id), FLUSH_REQUESTED_EVENT, ())
-                    .is_ok()
-            },
-            NOTE_REPLY_TIMEOUT,
-        );
+        let results = ask_editors(&app);
         let memory = app.state::<QuitMemory>();
         match replies::quit_step(results, memory.refused_at(), chosen_at) {
             QuitStep::Quit => {
@@ -501,8 +633,8 @@ pub fn quit<R: Runtime>(app: &AppHandle<R>) {
             }
             QuitStep::Stay(unsaved) => {
                 memory.refused(Instant::now());
-                for id in unsaved {
-                    if let Some(window) = app.get_webview_window(&note_label(&id)) {
+                for label in unsaved {
+                    if let Some(window) = app.get_webview_window(&label) {
                         show_and_focus(&window);
                     }
                 }
@@ -511,7 +643,7 @@ pub fn quit<R: Runtime>(app: &AppHandle<R>) {
     });
 }
 
-/// Opens "All notes" or brings it to the front.
+/// Opens the notes area or brings it to the front.
 pub fn open_hub<R: Runtime>(app: &AppHandle<R>) -> Result<(), AppError> {
     if let Some(window) = app.get_webview_window(HUB_LABEL) {
         show_and_focus(&window);
@@ -539,25 +671,61 @@ pub fn open_hub<R: Runtime>(app: &AppHandle<R>) -> Result<(), AppError> {
     }
 }
 
-/// Opens every note in the list.
-pub fn show_all_notes<R: Runtime>(app: &AppHandle<R>, store: &Store) {
-    for summary in store.list() {
-        if let Err(error) = open_note(app, store, &summary.meta.id) {
-            eprintln!("hangar-note: note not opened: {error}");
+/// Brings every sticky note to the front.
+pub fn show_all_stickies<R: Runtime>(app: &AppHandle<R>) {
+    for (label, window) in app.webview_windows() {
+        if sticky_of(&label).is_some() {
+            show_and_focus(&window);
         }
     }
 }
 
-/// On startup: every note that was open reopens; without any, "All notes" opens instead.
-pub fn restore<R: Runtime>(app: &AppHandle<R>, store: &Store) -> Result<(), AppError> {
+/// Hands requests to the notes area: opens it and tells it to take them.
+pub fn deliver<R: Runtime>(
+    app: &AppHandle<R>,
+    requests: &Requests,
+    project: Option<std::path::PathBuf>,
+    list: Vec<HubRequest>,
+) {
+    if let Some(folder) = project {
+        requests.set_project(folder);
+    }
+    for request in list {
+        requests.push(request);
+    }
+    if let Err(error) = open_hub(app) {
+        eprintln!("hangar-note: notes area not opened: {error}");
+    }
+    let _ = app.emit_to(HUB_LABEL, HUB_REQUESTS_EVENT, ());
+}
+
+/// On startup: every note that was on the desktop comes back; the notes area opens when none did
+/// or when `show_hub` (a start with a command).
+pub fn restore<R: Runtime>(
+    app: &AppHandle<R>,
+    service: &NotesService,
+    show_hub: bool,
+) -> Result<(), AppError> {
     let mut opened = 0usize;
-    for meta in store.open_notes() {
-        match build_note_window(app, &meta, &note_label(&meta.id)) {
+    for (scope, id, look) in service.meta().open_notes() {
+        let key = NoteKey { scope, id };
+        let exists = service
+            .store()
+            .folder_for_key(&key.scope)
+            .is_some_and(|folder| service.store().title(&folder, &key.id).is_ok());
+        if !exists {
+            // Deleted or moved from outside meanwhile: it is no longer on the desktop.
+            let _ = service
+                .meta()
+                .update(&key.scope, &key.id, |look| look.open = false);
+            continue;
+        }
+        match build_sticky(app, &look, &sticky_label(&key)) {
             Ok(()) => opened += 1,
-            Err(error) => eprintln!("hangar-note: note not reopened: {error}"),
+            Err(error) => eprintln!("hangar-note: sticky note not reopened: {error}"),
         }
     }
-    if opened == 0 {
+    if opened == 0 || show_hub {
         open_hub(app)?;
     }
     Ok(())
@@ -568,19 +736,21 @@ pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
     let label = window.label();
     match event {
         WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-            if let (Some(id), Some(bounds)) = (note_id_of(label), window_bounds(window)) {
-                window.state::<BoundsSaver>().moved(id, bounds);
+            if let (Some(_), Some(bounds)) = (sticky_of(label), window_bounds(window)) {
+                window
+                    .state::<BoundsSaver>()
+                    .moved(label.to_owned(), bounds);
             }
         }
         WindowEvent::CloseRequested { api, .. } => {
             if label == HUB_LABEL {
-                // Without a tray icon there would be no way back to a hidden hub: then it closes,
-                // and closing the last window quits.
+                // Without a tray icon there would be no way back to a hidden notes area: then it
+                // closes, and closing the last window quits.
                 if crate::tray::present(window.app_handle()) {
                     api.prevent_close();
                     let _ = window.hide();
                 }
-            } else if note_id_of(label).is_some() {
+            } else if sticky_of(label).is_some() {
                 // The note saves its last keystrokes first, then closes itself (`close_note`).
                 api.prevent_close();
                 let _ = window.emit_to(label, CLOSE_REQUESTED_EVENT, ());
@@ -596,30 +766,50 @@ mod tests {
 
     const ID: &str = "1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5";
     const OTHER: &str = "0b7f6a0e-3c1d-4c5e-9a8b-1f2e3d4c5b6a";
+    const SCOPE: &str = "0123456789abcdef0123456789abcdef";
 
-    #[test]
-    fn labels_name_exactly_one_note() {
-        assert_eq!(note_label(ID), format!("note-{ID}"));
-        assert_eq!(note_id_of(&note_label(ID)).as_deref(), Some(ID));
-        assert_eq!(note_id_of(HUB_LABEL), None);
-        assert_eq!(note_id_of("note-"), None);
-        assert_eq!(note_id_of("note-../x"), None);
-        // Uppercase would be a second label for the same note.
-        assert_eq!(note_id_of(&note_label(&ID.to_uppercase())), None);
+    fn key(scope: &str, id: &str) -> NoteKey {
+        NoteKey {
+            scope: scope.into(),
+            id: id.into(),
+        }
     }
 
     #[test]
-    fn note_windows_may_only_touch_their_own_note() {
-        assert!(may_touch(HUB_LABEL, ID));
-        assert!(may_touch(HUB_LABEL, OTHER));
-        let own = note_label(ID);
-        assert!(may_touch(&own, ID));
-        assert!(may_touch(&own, &ID.to_uppercase()));
-        assert!(!may_touch(&own, OTHER));
-        assert!(!may_touch(&own, "not-an-id"));
-        assert!(!may_touch("main", ID));
+    fn labels_name_exactly_one_note() {
+        for k in [key(GENERAL_KEY, ID), key(SCOPE, ID)] {
+            assert_eq!(sticky_of(&sticky_label(&k)), Some(k));
+        }
+        assert_eq!(
+            sticky_label(&key(GENERAL_KEY, ID)),
+            format!("note-general-{ID}")
+        );
+        assert_eq!(sticky_of(HUB_LABEL), None);
+        assert_eq!(sticky_of("note-"), None);
+        assert_eq!(sticky_of(&format!("note-{ID}")), None);
+        assert_eq!(sticky_of("note-general-../x"), None);
+        assert_eq!(
+            sticky_of(&format!("note-{}-{ID}", SCOPE.to_uppercase())),
+            None
+        );
+        // Uppercase would be a second label for the same note.
+        assert_eq!(
+            sticky_of(&format!("note-general-{}", ID.to_uppercase())),
+            None
+        );
+    }
+
+    #[test]
+    fn sticky_notes_may_only_touch_their_own_note() {
+        let own = sticky_label(&key(GENERAL_KEY, ID));
+        assert!(may_touch(HUB_LABEL, &key(SCOPE, OTHER)));
+        assert!(may_touch(&own, &key(GENERAL_KEY, ID)));
+        assert!(!may_touch(&own, &key(GENERAL_KEY, OTHER)));
+        assert!(!may_touch(&own, &key(SCOPE, ID)));
+        assert!(!may_touch("main", &key(GENERAL_KEY, ID)));
+        assert!(checked_key(&own, &NoteFolder::general(), &ID.to_uppercase()).is_ok());
         assert!(matches!(
-            check_access(&own, OTHER),
+            checked_key(&own, &NoteFolder::general(), OTHER),
             Err(AppError::NotAllowed)
         ));
     }
@@ -632,13 +822,19 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_save_reaches_the_frontend_as_a_stable_code() {
+    fn errors_the_window_acts_on_arrive_as_stable_codes() {
+        let code = |error: AppError| serde_json::to_value(error).unwrap();
+        assert_eq!(code(AppError::NotSaved), serde_json::json!(NOT_SAVED_CODE));
         assert_eq!(
-            serde_json::to_value(AppError::NotSaved).unwrap(),
-            serde_json::json!(NOT_SAVED_CODE)
+            code(AppError::OnDesktop),
+            serde_json::json!(ON_DESKTOP_CODE)
         );
         assert_eq!(
-            serde_json::to_value(AppError::NotAllowed).unwrap(),
+            code(NotesError::ReadOnly.into()),
+            serde_json::json!("read-only")
+        );
+        assert_eq!(
+            code(AppError::NotAllowed),
             serde_json::json!("This window may not change that note")
         );
     }
@@ -681,10 +877,17 @@ mod tests {
 
     #[test]
     fn the_saver_writes_places_after_the_quiet_time_and_on_flush() {
+        use std::sync::atomic::AtomicBool;
         let dir = crate::test_support::TempDir::new("windows-saver");
-        let store = Arc::new(Store::open(dir.path()).unwrap());
-        let meta = store.create(crate::store::NoteColor::Lemon, None).unwrap();
-        let saver = BoundsSaver::start(store.clone());
+        let store = crate::notes::NotesStore::new(
+            &dir.path().join("notes"),
+            Arc::new(AtomicBool::new(true)),
+        );
+        let meta = crate::meta::MetaStore::open(&dir.path().join("meta.json"));
+        let service = Arc::new(NotesService::new(store, meta));
+        let k = key(GENERAL_KEY, ID);
+        let label = sticky_label(&k);
+        let saver = BoundsSaver::start(service.clone());
         let first = Bounds {
             x: 10.0,
             y: 20.0,
@@ -692,13 +895,13 @@ mod tests {
             height: 280.0,
         };
         let last = Bounds { x: 50.0, ..first };
-        saver.moved(meta.id.clone(), first);
-        saver.moved(meta.id.clone(), last);
-        saver.flush(Some(&meta.id));
-        assert_eq!(store.get(&meta.id).unwrap().bounds, Some(last));
+        saver.moved(label.clone(), first);
+        saver.moved(label.clone(), last);
+        saver.flush(Some(&label));
+        assert_eq!(service.meta().get(&k.scope, &k.id).bounds, Some(last));
         let later = Bounds { y: 99.0, ..last };
-        saver.moved(meta.id.clone(), later);
+        saver.moved(label.clone(), later);
         std::thread::sleep(BOUNDS_DELAY + Duration::from_millis(400));
-        assert_eq!(store.get(&meta.id).unwrap().bounds, Some(later));
+        assert_eq!(service.meta().get(&k.scope, &k.id).bounds, Some(later));
     }
 }

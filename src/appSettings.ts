@@ -38,6 +38,7 @@ export function trayLabels(t: Translate): TrayLabels {
     showAll: t("tray.showAll"),
     quit: t("tray.quit"),
     tooltip: t("app.name"),
+    untitled: t("notes.untitled"),
   };
 }
 
@@ -75,6 +76,7 @@ export function useAppSettings(): AppSettings {
             language: null,
             theme: "system",
             newNoteColor: "lemon",
+            colorNames: {},
             autostart: false,
           });
         }

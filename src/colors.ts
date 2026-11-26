@@ -3,7 +3,7 @@
 // (colors.test.ts measures it). The app chrome around the notes uses Hangar's tokens instead
 // (styles.css).
 
-import type { MessageKey } from "./i18n";
+import type { MessageKey, Translate } from "./i18n";
 
 export type NoteColor = "lemon" | "peach" | "mint" | "sky" | "lilac" | "rose" | "sand" | "slate";
 export type Theme = "light" | "dark";
@@ -75,6 +75,16 @@ export function isNoteColor(value: unknown): value is NoteColor {
 
 export function colorLabelKey(color: NoteColor): MessageKey {
   return `color.${color}`;
+}
+
+/** The person's own name of a color, else the color's name in the UI language. */
+export function colorName(
+  color: NoteColor,
+  names: Partial<Record<NoteColor, string>>,
+  t: Translate,
+): string {
+  const own = names[color]?.trim();
+  return own !== undefined && own !== "" ? own : t(colorLabelKey(color));
 }
 
 export function noteTone(color: NoteColor, theme: Theme): NoteTone {

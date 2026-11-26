@@ -1,5 +1,5 @@
 //! Asking note windows to save before something that would end them: deleting an open note from
-//! "All notes" and quitting from the tray (ADR 0001 anti-goal: never lose more than the last 500 ms
+//! the notes area and quitting from the tray (ADR 0001 anti-goal: never lose more than the last 500 ms
 //! of typing). The text being typed lives only in the note's view, so the backend cannot save it
 //! itself; it asks the view and waits for its answer, at most a timeout.
 //!
@@ -11,8 +11,6 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use crate::store::TrashItem;
-
 /// What a note window answers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NoteReply {
@@ -21,7 +19,7 @@ pub enum NoteReply {
     /// The write failed: the text exists only in the window.
     NotSaved,
     /// The note saved and moved itself into the trash.
-    Deleted(TrashItem),
+    Deleted,
 }
 
 /// The outcome of asking one note.
@@ -37,8 +35,8 @@ pub enum Asked {
 /// What deleting a note from "All notes" does after asking the note.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeleteStep {
-    /// The note deleted itself after saving; this is its trash entry.
-    Done(TrashItem),
+    /// The note deleted itself after saving.
+    Done,
     /// The note could not save: deleting would throw its text away, so nothing is deleted.
     Refuse,
     /// Nothing unsaved is known: the backend deletes the note itself.
@@ -47,7 +45,7 @@ pub enum DeleteStep {
 
 pub fn delete_step(asked: Asked) -> DeleteStep {
     match asked {
-        Asked::Answered(NoteReply::Deleted(item)) => DeleteStep::Done(item),
+        Asked::Answered(NoteReply::Deleted) => DeleteStep::Done,
         Asked::Answered(NoteReply::NotSaved) => DeleteStep::Refuse,
         // A window that never answers must not make a note undeletable; what it saved before is in
         // the trash.
@@ -218,19 +216,8 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use crate::store::NoteColor;
-
     const SHORT: Duration = Duration::from_millis(50);
     const LONG: Duration = Duration::from_secs(5);
-
-    fn item(id: &str) -> TrashItem {
-        TrashItem {
-            id: id.into(),
-            color: NoteColor::Lemon,
-            deleted_at: 1,
-            preview: String::new(),
-        }
-    }
 
     #[test]
     fn an_answer_given_while_being_asked_is_not_lost() {
@@ -255,7 +242,7 @@ mod tests {
             let replies = replies.clone();
             std::thread::spawn(move || {
                 // The note saves, then deletes itself and reports its trash entry.
-                while replies.answer("a", NoteReply::Deleted(item("a"))) == 0 {
+                while replies.answer("a", NoteReply::Deleted) == 0 {
                     std::thread::sleep(Duration::from_millis(5));
                 }
             })
@@ -263,7 +250,7 @@ mod tests {
         let started = Instant::now();
         let asked = replies.ask("a", |_| true, LONG);
         note.join().unwrap();
-        assert_eq!(asked, Asked::Answered(NoteReply::Deleted(item("a"))));
+        assert_eq!(asked, Asked::Answered(NoteReply::Deleted));
         assert!(started.elapsed() < LONG);
     }
 
@@ -316,8 +303,8 @@ mod tests {
     #[test]
     fn deleting_goes_ahead_only_when_no_unsaved_text_is_known() {
         assert_eq!(
-            delete_step(Asked::Answered(NoteReply::Deleted(item("a")))),
-            DeleteStep::Done(item("a"))
+            delete_step(Asked::Answered(NoteReply::Deleted)),
+            DeleteStep::Done
         );
         assert_eq!(
             delete_step(Asked::Answered(NoteReply::NotSaved)),

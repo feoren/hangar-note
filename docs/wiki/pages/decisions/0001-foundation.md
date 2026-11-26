@@ -81,6 +81,11 @@ Window model option 1, storage option 1, editor option 1, Hangar relation option
 - The backend creates and owns all windows; the frontend asks for them through commands.
 
 ### Storage
+> [!warning] Replaced
+> Since phase 1 of [[0002-hangar-notes-takeover]] the notes live in Hangar's folder and format
+> ([[hangar-notes-format]]); colors and sticky places are in `meta.json`. The files of this section
+> are no longer read and are left where they are.
+
 Under `app_local_data_dir()/notes/` (Windows `%LOCALAPPDATA%\<identifier>\notes`):
 - `<id>.md`: the content as Markdown, UTF-8, at most 1 MiB. `id` is a UUID v4, so file names never
   depend on user text.

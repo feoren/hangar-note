@@ -75,10 +75,10 @@ describe("dictionaries", () => {
 
 describe("translate", () => {
   it("fills placeholders and leaves unknown ones", () => {
-    expect(translate("de", "hub.noMatches", { query: "Milch" })).toBe(
+    expect(translate("de", "notes.noHits", { query: "Milch" })).toBe(
       "Keine Notiz enthält „Milch“.",
     );
-    expect(translate("en", "hub.deletedAt")).toBe("Deleted {date}");
+    expect(translate("en", "notes.deletedAgo")).toBe("Deleted {time}");
   });
 });
 

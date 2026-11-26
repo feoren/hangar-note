@@ -146,6 +146,50 @@ Everything listed under "What exists", plus:
 4. **Hangar:** removes the notes UI (keeps the panel for Changes and Files, keeps the notes key ring
    engine for decisions).
 
+### Phase 1 as built (2026-11-26)
+Code: `src-tauri/src/notes.rs` (Hangar's store, ported with its tests), `access.rs` (root, marker,
+lock), `meta.rs`, `service.rs`, `channel/`, `cli.rs`, `requests.rs`, `install.rs`; frontend
+`src/NotesArea.tsx` (the notes area that replaced "All notes"), `src/NoteWindow.tsx`. Format and
+channel details: [[hangar-notes-format]], [[local-channel]]. Deviations and choices, with reasons:
+
+- **Read only means nothing written into Hangar's folder at all.** Without the marker the store
+  syncs in memory only (no `folder.json` rewrite, no set-aside, no legacy migration); a file
+  without an entry gets an ID derived from scope and file name, so it keeps its ID between calls.
+  The writer lock is taken only *after* the marker is found, so a read-only Hangar Note does not
+  even create `.writer.lock`. The state is checked again whenever a window asks for its status
+  (focus), so a marker Hangar writes later takes effect without a restart.
+- **Hangar Note's own data stays writable while read only:** colors, color names and sticky places
+  live in Hangar Note's files, so they change; every note write answers `read-only`.
+- **Writer lock:** `std::fs::File::try_lock` (Rust 1.89+), held for the app's lifetime; no crate.
+- **Color names** are a personal setting in `settings.json` (`colorNames`), next to language and
+  theme, not in `meta.json`; per-note colors and sticky places are in `meta.json`.
+- **Development root:** its `meta.json` is `<root>/.hangar-note-meta.json`, so a test run never
+  mixes into the person's own colors. `install.json`, `endpoint.json` and `settings.json` stay in
+  the real data folder (a debug start rewrites `install.json` with the debug exe; the next release
+  start writes it back).
+- **One editor per note** is enforced in the backend: the notes area gets `on-desktop` when it
+  tries to write a note with a sticky window; a sticky window writes only its own note
+  (`write_sticky`, the note derived from its window label, so it needs no `write_note` right).
+- **Quick note:** `Ctrl+Shift+N` works inside the notes area (as in Hangar's window); a system-wide
+  hotkey is not part of phase 1. A new note gets "Note N" and follows its first line until
+  renamed (F2); empty on leaving, it goes to the trash. Sticky notes follow the same rule.
+- **`capture`** creates a new note in `--folder` with Hangar's capture block (time and source, here
+  the folder name, then a fenced block) and shows it; it does not append to the open note, since
+  phase 1 has no "active session" to decide that. The text travels over the channel; with no
+  running app the capturing process becomes the app and keeps the text.
+- **Routes:** `excerpts` takes `{ version, folder?, limit? }` and answers the scope's notes newest
+  first with a plain start of each (at most 200); `flush` asks every editor (sticky notes and the
+  notes area) and answers `saved`. Errors are fixed codes (`read-only`, `unknown-note`, `invalid`,
+  `unsupported-version`, ...).
+- **Tray:** "New note" puts a new sticky note of General on the desktop; "Show all notes" brings
+  every sticky note to the front instead of opening every note (Hangar's notes can be hundreds).
+- **Not ported:** `reorder_notes` (Hangar's panel lists by last change and never reorders);
+  Explorer opens folders through `explorer.exe "<folder>"` instead of `ShellExecuteExW`, which
+  avoids `windows-sys` for one call.
+- **Dependencies added:** `sha2`, `getrandom`, `dirs` (all already in the tree), the official
+  dialog and clipboard plugins (backend only, no frontend permission) and `markdown-it` (the
+  preview, as in Hangar).
+
 ## Consequences
 - Two apps must agree on one versioned contract; changes go through both sessions.
 - Hangar's notes code shrinks to the key ring engine and the contract routes; its notes tests move

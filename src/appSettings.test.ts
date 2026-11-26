@@ -20,6 +20,7 @@ describe("settings", () => {
       showAll: "Alle Notizen anzeigen",
       quit: "Beenden",
       tooltip: "Hangar Note",
+      untitled: "Notiz",
     });
   });
 });

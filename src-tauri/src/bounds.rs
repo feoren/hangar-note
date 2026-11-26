@@ -5,7 +5,7 @@
 //! some monitor. Otherwise (a monitor was unplugged, the resolution shrank) the window moves onto
 //! the primary monitor, as close to where it was as fits.
 
-use crate::store::{Bounds, MAX_SIDE};
+use crate::meta::{Bounds, MAX_SIDE};
 
 pub const DEFAULT_WIDTH: f64 = 320.0;
 pub const DEFAULT_HEIGHT: f64 = 320.0;
