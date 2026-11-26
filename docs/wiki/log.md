@@ -86,3 +86,7 @@ drag strip, the motion table. Recorded the changed windows in pages/decisions/00
 ## [2026-11-26] query | Review of direction A
 Recorded three fixes from the review of the build (row meta under the tools, notices at 320 px,
 slim scrollbars) in pages/syntheses/usability-pass.md.
+
+## [2026-11-26] schema | ADR 0004 switchable looks
+Created pages/decisions/0004-switchable-looks.md (accepted): the owner asked for all three design
+directions to be built in, as one setting over one shared notes area. Index updated.
