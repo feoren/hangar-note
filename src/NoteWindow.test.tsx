@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OpenedNote, Status } from "./api";
 import type { EditorOptions } from "./editor";
+import type { Look } from "./looks";
 import { createTranslator, I18nContext } from "./i18n";
 
 const ID = "1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5";
@@ -121,7 +122,7 @@ async function settle() {
   });
 }
 
-async function render() {
+async function render(look: Look = "calm") {
   container = document.createElement("div");
   outside = document.createElement("button");
   document.body.append(container, outside);
@@ -129,7 +130,20 @@ async function render() {
   await act(async () => {
     root.render(
       <I18nContext.Provider value={t}>
-        <NoteWindow label={LABEL} theme="light" colorNames={{}} />
+        <NoteWindow label={LABEL} theme="light" colorNames={{}} look={look} />
+      </I18nContext.Provider>,
+    );
+    await Promise.resolve();
+  });
+  await settle();
+}
+
+/** The same window in another look, as the settings-changed event brings it. */
+async function rerender(look: Look) {
+  await act(async () => {
+    root.render(
+      <I18nContext.Provider value={t}>
+        <NoteWindow label={LABEL} theme="light" colorNames={{}} look={look} />
       </I18nContext.Provider>,
     );
     await Promise.resolve();
@@ -399,5 +413,66 @@ describe("note window", () => {
     await request("flush");
     expect(container.textContent).toContain(t("storage.diskFull"));
     expect(container.textContent).not.toContain("disk-full");
+  });
+});
+
+const STICKY_LOOKS: readonly Look[] = ["calm", "paper", "hangar"];
+
+describe.each(STICKY_LOOKS)("note window in the look %s", (look) => {
+  it("can always be moved by a region at its top", async () => {
+    await render(look);
+    const region = container.querySelector(look === "calm" ? ".note-strip" : ".note-head");
+    expect(region?.hasAttribute("data-tauri-drag-region")).toBe(true);
+    expect(region?.getAttribute("title")).toBe(t("note.drag"));
+    expect(get(".note", HTMLElement).dataset["look"]).toBe(look);
+  });
+
+  it("shows the formatting bar while you write", async () => {
+    await render(look);
+    expect(bar()).toBeNull();
+    await focus(get(".cm-content", HTMLElement));
+    expect(bar()).not.toBeNull();
+    expect(container.querySelector(".format-slot")).not.toBeNull();
+  });
+
+  it("saves before closing and closes an unsaved note only on the second try", async () => {
+    api.writeSticky.mockRejectedValue(new Error("disk full"));
+    const now = vi.spyOn(Date, "now").mockReturnValue(7_000_000);
+    await render(look);
+    await type("Nur hier");
+    await request("close");
+    expect(api.writeSticky).toHaveBeenCalledWith("Nur hier");
+    expect(api.closeNote).not.toHaveBeenCalled();
+    expect(get(".note-stuck", HTMLElement).getAttribute("role")).toBe("alert");
+    now.mockReturnValue(7_005_000);
+    await request("close");
+    expect(api.closeNote).toHaveBeenCalledTimes(1);
+    now.mockRestore();
+  });
+});
+
+describe("note window: looks", () => {
+  it("names the note and its progress in the hangar look, and says whether it is saved", async () => {
+    api.getSticky.mockResolvedValue({ ...note, text: "Einkaufen\n- [x] Milch\n- [ ] Brot" });
+    await render("hangar");
+    expect(get(".note-head-title", HTMLElement).textContent).toBe("Einkaufen");
+    expect(get(".note-head-progress", HTMLElement).textContent).toContain("1/2");
+    await focus(get(".cm-content", HTMLElement));
+    expect(get(".format-saved", HTMLElement).textContent).toBe(t("notes.saved"));
+  });
+
+  it("keeps its editor and what waits to be saved when the look changes", async () => {
+    await render("calm");
+    const content = get(".cm-content", HTMLElement);
+    await type("Noch nicht gespeichert");
+    expect(api.writeSticky).not.toHaveBeenCalled();
+    await rerender("paper");
+    expect(get(".cm-content", HTMLElement)).toBe(content);
+    expect(container.querySelector(".note-strip")).toBeNull();
+    await rerender("hangar");
+    expect(get(".cm-content", HTMLElement)).toBe(content);
+    await request("flush");
+    expect(api.writeSticky).toHaveBeenCalledWith("Noch nicht gespeichert");
+    expect(api.noteFlushed).toHaveBeenCalledWith(true);
   });
 });

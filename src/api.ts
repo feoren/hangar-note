@@ -7,6 +7,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { NoteColor } from "./colors";
 import type { Language, MessageKey } from "./i18n";
+import type { Look } from "./looks";
 
 /** A scope: a working folder (absolute) or `null` for "General". */
 export interface NoteFolder {
@@ -96,6 +97,8 @@ export interface Settings {
   newNoteColor: NoteColor;
   /** The person's own names of the colors. */
   colorNames: Partial<Record<NoteColor, string>>;
+  /** The look of every window (ADR 0004); the backend reads an unknown one as `calm`. */
+  look: Look;
 }
 
 export interface SettingsView extends Settings {

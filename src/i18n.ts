@@ -177,8 +177,7 @@ const de = {
   "notes.heldHint": "Dieser Text ist nicht gespeichert. Kopier ihn, damit er nicht verloren geht.",
   "notes.capturedFrom": "Aus {source}, {time}",
   "notes.readOnlyTitle": "Deine Hangar-Notizen",
-  "notes.leaveUnsaved":
-    "Nicht gespeichert. Kopier den Text als Markdown. Wechselst du innerhalb von 10 Sekunden noch einmal, geht das Ungespeicherte verloren.",
+  "notes.leaveUnsaved": "Noch einmal wechseln verwirft die Änderung.",
   "note.closeUnsaved":
     "Nicht gespeichert. Kopier den Text als Markdown. Schließt du innerhalb von 10 Sekunden noch einmal, geht das Ungespeicherte verloren.",
   "notes.reloadList": "Liste neu laden",
@@ -195,6 +194,18 @@ const de = {
   "notes.actionsFor": "Aktionen für „{title}“",
   "note.drag": "Zum Verschieben ziehen",
   "key.delete": "Entf",
+  "notes.closeSheet": "Schließen (Esc)",
+  "notes.scopes": "Bereiche",
+  "notes.colors": "Farben",
+  "notes.lastChanged": "Zuletzt geändert",
+  "notes.keys": "Tastatur",
+  "settings.look": "Aussehen",
+  "look.calm": "Ruhig",
+  "look.paper": "Papier",
+  "look.hangar": "Hangar",
+  "look.calmHint": "Eine ruhige Liste. Die Notiz liest sich wie eine Seite.",
+  "look.paperHint": "Notizen als farbige Zettel. Checklisten hakst du direkt ab.",
+  "look.hangarHint": "Wie in Hangar: drei Spalten, alles auf einen Blick.",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof de;
@@ -346,8 +357,7 @@ const en: Record<MessageKey, string> = {
   "notes.heldHint": "This text is not saved. Copy it so it does not get lost.",
   "notes.capturedFrom": "From {source}, {time}",
   "notes.readOnlyTitle": "Your Hangar notes",
-  "notes.leaveUnsaved":
-    "Not saved. Copy the text as Markdown. Leave again within 10 seconds and the unsaved text is lost.",
+  "notes.leaveUnsaved": "Switching again discards the change.",
   "note.closeUnsaved":
     "Not saved. Copy the text as Markdown. Close again within 10 seconds and the unsaved text is lost.",
   "notes.reloadList": "Reload the list",
@@ -363,6 +373,18 @@ const en: Record<MessageKey, string> = {
   "notes.actionsFor": "Actions for “{title}”",
   "note.drag": "Drag to move",
   "key.delete": "Del",
+  "notes.closeSheet": "Close (Esc)",
+  "notes.scopes": "Areas",
+  "notes.colors": "Colors",
+  "notes.lastChanged": "Last changed",
+  "notes.keys": "Keyboard",
+  "settings.look": "Look",
+  "look.calm": "Calm",
+  "look.paper": "Paper",
+  "look.hangar": "Hangar",
+  "look.calmHint": "A calm list. The note reads like a page.",
+  "look.paperHint": "Notes as colored slips. Tick checklists right on them.",
+  "look.hangarHint": "Like Hangar: three columns, everything at a glance.",
 };
 
 const el: Record<MessageKey, string> = {
@@ -518,8 +540,7 @@ const el: Record<MessageKey, string> = {
   "notes.heldHint": "Αυτό το κείμενο δεν έχει αποθηκευτεί. Αντέγραψέ το για να μη χαθεί.",
   "notes.capturedFrom": "Από {source}, {time}",
   "notes.readOnlyTitle": "Οι σημειώσεις σου από το Hangar",
-  "notes.leaveUnsaved":
-    "Δεν αποθηκεύτηκε. Αντίγραψε το κείμενο ως Markdown. Αν φύγεις ξανά μέσα σε 10 δευτερόλεπτα, το μη αποθηκευμένο κείμενο χάνεται.",
+  "notes.leaveUnsaved": "Αν αλλάξεις ξανά, η αλλαγή χάνεται.",
   "note.closeUnsaved":
     "Δεν αποθηκεύτηκε. Αντίγραψε το κείμενο ως Markdown. Αν την κλείσεις ξανά μέσα σε 10 δευτερόλεπτα, το μη αποθηκευμένο κείμενο χάνεται.",
   "notes.reloadList": "Φόρτωσε ξανά τη λίστα",
@@ -536,6 +557,18 @@ const el: Record<MessageKey, string> = {
   "notes.actionsFor": "Ενέργειες για «{title}»",
   "note.drag": "Σύρε για μετακίνηση",
   "key.delete": "Delete",
+  "notes.closeSheet": "Κλείσιμο (Esc)",
+  "notes.scopes": "Περιοχές",
+  "notes.colors": "Χρώματα",
+  "notes.lastChanged": "Τελευταία αλλαγή",
+  "notes.keys": "Πληκτρολόγιο",
+  "settings.look": "Εμφάνιση",
+  "look.calm": "Ήρεμη",
+  "look.paper": "Χαρτί",
+  "look.hangar": "Hangar",
+  "look.calmHint": "Μια ήρεμη λίστα. Η σημείωση διαβάζεται σαν σελίδα.",
+  "look.paperHint": "Σημειώσεις σαν χρωματιστά χαρτάκια. Τσεκάρεις τις λίστες κατευθείαν.",
+  "look.hangarHint": "Όπως στο Hangar: τρεις στήλες, όλα με μια ματιά.",
 };
 
 const es: Record<MessageKey, string> = {
@@ -685,8 +718,7 @@ const es: Record<MessageKey, string> = {
   "notes.heldHint": "Este texto no está guardado. Cópialo para que no se pierda.",
   "notes.capturedFrom": "De {source}, {time}",
   "notes.readOnlyTitle": "Tus notas de Hangar",
-  "notes.leaveUnsaved":
-    "No guardado. Copia el texto como Markdown. Si vuelves a salir en menos de 10 segundos, se pierde el texto sin guardar.",
+  "notes.leaveUnsaved": "Si cambias otra vez, se descarta el cambio.",
   "note.closeUnsaved":
     "No guardado. Copia el texto como Markdown. Si vuelves a cerrar en menos de 10 segundos, se pierde el texto sin guardar.",
   "notes.reloadList": "Recargar la lista",
@@ -702,6 +734,18 @@ const es: Record<MessageKey, string> = {
   "notes.actionsFor": "Acciones para «{title}»",
   "note.drag": "Arrastra para mover",
   "key.delete": "Supr",
+  "notes.closeSheet": "Cerrar (Esc)",
+  "notes.scopes": "Áreas",
+  "notes.colors": "Colores",
+  "notes.lastChanged": "Último cambio",
+  "notes.keys": "Teclado",
+  "settings.look": "Aspecto",
+  "look.calm": "Tranquilo",
+  "look.paper": "Papel",
+  "look.hangar": "Hangar",
+  "look.calmHint": "Una lista tranquila. La nota se lee como una página.",
+  "look.paperHint": "Notas como papelitos de colores. Marca las listas directamente.",
+  "look.hangarHint": "Como en Hangar: tres columnas, todo de un vistazo.",
 };
 
 const fr: Record<MessageKey, string> = {
@@ -854,8 +898,7 @@ const fr: Record<MessageKey, string> = {
   "notes.heldHint": "Ce texte n’est pas enregistré. Copie-le pour ne pas le perdre.",
   "notes.capturedFrom": "De {source}, {time}",
   "notes.readOnlyTitle": "Tes notes Hangar",
-  "notes.leaveUnsaved":
-    "Non enregistré. Copie le texte en Markdown. Si tu quittes à nouveau dans les 10 secondes, le texte non enregistré est perdu.",
+  "notes.leaveUnsaved": "Changer encore une fois abandonne la modification.",
   "note.closeUnsaved":
     "Non enregistré. Copie le texte en Markdown. Si tu fermes à nouveau dans les 10 secondes, le texte non enregistré est perdu.",
   "notes.reloadList": "Recharger la liste",
@@ -872,6 +915,18 @@ const fr: Record<MessageKey, string> = {
   "notes.actionsFor": "Actions pour « {title} »",
   "note.drag": "Fais glisser pour déplacer",
   "key.delete": "Suppr",
+  "notes.closeSheet": "Fermer (Échap)",
+  "notes.scopes": "Espaces",
+  "notes.colors": "Couleurs",
+  "notes.lastChanged": "Dernière modification",
+  "notes.keys": "Clavier",
+  "settings.look": "Apparence",
+  "look.calm": "Calme",
+  "look.paper": "Papier",
+  "look.hangar": "Hangar",
+  "look.calmHint": "Une liste calme. La note se lit comme une page.",
+  "look.paperHint": "Des notes comme des papiers de couleur. Coche les listes directement.",
+  "look.hangarHint": "Comme dans Hangar : trois colonnes, tout d’un coup d’œil.",
 };
 
 const it: Record<MessageKey, string> = {
@@ -1023,8 +1078,7 @@ const it: Record<MessageKey, string> = {
   "notes.heldHint": "Questo testo non è salvato. Copialo per non perderlo.",
   "notes.capturedFrom": "Da {source}, {time}",
   "notes.readOnlyTitle": "Le tue note di Hangar",
-  "notes.leaveUnsaved":
-    "Non salvata. Copia il testo come Markdown. Se esci di nuovo entro 10 secondi, il testo non salvato va perso.",
+  "notes.leaveUnsaved": "Cambiando di nuovo, la modifica va persa.",
   "note.closeUnsaved":
     "Non salvata. Copia il testo come Markdown. Se chiudi di nuovo entro 10 secondi, il testo non salvato va perso.",
   "notes.reloadList": "Ricarica l’elenco",
@@ -1040,6 +1094,18 @@ const it: Record<MessageKey, string> = {
   "notes.actionsFor": "Azioni per «{title}»",
   "note.drag": "Trascina per spostare",
   "key.delete": "Canc",
+  "notes.closeSheet": "Chiudi (Esc)",
+  "notes.scopes": "Aree",
+  "notes.colors": "Colori",
+  "notes.lastChanged": "Ultima modifica",
+  "notes.keys": "Tastiera",
+  "settings.look": "Aspetto",
+  "look.calm": "Calmo",
+  "look.paper": "Carta",
+  "look.hangar": "Hangar",
+  "look.calmHint": "Un elenco calmo. La nota si legge come una pagina.",
+  "look.paperHint": "Note come foglietti colorati. Spunti le liste direttamente.",
+  "look.hangarHint": "Come in Hangar: tre colonne, tutto a colpo d’occhio.",
 };
 
 const ja: Record<MessageKey, string> = {
@@ -1189,8 +1255,7 @@ const ja: Record<MessageKey, string> = {
   "notes.heldHint": "このテキストは保存されていません。失われないようにコピーしてください。",
   "notes.capturedFrom": "{source} から（{time}）",
   "notes.readOnlyTitle": "Hangar のメモ",
-  "notes.leaveUnsaved":
-    "保存されていません。テキストを Markdown としてコピーしてください。10 秒以内にもう一度移動すると、保存されていないテキストは失われます。",
+  "notes.leaveUnsaved": "もう一度切り替えると、変更は破棄されます。",
   "note.closeUnsaved":
     "保存されていません。テキストを Markdown としてコピーしてください。10 秒以内にもう一度閉じると、保存されていないテキストは失われます。",
   "notes.reloadList": "一覧を再読み込み",
@@ -1206,6 +1271,18 @@ const ja: Record<MessageKey, string> = {
   "notes.actionsFor": "「{title}」の操作",
   "note.drag": "ドラッグして移動",
   "key.delete": "Delete",
+  "notes.closeSheet": "閉じる (Esc)",
+  "notes.scopes": "エリア",
+  "notes.colors": "色",
+  "notes.lastChanged": "最終更新",
+  "notes.keys": "キーボード",
+  "settings.look": "外観",
+  "look.calm": "シンプル",
+  "look.paper": "ペーパー",
+  "look.hangar": "Hangar",
+  "look.calmHint": "落ち着いた一覧。メモはページのように読めます。",
+  "look.paperHint": "メモを色付きの紙として表示。チェックリストはそのままチェックできます。",
+  "look.hangarHint": "Hangar と同じ 3 列表示。すべてをひと目で。",
 };
 
 const pl: Record<MessageKey, string> = {
@@ -1355,8 +1432,7 @@ const pl: Record<MessageKey, string> = {
   "notes.heldHint": "Ten tekst nie jest zapisany. Skopiuj go, żeby nie zginął.",
   "notes.capturedFrom": "Z {source}, {time}",
   "notes.readOnlyTitle": "Twoje notatki z Hangara",
-  "notes.leaveUnsaved":
-    "Nie zapisano. Skopiuj tekst jako Markdown. Jeśli w ciągu 10 sekund spróbujesz ponownie wyjść, niezapisany tekst przepadnie.",
+  "notes.leaveUnsaved": "Ponowne przełączenie odrzuci zmianę.",
   "note.closeUnsaved":
     "Nie zapisano. Skopiuj tekst jako Markdown. Jeśli w ciągu 10 sekund spróbujesz ponownie zamknąć, niezapisany tekst przepadnie.",
   "notes.reloadList": "Wczytaj listę ponownie",
@@ -1373,6 +1449,18 @@ const pl: Record<MessageKey, string> = {
   "notes.actionsFor": "Działania dla „{title}”",
   "note.drag": "Przeciągnij, aby przenieść",
   "key.delete": "Delete",
+  "notes.closeSheet": "Zamknij (Esc)",
+  "notes.scopes": "Obszary",
+  "notes.colors": "Kolory",
+  "notes.lastChanged": "Ostatnia zmiana",
+  "notes.keys": "Klawiatura",
+  "settings.look": "Wygląd",
+  "look.calm": "Spokojny",
+  "look.paper": "Papier",
+  "look.hangar": "Hangar",
+  "look.calmHint": "Spokojna lista. Notatkę czyta się jak stronę.",
+  "look.paperHint": "Notatki jak kolorowe karteczki. Listy odhaczasz od razu.",
+  "look.hangarHint": "Jak w Hangar: trzy kolumny, wszystko na pierwszy rzut oka.",
 };
 
 const pt: Record<MessageKey, string> = {
@@ -1525,8 +1613,7 @@ const pt: Record<MessageKey, string> = {
   "notes.heldHint": "Este texto não está salvo. Copie-o para não perdê-lo.",
   "notes.capturedFrom": "De {source}, {time}",
   "notes.readOnlyTitle": "Suas notas do Hangar",
-  "notes.leaveUnsaved":
-    "Não salva. Copie o texto como Markdown. Se sair de novo em até 10 segundos, o texto não salvo será perdido.",
+  "notes.leaveUnsaved": "Trocar de novo descarta a alteração.",
   "note.closeUnsaved":
     "Não salva. Copie o texto como Markdown. Se fechar de novo em até 10 segundos, o texto não salvo será perdido.",
   "notes.reloadList": "Recarregar a lista",
@@ -1542,6 +1629,18 @@ const pt: Record<MessageKey, string> = {
   "notes.actionsFor": "Ações para “{title}”",
   "note.drag": "Arraste para mover",
   "key.delete": "Delete",
+  "notes.closeSheet": "Fechar (Esc)",
+  "notes.scopes": "Áreas",
+  "notes.colors": "Cores",
+  "notes.lastChanged": "Última alteração",
+  "notes.keys": "Teclado",
+  "settings.look": "Aparência",
+  "look.calm": "Calmo",
+  "look.paper": "Papel",
+  "look.hangar": "Hangar",
+  "look.calmHint": "Uma lista calma. A nota se lê como uma página.",
+  "look.paperHint": "Notas como papeizinhos coloridos. Marque as listas direto neles.",
+  "look.hangarHint": "Como no Hangar: três colunas, tudo num relance.",
 };
 
 const ru: Record<MessageKey, string> = {
@@ -1693,8 +1792,7 @@ const ru: Record<MessageKey, string> = {
   "notes.heldHint": "Этот текст не сохранён. Скопируй его, чтобы он не потерялся.",
   "notes.capturedFrom": "Из {source}, {time}",
   "notes.readOnlyTitle": "Твои заметки из Hangar",
-  "notes.leaveUnsaved":
-    "Не сохранено. Скопируй текст как Markdown. Если уйдёшь ещё раз в течение 10 секунд, несохранённый текст пропадёт.",
+  "notes.leaveUnsaved": "Повторное переключение отменит изменение.",
   "note.closeUnsaved":
     "Не сохранено. Скопируй текст как Markdown. Если закроешь ещё раз в течение 10 секунд, несохранённый текст пропадёт.",
   "notes.reloadList": "Обновить список",
@@ -1710,6 +1808,18 @@ const ru: Record<MessageKey, string> = {
   "notes.actionsFor": "Действия для «{title}»",
   "note.drag": "Перетащи, чтобы переместить",
   "key.delete": "Delete",
+  "notes.closeSheet": "Закрыть (Esc)",
+  "notes.scopes": "Разделы",
+  "notes.colors": "Цвета",
+  "notes.lastChanged": "Последнее изменение",
+  "notes.keys": "Клавиатура",
+  "settings.look": "Вид",
+  "look.calm": "Спокойный",
+  "look.paper": "Бумага",
+  "look.hangar": "Hangar",
+  "look.calmHint": "Спокойный список. Заметка читается как страница.",
+  "look.paperHint": "Заметки как цветные листки. Отмечай пункты прямо на них.",
+  "look.hangarHint": "Как в Hangar: три колонки, всё на виду.",
 };
 
 const tr: Record<MessageKey, string> = {
@@ -1858,8 +1968,7 @@ const tr: Record<MessageKey, string> = {
   "notes.heldHint": "Bu metin kaydedilmedi. Kaybolmaması için kopyala.",
   "notes.capturedFrom": "{source} klasöründen, {time}",
   "notes.readOnlyTitle": "Hangar notların",
-  "notes.leaveUnsaved":
-    "Kaydedilmedi. Metni Markdown olarak kopyala. 10 saniye içinde yeniden çıkarsan kaydedilmemiş metin kaybolur.",
+  "notes.leaveUnsaved": "Yeniden geçersen değişiklik silinir.",
   "note.closeUnsaved":
     "Kaydedilmedi. Metni Markdown olarak kopyala. 10 saniye içinde yeniden kapatırsan kaydedilmemiş metin kaybolur.",
   "notes.reloadList": "Listeyi yeniden yükle",
@@ -1875,6 +1984,18 @@ const tr: Record<MessageKey, string> = {
   "notes.actionsFor": "“{title}” için işlemler",
   "note.drag": "Taşımak için sürükle",
   "key.delete": "Delete",
+  "notes.closeSheet": "Kapat (Esc)",
+  "notes.scopes": "Alanlar",
+  "notes.colors": "Renkler",
+  "notes.lastChanged": "Son değişiklik",
+  "notes.keys": "Klavye",
+  "settings.look": "Görünüm",
+  "look.calm": "Sakin",
+  "look.paper": "Kâğıt",
+  "look.hangar": "Hangar",
+  "look.calmHint": "Sakin bir liste. Not bir sayfa gibi okunur.",
+  "look.paperHint": "Notlar renkli kâğıtlar gibi. Listeleri doğrudan işaretlersin.",
+  "look.hangarHint": "Hangar’daki gibi: üç sütun, her şey bir bakışta.",
 };
 
 const zh: Record<MessageKey, string> = {
@@ -2020,7 +2141,7 @@ const zh: Record<MessageKey, string> = {
   "notes.heldHint": "此文本尚未保存。请复制它，以免丢失。",
   "notes.capturedFrom": "来自 {source}，{time}",
   "notes.readOnlyTitle": "Hangar 笔记",
-  "notes.leaveUnsaved": "未保存。请将文本复制为 Markdown。10 秒内再次离开，未保存的文本将丢失。",
+  "notes.leaveUnsaved": "再次切换将丢弃此更改。",
   "note.closeUnsaved": "未保存。请将文本复制为 Markdown。10 秒内再次关闭，未保存的文本将丢失。",
   "notes.reloadList": "重新加载列表",
   "error.failed": "操作未成功。请重试。",
@@ -2035,6 +2156,18 @@ const zh: Record<MessageKey, string> = {
   "notes.actionsFor": "“{title}”的操作",
   "note.drag": "拖动以移动",
   "key.delete": "Delete",
+  "notes.closeSheet": "关闭 (Esc)",
+  "notes.scopes": "区域",
+  "notes.colors": "颜色",
+  "notes.lastChanged": "最近修改",
+  "notes.keys": "键盘",
+  "settings.look": "外观",
+  "look.calm": "简洁",
+  "look.paper": "纸张",
+  "look.hangar": "Hangar",
+  "look.calmHint": "安静的列表，笔记读起来像一页纸。",
+  "look.paperHint": "笔记像彩色便签，清单可直接勾选。",
+  "look.hangarHint": "与 Hangar 一样：三栏布局，一目了然。",
 };
 
 export const DICTIONARIES: Record<Language, Record<MessageKey, string>> = {

@@ -15,6 +15,12 @@
   --on-primary: #ffffff;
   --error: #f47067;
   --danger: #f47067;
+  /* A chosen row, scope or card in the hangar look and the settings: the accent at 17 %. */
+  --selected: #1b2b3e;
+  /* The table the paper look lays its cards on. */
+  --table: #0e1116;
+  --ok: #57ab5a;
+  --scrim: rgb(0 0 0 / 55%);
   --shadow: rgb(0 0 0 / 45%);
   --note-selection: rgb(90 169 255 / 30%);
   /* Ring around color dots and swatches; they are pale, so the light theme needs a firm one. */
@@ -51,6 +57,10 @@
   --primary-hover: #0860ca;
   --error: #cf222e;
   --danger: #cf222e;
+  --selected: #e1edfb;
+  --table: #f3f5f8;
+  --ok: #1a7f37;
+  --scrim: rgb(31 35 40 / 28%);
   --shadow: rgb(31 35 40 / 18%);
   --note-selection: rgb(9 105 218 / 22%);
   --swatch-border: #6e7781;
@@ -149,8 +159,10 @@ kbd {
   white-space: nowrap;
 }
 
+/* Underlined on hover instead of a hover surface, where the accent would miss 4.5 : 1. */
 .link-button:hover {
-  background: var(--hover);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .primary-button,
@@ -208,7 +220,8 @@ kbd {
 .secondary-button:active,
 .ghost-button:active,
 .color-button:active,
-.scope-button:active {
+.scope-button:active,
+.paper-tab:active {
   transform: scale(0.97);
 }
 
@@ -583,7 +596,7 @@ kbd {
   background: var(--bg);
 }
 
-.notes-area.is-empty,
+.layout-calm.is-empty,
 .notes-area.single {
   grid-template-areas:
     "list"
@@ -591,7 +604,7 @@ kbd {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.notes-area.is-empty .note-pane {
+.layout-calm.is-empty .note-pane {
   display: none;
 }
 
@@ -608,7 +621,7 @@ kbd {
   border-right: 1px solid var(--border);
 }
 
-.is-empty .list-pane {
+.layout-calm.is-empty .list-pane {
   border-right: 0;
 }
 
@@ -983,16 +996,23 @@ kbd {
   display: inline-flex;
 }
 
+.note-row-excerpt .note-row-project {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.trash-row .note-row-project {
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .note-row-excerpt {
   overflow: hidden;
   color: var(--muted);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* The trash and the settings use the same type as a list row. */
-.trash-text .note-row-meta {
-  display: block;
 }
 
 .note-progress {
@@ -1075,7 +1095,7 @@ kbd {
   color: var(--text);
 }
 
-.note-pane[style]::before {
+.layout-calm .note-pane[style]::before {
   position: absolute;
   inset: 0 0 auto;
   height: 3px;
@@ -1307,8 +1327,19 @@ kbd {
   justify-content: center;
   gap: 6px;
   padding: 24px;
-  color: var(--muted);
+  color: var(--note-muted);
   text-align: center;
+}
+
+.on-desktop-heading {
+  max-width: 480px;
+  margin: 0 0 18px;
+  color: var(--note-text);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .on-desktop p {
@@ -1318,7 +1349,7 @@ kbd {
 }
 
 .on-desktop-title {
-  color: var(--text);
+  color: var(--note-text);
   font-size: 15px;
   font-weight: 600;
 }
@@ -1451,20 +1482,36 @@ kbd {
 /* ---- Trash and settings ---- */
 
 .trash-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 10px 12px 10px 16px;
+  min-height: 56px;
+  padding: 9px 10px 9px 16px;
   border-radius: var(--radius);
+  transition: background-color 120ms var(--ease-out);
+}
+
+.trash-row::before {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--note-edge);
+  content: "";
+}
+
+.trash-row:hover {
   background: var(--panel);
-  box-shadow: inset 3px 0 0 var(--note-edge);
 }
 
 .trash-text {
   display: flex;
   flex: 1;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -1593,6 +1640,1527 @@ kbd {
   flex-wrap: wrap;
 }
 
+/* ---- The look setting: three cards with a small drawing each ---- */
+
+.look-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.look-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  cursor: pointer;
+  transition:
+    background-color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out);
+}
+
+.look-card:hover {
+  background: var(--hover);
+}
+
+.look-card.selected {
+  border-color: var(--accent);
+  background: var(--selected);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* The radio stays in the page for the keyboard and screen readers; the card is its picture. */
+.look-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.look-card:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.look-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.look-name svg {
+  color: var(--accent);
+}
+
+.look-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.look-preview {
+  display: flex;
+  gap: 5px;
+  height: 64px;
+  margin-bottom: 4px;
+  padding: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.look-preview i,
+.look-preview span {
+  display: block;
+}
+
+.lp-lemon {
+  --lp: #e3c84a;
+  --lp-bg: #fbec9a;
+}
+
+.lp-sky {
+  --lp: #5aa9ff;
+  --lp-bg: #c5e0fa;
+}
+
+.lp-mint {
+  --lp: #5cc08b;
+  --lp-bg: #c3ecd2;
+}
+
+.lp-rose {
+  --lp: #ee77a0;
+  --lp-bg: #fbcbda;
+}
+
+.lp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 38%;
+}
+
+.lp-row {
+  height: 12px;
+  border-inline-start: 3px solid var(--lp);
+  border-radius: 2px;
+  background: var(--panel);
+}
+
+.lp-page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px;
+}
+
+.lp-line {
+  width: 70%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.lp-line.wide {
+  width: 90%;
+}
+
+.lp-line.short {
+  width: 45%;
+}
+
+.look-preview-paper {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--table);
+}
+
+.lp-card {
+  border-radius: 5px;
+  background: var(--lp-bg);
+}
+
+.look-preview-hangar {
+  gap: 3px;
+  padding: 0;
+}
+
+.look-preview-hangar .lp-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 22%;
+  padding: 6px 4px;
+  background: var(--panel);
+}
+
+.look-preview-hangar .lp-list {
+  padding: 4px 0;
+}
+
+.lp-tinted {
+  background: color-mix(in srgb, #e3c84a 24%, var(--bg));
+}
+
+/* ---- Look "paper" (direction B): cards on a table, the open note as a sheet ---- */
+
+.layout-paper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--table);
+}
+
+.paper-room {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.paper-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px 8px;
+}
+
+.paper-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.layout-paper .search {
+  max-width: 440px;
+  height: 40px;
+  margin-inline: auto;
+  padding: 0 4px 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--panel-raised);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.layout-paper .search:focus-within {
+  background: var(--panel-raised);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.layout-paper .search-clear {
+  border-radius: 50%;
+}
+
+.paper-new {
+  min-height: 40px;
+  padding: 0 18px 0 14px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+
+.paper-top > .icon-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: var(--muted);
+}
+
+.paper-top > .icon-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.layout-paper .notes-banner {
+  margin: 0 24px 10px;
+}
+
+.paper-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 4px 24px 12px;
+}
+
+/* Its own width first: when the scopes and the colors do not fit in one line, the colors take the
+   next one, instead of the scopes breaking into a column beside them. */
+.paper-scopes {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.paper-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 0 12px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    background-color 120ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+
+.paper-tab:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.paper-tab[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--table);
+  font-weight: 600;
+}
+
+.paper-count {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.paper-colors {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.paper-swatch {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.paper-swatch .swatch-dot {
+  width: 22px;
+  height: 22px;
+  transition: box-shadow 120ms var(--ease-out);
+}
+
+.paper-swatch[aria-pressed="true"] .swatch-dot {
+  box-shadow:
+    0 0 0 2px var(--table),
+    0 0 0 4px var(--text);
+}
+
+/* "All colors" keeps its place while nothing is chosen, so choosing moves nothing. */
+.paper-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 96px;
+}
+
+.paper-clear svg {
+  display: none;
+}
+
+.paper-clear[hidden],
+.side-clear[hidden] {
+  display: inline-block;
+  visibility: hidden;
+}
+
+.paper-board {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 24px 80px;
+}
+
+.paper-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  align-items: start;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A card in the note's soft color; a 3 px strip in its edge tone carries the color at 3 : 1. */
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 16px 10px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--note-bg);
+  color: var(--note-text);
+  box-shadow:
+    0 0 0 1px var(--note-head),
+    0 1px 2px rgb(31 35 40 / 6%);
+  transition:
+    transform 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out),
+    background-color 200ms var(--ease-out);
+}
+
+.card::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--note-edge);
+  content: "";
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 0 0 1px var(--note-head),
+      0 8px 20px var(--shadow);
+  }
+}
+
+.card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* The title opens the note; its hit area covers the whole card. */
+.card-open {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.card-open::after {
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  content: "";
+}
+
+.card-open:focus-visible {
+  outline: none;
+}
+
+.card-open:focus-visible::after {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.card .note-row-title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: inherit;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* The content lies above the title's hit area only where it can be used: the checkboxes. */
+.card-body {
+  position: relative;
+  z-index: 1;
+  max-height: 200px;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  mask-image: linear-gradient(#000 156px, transparent 200px);
+}
+
+.card-body p {
+  margin: 0;
+}
+
+.card-heading {
+  font-weight: 600;
+}
+
+.card-bullet {
+  display: flex;
+  gap: 8px;
+}
+
+.card-bullet span:first-child {
+  min-width: 12px;
+  color: var(--note-muted);
+}
+
+.card-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.card-task input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--note-accent);
+  cursor: inherit;
+}
+
+.card-task input:disabled {
+  cursor: default;
+}
+
+.card-task.done span {
+  color: var(--note-muted);
+  text-decoration: line-through;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  min-height: 20px;
+  color: var(--note-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-meta .note-row-project,
+.card-meta .note-row-mark:not(:has(+ .note-row-project)) {
+  margin-inline-end: auto;
+}
+
+.card-meta .note-row-project {
+  max-width: none;
+  min-width: 0;
+}
+
+.card-meta .note-progress {
+  color: inherit;
+}
+
+.card-meta .note-progress.complete {
+  color: var(--note-accent);
+}
+
+.card-tools {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--note-bg);
+  box-shadow: -14px 0 10px -4px var(--note-bg);
+  color: var(--note-muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms var(--ease-out);
+}
+
+.card:hover .card-tools,
+.card:focus-within .card-tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.card-tools .icon-button:hover {
+  color: var(--note-text);
+}
+
+.layout-paper .notes-empty {
+  margin: 12px 0 20px;
+}
+
+/* The one notice place while no sheet is open: a single toast above the grid's free bottom. */
+.paper-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  z-index: 15;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  translate: -50% 0;
+}
+
+.paper-toast .notice-slot.filled {
+  padding: 4px 6px 4px 16px;
+  border-radius: 22px;
+  background: var(--text);
+  box-shadow: 0 10px 28px var(--shadow);
+  animation: toast-in 200ms var(--ease-out);
+}
+
+.paper-toast .notice,
+.paper-toast .notice-live,
+.paper-toast .notice-icon,
+.paper-toast .notice-detail,
+.paper-toast .link-button {
+  color: var(--bg);
+}
+
+.paper-toast .link-button {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.paper-toast .link-button:hover,
+.paper-toast .icon-button:hover {
+  background: color-mix(in srgb, var(--bg) 16%, transparent);
+}
+
+.paper-toast .icon-button {
+  color: var(--bg);
+}
+
+.paper-toast :focus-visible {
+  outline-color: var(--bg);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.paper-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--scrim);
+  animation: fade-in 240ms var(--ease-out);
+}
+
+.paper-sheet {
+  position: fixed;
+  top: 28px;
+  bottom: 28px;
+  left: 50%;
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  width: min(680px, calc(100vw - 32px));
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--note-bg);
+  color: var(--note-text);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 35%);
+  translate: -50% 0;
+  animation: sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+.sheet-head {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 10px 0 16px;
+  color: var(--note-muted);
+}
+
+.sheet-colors {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.sheet-swatch {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.sheet-swatch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.sheet-swatch .swatch-dot {
+  width: 20px;
+  height: 20px;
+}
+
+.sheet-swatch:has(input:checked) .swatch-dot {
+  box-shadow:
+    0 0 0 2px var(--note-bg),
+    0 0 0 4px var(--note-text);
+}
+
+.sheet-swatch:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+}
+
+.sheet-fill {
+  flex: 1;
+}
+
+.sheet-desktop {
+  border-radius: 999px;
+}
+
+.paper-sheet .icon-button {
+  color: var(--note-muted);
+}
+
+.paper-sheet .icon-button:hover {
+  color: var(--note-text);
+}
+
+.paper-sheet > .note-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.paper-sheet .note-page {
+  max-width: none;
+  padding: 8px 28px 24px;
+}
+
+.paper-sheet .note-title:not(:disabled):hover {
+  background: color-mix(in srgb, var(--note-text) 8%, transparent);
+}
+
+.paper-sheet .note-rename {
+  background: var(--note-bg);
+  color: var(--note-text);
+}
+
+.paper-sheet .note-held {
+  margin: 8px 28px 0;
+  border-color: color-mix(in srgb, var(--note-text) 25%, transparent);
+}
+
+.sheet-foot {
+  min-height: 52px;
+  padding: 8px 12px 8px 28px;
+  border-top: 0;
+  background: var(--note-head);
+  color: var(--note-muted);
+}
+
+.sheet-foot[data-idle="true"] {
+  min-height: 0;
+  padding-block: 0;
+}
+
+.sheet-foot .notice,
+.sheet-foot .notice-live,
+.sheet-foot .note-unsaved {
+  color: var(--note-text);
+}
+
+.sheet-foot .notice-icon,
+.sheet-foot .notice-detail {
+  color: var(--note-muted);
+}
+
+/* The accent misses 4.5 : 1 on some header tones (colors.test.ts); the text color does not. */
+.sheet-foot .link-button {
+  color: var(--note-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.sheet-foot .link-button:hover,
+.sheet-foot .icon-button.toggle.on {
+  background: color-mix(in srgb, var(--note-text) 10%, transparent);
+  color: var(--note-text);
+}
+
+/* The picture of the empty paper look: three slips on the table. */
+.paper-stack {
+  position: relative;
+  width: 168px;
+  height: 120px;
+  margin-bottom: 18px;
+}
+
+.paper-stack span {
+  position: absolute;
+  top: 8px;
+  left: 34px;
+  width: 100px;
+  height: 104px;
+  border-radius: 12px;
+  background: var(--note-bg);
+  box-shadow:
+    0 0 0 1px var(--note-head),
+    0 6px 16px var(--shadow);
+}
+
+.paper-stack span:nth-child(1) {
+  rotate: -9deg;
+  translate: -26px 6px;
+}
+
+.paper-stack span:nth-child(2) {
+  z-index: 1;
+}
+
+.paper-stack span:nth-child(3) {
+  rotate: 7deg;
+  translate: 26px 2px;
+}
+
+.paper-stack span:nth-child(2)::before {
+  position: absolute;
+  top: 24px;
+  right: 18px;
+  left: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--note-muted);
+  box-shadow:
+    0 12px 0 var(--note-muted),
+    0 24px 0 var(--note-muted);
+  content: "";
+  opacity: 0.45;
+}
+
+@media (max-width: 559px) {
+  .paper-top {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 16px 8px;
+  }
+
+  .paper-title {
+    flex: 1;
+  }
+
+  .layout-paper .search {
+    flex-basis: 100%;
+    order: 3;
+    max-width: none;
+    margin: 0;
+  }
+
+  .paper-new {
+    width: 40px;
+    padding: 0;
+  }
+
+  .paper-new-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .paper-bar {
+    padding: 4px 16px 10px;
+  }
+
+  .paper-clear {
+    width: 32px;
+    min-width: 0;
+    padding: 0;
+  }
+
+  .paper-clear svg {
+    display: block;
+  }
+
+  .paper-clear-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .paper-colors {
+    flex-wrap: nowrap;
+  }
+
+  .layout-paper .notes-banner {
+    margin-inline: 16px;
+  }
+
+  .paper-board {
+    padding: 4px 16px 80px;
+  }
+
+  .paper-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .paper-sheet {
+    inset: 0;
+    width: 100%;
+    border-radius: 0;
+    translate: none;
+  }
+
+  /* Close and the menu stay at the top right; the colors take the second line. */
+  .sheet-head {
+    padding-left: 8px;
+  }
+
+  .sheet-colors {
+    flex-basis: 100%;
+    order: 2;
+  }
+
+  .paper-sheet .note-page {
+    padding: 4px 16px 24px;
+  }
+
+  .sheet-foot {
+    padding-inline: 16px 8px;
+  }
+}
+
+/* ---- Look "hangar" (direction C): Hangar's window, three columns and a status bar ---- */
+
+.layout-hangar {
+  display: grid;
+  grid-template-areas:
+    "side list note"
+    "foot foot foot";
+  grid-template-columns: 208px minmax(240px, 296px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: 100%;
+  background: var(--bg);
+}
+
+.hangar-side {
+  display: flex;
+  flex-direction: column;
+  grid-area: side;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 8px;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.side-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0 10px 8px;
+}
+
+.side-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-head .icon-button {
+  color: var(--muted);
+}
+
+.side-head .icon-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.side-new {
+  justify-content: flex-start;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.side-new-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: start;
+  text-overflow: ellipsis;
+}
+
+.side-scroll {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.side-label {
+  margin: 0;
+  padding: 0 8px 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.side-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.side-clear {
+  font-size: 12px;
+}
+
+.side-list {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.side-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: start;
+  transition: background-color 100ms var(--ease-out);
+}
+
+.side-item:hover {
+  background: var(--hover);
+}
+
+.side-item[aria-pressed="true"] {
+  background: var(--selected);
+}
+
+.side-item[aria-pressed="true"] .side-item-label {
+  font-weight: 600;
+}
+
+.side-item:focus-visible {
+  outline-offset: -2px;
+}
+
+.side-item > svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.side-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-count {
+  color: var(--muted);
+  font: 11.5px var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.side-tick {
+  display: inline-flex;
+  justify-content: center;
+  width: 16px;
+  color: var(--accent);
+}
+
+.side-fill {
+  flex: 1 1 0;
+}
+
+.side-foot {
+  margin: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.layout-hangar .list-pane {
+  background: var(--bg);
+}
+
+.layout-hangar .notes-banner {
+  margin: 10px 10px 0;
+}
+
+.layout-hangar .find {
+  padding: 10px 10px 6px;
+}
+
+.layout-hangar .search {
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.hangar-list-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 14px 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.hangar-list-head span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layout-hangar .list-wrap {
+  padding: 0 6px 8px;
+}
+
+.layout-hangar .note-row {
+  min-height: 52px;
+  padding: 7px 10px 7px 16px;
+  border-radius: 6px;
+  gap: 1px;
+  transition: background-color 100ms var(--ease-out);
+}
+
+.layout-hangar .note-row-title {
+  font-size: 13px;
+}
+
+.layout-hangar .note-item::before {
+  top: 9px;
+  bottom: 9px;
+  left: 5px;
+}
+
+.layout-hangar .note-item:hover .note-row {
+  background: var(--hover);
+}
+
+.layout-hangar .note-item.active .note-row {
+  background: var(--selected);
+}
+
+/* No tools cover the meta here (the context menu and the keys do their work). */
+.layout-hangar .note-item:hover .note-row-meta,
+.layout-hangar .note-item:focus-within .note-row-meta {
+  opacity: 1;
+}
+
+.layout-hangar .note-row-meta {
+  font: 11.5px var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.hangar-empty {
+  padding: 18px 14px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.hangar-empty p {
+  margin: 0;
+}
+
+.hangar-empty .hangar-empty-title {
+  margin-bottom: 4px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hangar-editor {
+  container-type: inline-size;
+  background: var(--note-bg);
+  color: var(--note-text);
+}
+
+.hangar-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 0 8px 0 10px;
+  background: var(--note-head);
+  color: var(--note-muted);
+}
+
+.hangar-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hangar-title .note-title {
+  display: block;
+  min-height: 32px;
+  margin: 0;
+  padding: 0 6px;
+  overflow: hidden;
+  color: var(--note-text);
+  line-height: 32px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hangar-title .note-title:not(:disabled):hover {
+  background: color-mix(in srgb, var(--note-text) 10%, transparent);
+}
+
+.hangar-rename {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  outline: none;
+  background: var(--note-bg);
+  color: var(--note-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hangar-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  font: 11.5px var(--mono);
+}
+
+.hangar-progress .note-progress {
+  color: inherit;
+}
+
+.hangar-progress .note-progress.complete {
+  color: var(--note-accent);
+}
+
+.hangar-head .icon-button:hover {
+  color: var(--note-text);
+}
+
+.hangar-head .icon-button.toggle.on {
+  background: color-mix(in srgb, var(--note-text) 12%, transparent);
+  color: var(--note-text);
+}
+
+/* The dot sits on its own color family: a ring in the text color keeps it visible. */
+.hangar-head .color-dot {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  box-shadow: 0 0 0 1.5px var(--note-text);
+}
+
+.hangar-desktop {
+  margin-inline: 4px;
+}
+
+/* A narrow note column (760 to about 1000 px wide windows) keeps the title readable and "…" in
+   reach: "On the desktop" shows only its icon (its name stays for screen readers and in the
+   tooltip), and the progress, which the status bar also shows, steps aside. */
+@container (max-width: 460px) {
+  .hangar-desktop {
+    justify-content: center;
+    width: 32px;
+    padding: 0;
+  }
+
+  .hangar-desktop .ghost-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+@container (max-width: 320px) {
+  .hangar-progress {
+    display: none;
+  }
+}
+
+.hangar-editor > .note-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.hangar-editor .note-page {
+  max-width: 760px;
+  padding: 14px 20px 24px;
+}
+
+.layout-hangar .note-editor .cm-editor {
+  font-size: 14px;
+}
+
+.hangar-keys {
+  flex: 1;
+  padding: 40px 32px;
+  color: var(--muted);
+}
+
+.hangar-keys h2 {
+  margin: 0 0 14px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hangar-keys dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 10px 18px;
+  margin: 0;
+}
+
+.hangar-keys dl > div {
+  display: contents;
+}
+
+.hangar-keys dd {
+  margin: 0;
+}
+
+.hangar-keys kbd,
+.status-keys kbd {
+  font: 11px var(--mono);
+}
+
+/* The status bar: the one notice place, the save state and the shortcuts. */
+.hangar-status {
+  min-height: 32px;
+  padding: 0 8px 0 12px;
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.layout-hangar .foot-status {
+  gap: 14px;
+}
+
+.foot-scope {
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layout-hangar .note-words,
+.layout-hangar .foot-progress {
+  font: 11.5px var(--mono);
+}
+
+.foot-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.layout-hangar .note-saved::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  content: "";
+}
+
+.layout-hangar .note-saved.saving::before {
+  background: var(--muted);
+}
+
+.layout-hangar .note-saved svg {
+  display: none;
+}
+
+.status-keys {
+  display: flex;
+  flex: none;
+  gap: 14px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 960px) {
+  .status-keys {
+    display: none;
+  }
+}
+
+/* ---- The sticky note in the looks paper and hangar ---- */
+
+.note[data-look="paper"] .note-head,
+.note[data-look="hangar"] .note-head {
+  position: static;
+  flex: none;
+  background: var(--note-head);
+  opacity: 1;
+  cursor: grab;
+}
+
+.note[data-look="paper"] .note-head {
+  height: 40px;
+  padding: 4px;
+}
+
+.note[data-look="paper"] > .note-body,
+.note[data-look="hangar"] > .note-body {
+  margin-top: 0;
+}
+
+.note[data-look="paper"] .note-menu {
+  top: 44px;
+}
+
+/* paper: the formatting bar floats as a pill over the text's bottom edge. */
+.note[data-look="paper"] .format-slot {
+  position: absolute;
+  right: 0;
+  bottom: 12px;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  height: auto;
+  pointer-events: none;
+}
+
+.note[data-look="paper"]:has(> .note-message) .format-slot {
+  position: static;
+  padding: 6px 0;
+}
+
+.note[data-look="paper"] .format-bar {
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--note-head);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 14%);
+  pointer-events: auto;
+  animation: pill-in 140ms var(--ease-out);
+}
+
+.note[data-look="paper"] .format-bar .icon-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+}
+
+.note[data-look="paper"] .cm-content {
+  padding-bottom: 60px;
+}
+
+@keyframes pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* hangar: title and progress in the header, the save state in the formatting bar. */
+.note[data-look="hangar"] .note-head {
+  gap: 2px;
+  height: 36px;
+  padding: 0 2px 0 12px;
+}
+
+.note-head-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--note-text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-head-progress {
+  padding: 0 4px;
+  color: var(--note-muted);
+  font: 12px var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.note[data-look="hangar"] .note-menu {
+  top: 40px;
+}
+
+.note[data-look="hangar"] .format-slot {
+  height: 36px;
+}
+
+.note[data-look="hangar"] .format-bar {
+  align-items: center;
+  height: 100%;
+  padding: 0 4px;
+  background: var(--note-head);
+  animation: none;
+}
+
+.format-saved {
+  margin-inline-start: auto;
+  padding-inline: 8px;
+  overflow: hidden;
+  color: var(--note-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.format-saved.unsaved {
+  color: var(--note-text);
+  font-weight: 600;
+}
+
 /* ---- Narrow windows: the list or the note, as Hangar's notes panel does ---- */
 
 @media (max-width: 720px) {
@@ -1692,12 +3260,24 @@ kbd {
     animation: fade-in 80ms linear !important;
   }
 
+  /* paper: the sheet, its veil and the toast only fade (120 ms), nothing lifts or moves. */
+  .paper-sheet,
+  .paper-scrim,
+  .paper-toast .notice-slot.filled {
+    animation: fade-in 120ms linear !important;
+  }
+
+  .card:hover {
+    transform: none !important;
+  }
+
   .icon-button:active,
   .primary-button:active,
   .secondary-button:active,
   .ghost-button:active,
   .color-button:active,
   .scope-button:active,
+  .paper-tab:active,
   .menu-swatch:hover .swatch-dot {
     transform: none;
   }

@@ -1,7 +1,15 @@
-// One sticky note in its own frameless window (ADR 0001), calm as in direction A: at rest only
-// the text and a slim color strip at the top, which is always there to drag the window by. On
-// hover or while the focus is anywhere in the note, the header ("New note", the menu, "Close")
-// and the formatting bar fade in; their places are kept free, so the text never moves. Typing is saved 500 ms after the last keystroke, at once on blur and
+// One sticky note in its own frameless window (ADR 0001), in the look the settings name
+// (ADR 0004):
+// - calm: at rest only the text and a slim color strip at the top, which is always there to drag
+//   the window by. On hover or while the focus is anywhere in the note, the header ("New note",
+//   the menu, "Close") and the formatting bar fade in; their places are kept free, so the text
+//   never moves.
+// - paper: a fixed colored header (the drag region) and a formatting bar that floats over the
+//   text's bottom edge while you write or point at the note.
+// - hangar: the header names the note and its checklist progress; the formatting bar at the
+//   bottom says whether the text is saved.
+// The editor's element is the same in every look, so switching keeps the text, the cursor and
+// what waits to be saved. Typing is saved 500 ms after the last keystroke, at once on blur and
 // close, and before the backend deletes the note from the notes area, quits or flushes.
 //
 // Any note can sit on the desktop (ADR 0002); while it does, this window is its only editor. Its
@@ -46,8 +54,10 @@ import { errorMessage } from "./errors";
 import { DICTIONARIES, LANGUAGES, useT, type MessageKey } from "./i18n";
 import { BulletIcon, CheckIcon, CloseIcon, MoreIcon, PlusIcon, TaskIcon } from "./icons";
 import { createLeaveAnyway } from "./leaveAnyway";
+import type { Look } from "./looks";
 import { focusFirstItem, moveMenuFocus } from "./menuKeys";
 import { nextAutoTitle } from "./notes";
+import { checklistProgress, type ChecklistProgress } from "./noteText";
 import { createSaver, type SaveState } from "./saver";
 import { currentPlatform, matchNoteShortcut, shortcutLabel, type NoteAction } from "./shortcuts";
 
@@ -56,6 +66,7 @@ interface Props {
   label: string;
   theme: Theme;
   colorNames: Partial<Record<NoteColor, string>>;
+  look: Look;
 }
 
 const PLATFORM = currentPlatform();
@@ -64,8 +75,10 @@ const UNTITLED_BASES = LANGUAGES.map((language) => DICTIONARIES[language]["notes
 type KeyedAction = Exclude<NoteAction, "leave">;
 
 const FORMATS: readonly (Format & KeyedAction)[] = ["bold", "italic", "strike", "bullet", "task"];
+/** The checklist progress in the hangar look's header follows the text after a short pause. */
+const PROGRESS_DELAY_MS = 250;
 
-export function NoteWindow({ label, theme, colorNames }: Props) {
+export function NoteWindow({ label, theme, colorNames, look }: Props) {
   const t = useT();
   const [note, setNote] = useState<OpenedNote | null>(null);
   const [writable, setWritable] = useState(true);
@@ -81,6 +94,8 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
   /** Closing was refused because the text is not saved: offer to copy it. */
   const [stuck, setStuck] = useState(false);
   const [copyResult, setCopyResult] = useState<"copied" | "failed" | null>(null);
+  const [progress, setProgress] = useState<ChecklistProgress>({ done: 0, total: 0 });
+  const progressTimer = useRef<number | null>(null);
   const [leaveAnyway] = useState(() => createLeaveAnyway());
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<NoteEditor | null>(null);
@@ -121,7 +136,9 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
     if (title === null) return;
     try {
       await renameNote(folder(open), open.id, title, false);
-      noteRef.current = { ...open, title };
+      const renamed = { ...open, title };
+      noteRef.current = renamed;
+      setNote(renamed);
     } catch {
       // It keeps its title; the next blur tries again.
     }
@@ -138,6 +155,7 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
         textRef.current = content.text;
         setNote(content);
         setWritable(canWrite);
+        setProgress(checklistProgress(content.text));
         editor.current = createNoteEditor(element, {
           text: content.text,
           label: latest.current.t("note.editorLabel"),
@@ -146,6 +164,11 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
           readOnly: !canWrite,
           onChange: (text) => {
             textRef.current = text;
+            if (progressTimer.current !== null) window.clearTimeout(progressTimer.current);
+            progressTimer.current = window.setTimeout(() => {
+              progressTimer.current = null;
+              setProgress(checklistProgress(textRef.current));
+            }, PROGRESS_DELAY_MS);
             const large = utf8Bytes(text) > MAX_NOTE_BYTES;
             setTooLarge(large);
             // The backend refuses it anyway; the last version that fits stays on disk.
@@ -166,6 +189,7 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
       });
     return () => {
       cancelled = true;
+      if (progressTimer.current !== null) window.clearTimeout(progressTimer.current);
       editor.current?.destroy();
       editor.current = null;
     };
@@ -352,9 +376,34 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
     t("common.withShortcut", { label: text, keys: shortcutLabel(action, PLATFORM, t) });
   const formatLabel = (format: Format) => t(`format.${format}`);
 
+  const toolsShown = focused || hovered;
+  const savedText =
+    saveState === "failed" || tooLarge
+      ? t("notes.unsaved")
+      : saveState === "saved"
+        ? t("notes.saved")
+        : t("notes.saving");
+  const progressText = t("notes.progress", { done: progress.done, total: progress.total });
+  const newButton = (
+    <button
+      key="new"
+      type="button"
+      className="icon-button"
+      title={withKeys(t("note.new"), "newNote")}
+      aria-label={t("note.new")}
+      disabled={!writable}
+      onClick={createNew}
+    >
+      <PlusIcon />
+    </button>
+  );
+
+  // Every part has a key and the same parent in every look: React keeps the editor's element
+  // (`body`) when the look changes, and with it the editor and its text.
   return (
     <div
       className={hovered ? "note hovered" : "note"}
+      data-look={look}
       style={style}
       onMouseEnter={() => {
         setHovered(true);
@@ -372,20 +421,37 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
         if (!(next instanceof Node && event.currentTarget.contains(next))) setFocused(false);
       }}
     >
-      {/* Always there and easy to grab: without a visible header, this moves the window. */}
-      <div className="note-strip" data-tauri-drag-region title={t("note.drag")} />
-      <header className="note-head" data-tauri-drag-region>
-        <button
-          type="button"
-          className="icon-button"
-          title={withKeys(t("note.new"), "newNote")}
-          aria-label={t("note.new")}
-          disabled={!writable}
-          onClick={createNew}
-        >
-          <PlusIcon />
-        </button>
-        <span className="note-head-fill" data-tauri-drag-region />
+      {look === "calm" && (
+        // Always there and easy to grab: without a visible header, this moves the window.
+        <div key="strip" className="note-strip" data-tauri-drag-region title={t("note.drag")} />
+      )}
+      <header
+        key="head"
+        className="note-head"
+        data-tauri-drag-region
+        title={look === "calm" ? undefined : t("note.drag")}
+      >
+        {look === "hangar" ? (
+          <>
+            <span className="note-head-title" data-tauri-drag-region>
+              {note?.title ?? ""}
+            </span>
+            {progress.total > 0 && (
+              <span className="note-head-progress" title={progressText} data-tauri-drag-region>
+                <span aria-hidden="true">
+                  {progress.done}/{progress.total}
+                </span>
+                <span className="sr-only">{progressText}</span>
+              </span>
+            )}
+            {newButton}
+          </>
+        ) : (
+          <>
+            {newButton}
+            <span className="note-head-fill" data-tauri-drag-region />
+          </>
+        )}
         <button
           ref={menuButton}
           type="button"
@@ -415,6 +481,7 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
 
       {menuOpen && (
         <div
+          key="menu"
           ref={menu}
           className="note-menu"
           role="menu"
@@ -488,25 +555,25 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
         </div>
       )}
 
-      <div className="note-body" ref={host}>
+      <div key="body" className="note-body" ref={host}>
         {loadFailed && <p className="note-message">{t("note.loadFailed")}</p>}
         {!note && !loadFailed && <p className="note-message muted">{t("note.loading")}</p>}
       </div>
 
       {!writable && (
-        <p className="note-message note-error" role="status">
+        <p key="readOnly" className="note-message note-error" role="status">
           {t("note.readOnly")}
         </p>
       )}
 
       {(tooLarge || saveState === "failed") && !stuck && (
-        <p className="note-message note-error" role="status">
+        <p key="saveError" className="note-message note-error" role="status">
           {tooLarge ? t("note.tooLarge") : t(saveError)}
         </p>
       )}
 
       {stuck && (
-        <div className="note-message note-error note-stuck" role="alert">
+        <div key="stuck" className="note-message note-error note-stuck" role="alert">
           <p>{t("note.closeUnsaved")}</p>
           <button
             type="button"
@@ -526,9 +593,10 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
       )}
 
       {writable && (
-        // The bar's place stays free while it is hidden, so the text does not jump when it shows.
-        <div className="format-slot">
-          {(focused || hovered) && (
+        // calm and hangar keep the bar's place while it is hidden, so the text does not jump when
+        // it shows; paper's bar floats over the text, which keeps room for it at its end.
+        <div key="format" className="format-slot">
+          {toolsShown && (
             <div className="format-bar" role="toolbar" aria-label={t("format.bar")}>
               {FORMATS.map((format) => (
                 <button
@@ -552,6 +620,15 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
                   {format === "task" && <TaskIcon />}
                 </button>
               ))}
+              {look === "hangar" && (
+                <span
+                  className={
+                    saveState === "failed" || tooLarge ? "format-saved unsaved" : "format-saved"
+                  }
+                >
+                  {savedText}
+                </span>
+              )}
             </div>
           )}
         </div>

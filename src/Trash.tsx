@@ -1,12 +1,13 @@
 // "Recently deleted": the trash of the shown scopes, newest first, with "Restore" per note. While
 // the notes are read only it says why nothing can be restored instead of hiding the buttons
-// silently; a failed load offers "Try again"; an empty trash says what it is for.
+// silently; a failed load offers "Try again"; an empty trash says what it is for. Its rows look
+// like the list's: the color as a 3 px edge, the time as the list says it.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { listTrash, type NoteFolder, type TrashRow } from "./api";
 import type { AppSettings } from "./appSettings";
-import { noteTone, toneVariables } from "./colors";
+import { noteTone } from "./colors";
 import { relativeTime } from "./format";
 import { useT } from "./i18n";
 import { BackIcon } from "./icons";
@@ -105,41 +106,55 @@ export function Trash(props: TrashProps) {
           </div>
         )}
         <ul className="trash-list">
-          {items.map((item) => (
-            <li
-              key={`${item.folderKey}\n${item.id}`}
-              className="trash-row"
-              style={toneVariables(noteTone(item.color, theme))}
-            >
-              <span className="trash-text">
-                <span className="note-row-title">{item.title}</span>
-                <span className="note-row-meta">
-                  {mixed && <>{projectLabel({ path: item.path })} · </>}
-                  {item.deletedAt !== null &&
-                    t("notes.deletedAgo", { time: relativeTime(item.deletedAt, now, language) })}
+          {items.map((item) => {
+            const time = item.deletedAt === null ? "" : relativeTime(item.deletedAt, now, language);
+            // The note's color as the same 3 px edge its row had in the list.
+            const edge: Record<string, string> = {
+              "--note-edge": noteTone(item.color, theme).edge,
+            };
+            return (
+              <li
+                key={`${item.folderKey}
+${item.id}`}
+                className="trash-row"
+                style={edge}
+              >
+                <span className="trash-text">
+                  <span className="note-row-title">{item.title}</span>
+                  <span className="note-row-meta">
+                    {mixed && (
+                      <span className="note-row-project">{projectLabel({ path: item.path })}</span>
+                    )}
+                    {time !== "" && (
+                      <span title={t("notes.deletedAgo", { time })}>
+                        <span aria-hidden="true">{time}</span>
+                        <span className="sr-only">{t("notes.deletedAgo", { time })}</span>
+                      </span>
+                    )}
+                  </span>
                 </span>
-              </span>
-              {writable && (
-                <button
-                  type="button"
-                  className="secondary-button"
-                  aria-label={t("notes.restoreNamed", { title: item.title })}
-                  onClick={() => {
-                    void onRestore({ path: item.path }, item.id, item.title).then((restored) => {
-                      if (restored === undefined) return;
-                      setLoad((old) =>
-                        old.state === "ready"
-                          ? { state: "ready", items: old.items.filter((row) => row !== item) }
-                          : old,
-                      );
-                    });
-                  }}
-                >
-                  {t("notes.restore")}
-                </button>
-              )}
-            </li>
-          ))}
+                {writable && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    aria-label={t("notes.restoreNamed", { title: item.title })}
+                    onClick={() => {
+                      void onRestore({ path: item.path }, item.id, item.title).then((restored) => {
+                        if (restored === undefined) return;
+                        setLoad((old) =>
+                          old.state === "ready"
+                            ? { state: "ready", items: old.items.filter((row) => row !== item) }
+                            : old,
+                        );
+                      });
+                    }}
+                  >
+                    {t("notes.restore")}
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </div>
     </>

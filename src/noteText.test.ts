@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendCapture,
+  cardLines,
   checklistProgress,
   editorText,
   isListLine,
@@ -169,5 +170,28 @@ describe("editorText", () => {
     expect(text).toBe("# Plan\n- [ ] eins\n- [x] zwei\ndrei\n");
     expect(text.split("\n")).toHaveLength(raw.split(/\r\n?|\n/).length);
     expect(editorText("schon LF\n")).toBe("schon LF\n");
+  });
+});
+
+describe("cardLines", () => {
+  it("draws tasks with their line, lists, headings and prose, without the title line", () => {
+    const text =
+      "# Einkaufen\n\n- [x] **Milch**\n- [ ] Brot\n## Später\n1. Eins\n* Zwei\nText _hier_";
+    expect(cardLines(text, "Einkaufen")).toEqual([
+      { kind: "task", text: "Milch", done: true, line: 2, source: "- [x] **Milch**" },
+      { kind: "task", text: "Brot", done: false, line: 3, source: "- [ ] Brot" },
+      { kind: "heading", text: "Später" },
+      { kind: "bullet", text: "Eins", marker: "1." },
+      { kind: "bullet", text: "Zwei", marker: "•" },
+      { kind: "text", text: "Text hier" },
+    ]);
+  });
+
+  it("keeps a first line that is not the title, skips code and stops at the limit", () => {
+    const text = "Erste Zeile\n```\n- [ ] kein Punkt\n```\n- [ ] echt\n" + "x\n".repeat(20);
+    const lines = cardLines(text, "Anders", 3);
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toEqual({ kind: "text", text: "Erste Zeile" });
+    expect(lines[1]).toMatchObject({ kind: "task", text: "echt", line: 4 });
   });
 });

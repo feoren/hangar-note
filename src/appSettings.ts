@@ -14,6 +14,7 @@ import {
   type TrayLabels,
 } from "./api";
 import type { Theme } from "./colors";
+import { lookOf, type Look } from "./looks";
 import {
   createTranslator,
   detectLanguage,
@@ -52,6 +53,8 @@ export interface AppSettings {
   /** `null` until the backend answered. */
   settings: SettingsView | null;
   theme: Theme;
+  /** The chosen look; a value this version does not know is `calm`. */
+  look: Look;
   language: Language;
   t: Translate;
   /** The settings as the backend saved them, after a change in this window. */
@@ -77,6 +80,7 @@ export function useAppSettings(): AppSettings {
             theme: "system",
             newNoteColor: "lemon",
             colorNames: {},
+            look: "calm",
             autostart: false,
           });
         }
@@ -102,6 +106,7 @@ export function useAppSettings(): AppSettings {
     typeof navigator === "undefined" ? undefined : navigator.language,
   );
   const t = useMemo(() => createTranslator(language), [language]);
+  const look = lookOf(settings?.look);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -119,5 +124,5 @@ export function useAppSettings(): AppSettings {
     setSettingsState((current) => (current ? { ...current, autostart: enabled } : current));
   }, []);
 
-  return { settings, theme, language, t, applySaved, applyAutostart };
+  return { settings, theme, look, language, t, applySaved, applyAutostart };
 }

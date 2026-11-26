@@ -247,3 +247,70 @@ export function toggleLinePrefix(lines: readonly string[], kind: "bullet" | "tas
     return remove ? `${indent}${rest}` : `${indent}${prefix}${rest}`;
   });
 }
+
+/** Most lines a card of the "paper" look shows; the rest fades out under them. */
+export const CARD_LINES = 8;
+
+/** One line of a card's content, as the "paper" look draws it. */
+export type CardLine =
+  | { kind: "heading" | "text"; text: string }
+  | { kind: "bullet"; text: string; marker: string }
+  /** `line` is the 0-based line in the note's text, `source` that line as it was read. */
+  | { kind: "task"; text: string; done: boolean; line: number; source: string };
+
+/** Markdown marks off a line's text, as the excerpt does. */
+function plainText(text: string): string {
+  return text
+    .replace(/[*_`~]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * The first lines of a note for its card: headings, list items and checklist items (which can be
+ * ticked on the card) and prose, without the first line when it is the title, without fenced code
+ * and blank lines, at most `max` lines. Each task keeps its line and its text as read, so a tick
+ * can check that the line is still the same before it writes.
+ */
+export function cardLines(text: string, title: string, max = CARD_LINES): CardLine[] {
+  const result: CardLine[] = [];
+  let first = true;
+  forEachLine(text, (source, line) => {
+    if (result.length >= max || source.trim() === "") return;
+    const isFirst = first;
+    first = false;
+    const task = TASK_LINE.exec(source);
+    if (task) {
+      result.push({
+        kind: "task",
+        text: plainText(source.slice(task[0].length)),
+        done: task[2] !== " ",
+        line,
+        source,
+      });
+      return;
+    }
+    const heading = /^\s*#{1,6}\s+(.*)$/.exec(source);
+    if (heading) {
+      const value = plainText(heading[1] ?? "");
+      if (isFirst && value.toLowerCase() === title.trim().toLowerCase()) return;
+      if (value !== "") result.push({ kind: "heading", text: value });
+      return;
+    }
+    const bullet = /^\s*([-*+]|\d+[.)])\s+(.*)$/.exec(source);
+    if (bullet) {
+      const marker = bullet[1] ?? "-";
+      result.push({
+        kind: "bullet",
+        text: plainText(bullet[2] ?? ""),
+        marker: /^\d/.test(marker) ? marker : "•",
+      });
+      return;
+    }
+    const value = plainText(source.replace(/^\s*>\s*/, ""));
+    if (value === "" || /^[-=#>|]+$/.test(value)) return;
+    if (isFirst && value.toLowerCase() === title.trim().toLowerCase()) return;
+    result.push({ kind: "text", text: value });
+  });
+  return result;
+}

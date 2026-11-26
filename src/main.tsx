@@ -41,7 +41,12 @@ function Root() {
     <I18nContext.Provider value={app.t}>
       <Suspense fallback={null}>
         {sticky ? (
-          <NoteWindow label={label} theme={app.theme} colorNames={app.settings.colorNames} />
+          <NoteWindow
+            label={label}
+            theme={app.theme}
+            colorNames={app.settings.colorNames}
+            look={app.look}
+          />
         ) : (
           <NotesArea app={app} />
         )}

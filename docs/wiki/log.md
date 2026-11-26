@@ -90,3 +90,16 @@ slim scrollbars) in pages/syntheses/usability-pass.md.
 ## [2026-11-26] schema | ADR 0004 switchable looks
 Created pages/decisions/0004-switchable-looks.md (accepted): the owner asked for all three design
 directions to be built in, as one setting over one shared notes area. Index updated.
+
+## [2026-11-26] query | Rework of direction A, looks B and C as built
+Added the sections "Rework of direction A" (single title, short warning, focus after back and after
+a notice, the note on the desktop named, new notes listed at once, trash rows like list rows,
+project names only in All) and "Looks B and C as built" (one logic in `src/useNotesArea.tsx`, three
+layouts, the look setting, paper's cards and sheet, hangar's three columns and status bar, the
+sticky note per look, contrast per surface, the check in the real window) to
+pages/syntheses/usability-pass.md. Index entry updated.
+
+## [2026-11-26] query | Acceptance review of looks B and C
+Added what the acceptance review found and fixed in the real window (a tick on a card racing the
+opening of its note, the paper scopes breaking into a column, the hangar note header overflowing
+between 760 and about 1000 px, the sheet's focus trap) to pages/syntheses/usability-pass.md.

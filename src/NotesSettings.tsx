@@ -1,13 +1,15 @@
-// The settings of the notes area: language, theme, the color of new notes, the person's own names
-// of the eight colors (ADR 0002, "Color categories") and "Start with the system".
+// The settings of the notes area: language, theme, the look (ADR 0004), the color of new notes,
+// the person's own names of the eight colors (ADR 0002, "Color categories") and "Start with the
+// system". A change is saved at once and takes effect at once in every window.
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { setAutostart, setSettings, type Settings, type ThemeSetting } from "./api";
 import type { AppSettings } from "./appSettings";
 import { colorLabelKey, colorName, NOTE_COLORS, swatchColor, type NoteColor } from "./colors";
 import { LANGUAGE_NAMES, LANGUAGES, useT, type MessageKey } from "./i18n";
 import { BackIcon, CheckIcon } from "./icons";
+import { LOOK_HINTS, LOOK_NAMES, LOOKS, type Look } from "./looks";
 
 /** The backend's limit (`MAX_COLOR_NAME_CHARS` in settings.rs). */
 export const MAX_COLOR_NAME_LENGTH = 40;
@@ -38,6 +40,7 @@ export function withColorName(
 export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () => void }) {
   const t = useT();
   const [failed, setFailed] = useState(false);
+  const hintId = useId();
   const { settings, applySaved, applyAutostart } = app;
   if (!settings) return null;
 
@@ -47,6 +50,7 @@ export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () =>
       theme: settings.theme,
       newNoteColor: settings.newNoteColor,
       colorNames: settings.colorNames,
+      look: app.look,
       ...change,
     };
     setSettings(next)
@@ -113,6 +117,36 @@ export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () =>
                   }}
                 />
                 {t(label)}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <fieldset className="field">
+          <legend>{t("settings.look")}</legend>
+          {/* Native radios: the arrow keys move through the three, and each choice applies at once. */}
+          <div className="look-cards">
+            {LOOKS.map((look) => (
+              <label key={look} className={app.look === look ? "look-card selected" : "look-card"}>
+                <input
+                  type="radio"
+                  name="look"
+                  value={look}
+                  checked={app.look === look}
+                  aria-label={t(LOOK_NAMES[look])}
+                  aria-describedby={`${hintId}-${look}`}
+                  onChange={() => {
+                    save({ look });
+                  }}
+                />
+                <LookPreview look={look} />
+                <span className="look-name">
+                  {t(LOOK_NAMES[look])}
+                  {app.look === look && <CheckIcon size={14} />}
+                </span>
+                <span className="look-hint" id={`${hintId}-${look}`}>
+                  {t(LOOK_HINTS[look])}
+                </span>
               </label>
             ))}
           </div>
@@ -197,5 +231,53 @@ export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () =>
         {failed && <p className="notes-message error-text">{t("settings.failed")}</p>}
       </div>
     </>
+  );
+}
+
+/** A small drawing of a look, in the colors of the current theme; decoration only. */
+function LookPreview({ look }: { look: Look }) {
+  return (
+    <span className={`look-preview look-preview-${look}`} aria-hidden="true">
+      {look === "calm" && (
+        <>
+          <span className="lp-list">
+            <i className="lp-row lp-lemon" />
+            <i className="lp-row lp-sky" />
+            <i className="lp-row lp-mint" />
+          </span>
+          <span className="lp-page">
+            <i className="lp-line wide" />
+            <i className="lp-line" />
+            <i className="lp-line short" />
+          </span>
+        </>
+      )}
+      {look === "paper" && (
+        <>
+          <i className="lp-card lp-lemon" />
+          <i className="lp-card lp-sky" />
+          <i className="lp-card lp-rose" />
+          <i className="lp-card lp-mint" />
+        </>
+      )}
+      {look === "hangar" && (
+        <>
+          <span className="lp-side">
+            <i className="lp-line" />
+            <i className="lp-line short" />
+            <i className="lp-line" />
+          </span>
+          <span className="lp-list">
+            <i className="lp-row lp-lemon" />
+            <i className="lp-row lp-sky" />
+            <i className="lp-row lp-mint" />
+          </span>
+          <span className="lp-page lp-tinted">
+            <i className="lp-line wide" />
+            <i className="lp-line" />
+          </span>
+        </>
+      )}
+    </span>
   );
 }

@@ -128,6 +128,20 @@
         "ru": "Удалённое вернёшь через «Отменить» или из «Недавно удалённые». Заметки можно экспортировать и копировать как Markdown.",
         "tr": "Sildiklerini Geri al ile ya da “Son silinenler” bölümünden geri getir. Notları dışa aktarabilir ve Markdown olarak kopyalayabilirsin.",
         "zh": "删除的笔记可通过“撤销”或“最近删除”找回。笔记可以导出，也可以复制为 Markdown。"
+      },
+      {
+        "de": "Drei Aussehen zur Wahl: Ruhig, Papier, Hangar.",
+        "en": "Three looks to choose from: Calm, Paper, Hangar.",
+        "el": "Τρεις εμφανίσεις για να διαλέξεις: Ήρεμη, Χαρτί, Hangar.",
+        "es": "Tres aspectos para elegir: Tranquilo, Papel, Hangar.",
+        "fr": "Trois apparences au choix : Calme, Papier, Hangar.",
+        "it": "Tre aspetti tra cui scegliere: Calmo, Carta, Hangar.",
+        "ja": "3 つの外観から選べます: シンプル、ペーパー、Hangar。",
+        "pl": "Trzy wyglądy do wyboru: Spokojny, Papier, Hangar.",
+        "pt": "Três aparências para escolher: Calmo, Papel, Hangar.",
+        "ru": "Три вида на выбор: Спокойный, Бумага, Hangar.",
+        "tr": "Seçebileceğin üç görünüm: Sakin, Kâğıt, Hangar.",
+        "zh": "三种外观可选：简洁、纸张、Hangar。"
       }
     ]
   }

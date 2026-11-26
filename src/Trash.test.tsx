@@ -113,3 +113,18 @@ describe("trash", () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("trash rows", () => {
+  it("show the note's color as the list's 3 px edge and the time as the list says it", async () => {
+    await render(true);
+    const row = container.querySelector<HTMLElement>(".trash-row");
+    expect(row?.style.getPropertyValue("--note-edge")).toBe("#2f8a5e");
+    // The time reads like the list's ("jetzt"), not "Gelöscht: jetzt"; the full sentence stays for
+    // screen readers and the tooltip.
+    const time = row?.querySelector<HTMLElement>(".note-row-meta [aria-hidden='true']");
+    expect(time?.textContent).toBe("jetzt");
+    expect(row?.querySelector(".sr-only")?.textContent).toBe(
+      t("notes.deletedAgo", { time: "jetzt" }),
+    );
+  });
+});

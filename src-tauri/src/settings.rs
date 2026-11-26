@@ -1,6 +1,6 @@
 //! `settings.json` in Hangar Note's data folder (ADR 0001): language, theme, the color of new
 //! notes, the personal names of the colors (ADR 0002, "Color categories") and "Always on top" of
-//! the notes area. "Start with the system" is not stored here: it is the OS state itself
+//! the notes area and the look of the windows (ADR 0004). "Start with the system" is not stored here: it is the OS state itself
 //! (autostart plugin).
 
 use std::collections::BTreeMap;
@@ -8,7 +8,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::fsio::{lock, read_capped, write_atomic, StorageCode};
 use crate::meta::NoteColor;
@@ -32,6 +32,29 @@ pub enum Theme {
     Dark,
 }
 
+/// How the notes area and the sticky notes look (ADR 0004). A value this version does not know
+/// (written by a newer one, or by hand) reads as [`Look::Calm`] instead of throwing away the whole
+/// file, as an unknown theme would.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Look {
+    #[default]
+    Calm,
+    Paper,
+    Hangar,
+}
+
+impl<'de> Deserialize<'de> for Look {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            Some("paper") => Self::Paper,
+            Some("hangar") => Self::Hangar,
+            _ => Self::Calm,
+        })
+    }
+}
+
 /// What the windows read and change. `language: null` follows the system language.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +73,9 @@ pub struct Settings {
     /// that sends its settings without this field never switches it off.
     #[serde(default)]
     pub hub_on_top: bool,
+    /// The look of every window; switching it takes effect at once in all of them.
+    #[serde(default)]
+    pub look: Look,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,6 +253,7 @@ mod tests {
             new_note_color: NoteColor::Mint,
             color_names: BTreeMap::from([(NoteColor::Sky, "Arbeit".to_owned())]),
             hub_on_top: false,
+            look: Look::Paper,
         };
         store.set(changed.clone()).unwrap();
         assert_eq!(SettingsStore::open(dir.path()).get(), changed);
@@ -236,7 +263,7 @@ mod tests {
             json,
             serde_json::json!({
                 "version": 1, "language": "pl", "theme": "dark", "newNoteColor": "mint",
-                "colorNames": { "sky": "Arbeit" }, "hubOnTop": false
+                "colorNames": { "sky": "Arbeit" }, "hubOnTop": false, "look": "paper"
             })
         );
     }
@@ -314,6 +341,46 @@ b"
         // Files from v1 without names still load.
         fs::write(store.path(), r#"{"version":1,"theme":"dark"}"#).unwrap();
         assert!(load(store.path()).color_names.is_empty());
+    }
+
+    #[test]
+    fn the_look_is_read_written_and_falls_back_to_calm() {
+        let dir = TempDir::new("settings-look");
+        let store = SettingsStore::open(dir.path());
+        assert_eq!(store.get().look, Look::Calm);
+        for look in [Look::Hangar, Look::Paper, Look::Calm] {
+            let saved = store
+                .set(Settings {
+                    look,
+                    ..Settings::default()
+                })
+                .unwrap();
+            assert_eq!(saved.look, look);
+            assert_eq!(load(store.path()).look, look);
+        }
+        let sent: Settings = serde_json::from_str(r#"{"look":"hangar"}"#).unwrap();
+        assert_eq!(sent.look, Look::Hangar);
+        // A look this version does not know, or no look at all, is the calm one; the rest of the
+        // file stays.
+        for text in [
+            r#"{"version":1,"theme":"dark","look":"neon"}"#,
+            r#"{"version":1,"theme":"dark","look":7}"#,
+            r#"{"version":1,"theme":"dark","look":null}"#,
+            r#"{"version":1,"theme":"dark"}"#,
+        ] {
+            fs::write(store.path(), text).unwrap();
+            let loaded = load(store.path());
+            assert_eq!(loaded.look, Look::Calm, "{text}");
+            assert_eq!(loaded.theme, Theme::Dark, "{text}");
+        }
+        // The other settings and "Always on top" keep the look.
+        store
+            .set(Settings {
+                look: Look::Hangar,
+                ..Settings::default()
+            })
+            .unwrap();
+        assert_eq!(store.set_hub_on_top(true).unwrap().look, Look::Hangar);
     }
 
     #[test]
