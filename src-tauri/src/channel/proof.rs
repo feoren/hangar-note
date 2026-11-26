@@ -6,10 +6,15 @@
 //!   [`NONCE_HEADER`], first on `POST /v1/hello` without its token or any content, then on the
 //!   real request.
 //! - The server answers every request that carries a nonce with [`PROOF_HEADER`]:
-//!   `hex(HMAC-SHA256(key, nonce || status || body))`, where `key` is
+//!   `hex(HMAC-SHA256(key, nonce || path || status || body))`, where `key` is
 //!   `SHA-256("hangar-channel-server" || token)`, `nonce` the 64 ASCII hex digits as sent,
-//!   `status` the HTTP status as 3 ASCII digits and `body` the exact bytes of the answer's body.
-//!   `token` is the token as written in `endpoint.json`: its 64 ASCII hex digits.
+//!   `path` the request's path exactly as sent and routed on (ASCII, without a query, for
+//!   example `/v1/hello` or `/capture`), `status` the HTTP status as 3 ASCII digits and `body`
+//!   the exact bytes of the answer's body. `token` is the token as written in `endpoint.json`:
+//!   its 64 ASCII hex digits.
+//! - The path is bound so that an answer proven for one route never passes as the answer of
+//!   another (security review L1b). Nonce and status have fixed lengths, and the client checks
+//!   the proof against the path it sent itself.
 //! - The client compares in constant time. Only after a valid proof on the hello does it send its
 //!   token and content; a real answer without a valid proof counts as not delivered.
 //!
@@ -92,20 +97,27 @@ pub fn new_nonce() -> io::Result<String> {
     Ok(hex(&bytes))
 }
 
-/// The proof of an answer to the request that carried `nonce`.
-pub fn proof(key: &[u8; OUTPUT], nonce: &str, status: u16, body: &[u8]) -> String {
+/// The proof of an answer to the request on `path` that carried `nonce`.
+pub fn proof(key: &[u8; OUTPUT], nonce: &str, path: &str, status: u16, body: &[u8]) -> String {
     let status = format!("{status:03}");
     hex(&hmac_sha256(
         key,
-        &[nonce.as_bytes(), status.as_bytes(), body],
+        &[nonce.as_bytes(), path.as_bytes(), status.as_bytes(), body],
     ))
 }
 
 /// Whether `claimed` proves this answer, compared in constant time.
-pub fn verify(key: &[u8; OUTPUT], nonce: &str, status: u16, body: &[u8], claimed: &str) -> bool {
+pub fn verify(
+    key: &[u8; OUTPUT],
+    nonce: &str,
+    path: &str,
+    status: u16,
+    body: &[u8],
+    claimed: &str,
+) -> bool {
     is_hex64(claimed)
         && token_eq(
-            proof(key, nonce, status, body).as_bytes(),
+            proof(key, nonce, path, status, body).as_bytes(),
             claimed.as_bytes(),
         )
 }
@@ -148,25 +160,68 @@ mod tests {
             hex(&key[..]),
             "501e571ea9dc36ebcfd9e45779491798112bd6db3baa78483afd8961c4eabe0c"
         );
-        let ok = "e3ad221eff7e1867f489a5e11f72acef5f310bb91349fb4c85416af3072d4bd8";
-        assert_eq!(proof(&key, &nonce, 200, br#"{"version":1}"#), ok);
-        assert!(verify(&key, &nonce, 200, br#"{"version":1}"#, ok));
+        let ok = "7c4469d30cb086970cbf2786c2d5f0803277d036a002776156c76cb97d3a3b8e";
+        let hello = "/v1/hello";
+        assert_eq!(proof(&key, &nonce, hello, 200, br#"{"version":1}"#), ok);
+        assert!(verify(&key, &nonce, hello, 200, br#"{"version":1}"#, ok));
         assert_eq!(
-            proof(&key, &nonce, 409, br#"{"version":1,"error":"read-only"}"#),
-            "5bb6e2528b6d08ef9bb603a514275f63bf735c0a91eb5d74e3f6a08619624c6d"
+            proof(
+                &key,
+                &nonce,
+                "/capture",
+                409,
+                br#"{"version":1,"error":"read-only"}"#
+            ),
+            "5d5c0f2ff0c3182cb072618dcc7be561d44b0c6cccf116cb84771dfd2d773f19"
         );
         // Any other status, body, nonce or spelling fails.
-        assert!(!verify(&key, &nonce, 201, br#"{"version":1}"#, ok));
-        assert!(!verify(&key, &nonce, 200, br#"{"version":2}"#, ok));
-        assert!(!verify(&key, &"0".repeat(64), 200, br#"{"version":1}"#, ok));
+        assert!(!verify(&key, &nonce, hello, 201, br#"{"version":1}"#, ok));
+        assert!(!verify(&key, &nonce, hello, 200, br#"{"version":2}"#, ok));
+        assert!(!verify(
+            &key,
+            &"0".repeat(64),
+            hello,
+            200,
+            br#"{"version":1}"#,
+            ok
+        ));
         assert!(!verify(
             &key,
             &nonce,
+            hello,
             200,
             br#"{"version":1}"#,
             &ok.to_uppercase()
         ));
-        assert!(!verify(&key, &nonce, 200, br#"{"version":1}"#, &ok[1..]));
+        assert!(!verify(
+            &key,
+            &nonce,
+            hello,
+            200,
+            br#"{"version":1}"#,
+            &ok[1..]
+        ));
+    }
+
+    /// The route is bound (security review L1b): an answer proven for one path never counts as
+    /// the answer of another, even with the same nonce, status and body.
+    #[test]
+    fn a_proof_for_one_path_fails_on_another() {
+        let key = key(&"0123456789abcdef".repeat(4));
+        let nonce = "fedcba9876543210".repeat(4);
+        let body = br#"{"version":1}"#;
+        let on_hello = proof(&key, &nonce, "/v1/hello", 200, body);
+        assert!(verify(&key, &nonce, "/v1/hello", 200, body, &on_hello));
+        for other in ["/capture", "/v1/hello/", "/V1/hello", "", "/flush"] {
+            assert!(
+                !verify(&key, &nonce, other, 200, body, &on_hello),
+                "{other}"
+            );
+        }
+        assert_eq!(
+            proof(&key, &nonce, "/capture", 200, body),
+            "5e4cc296073f9c10f4df5cbadf517a1a2b727ff4e0f3dcadf7b440cca94559fd"
+        );
     }
 
     #[test]

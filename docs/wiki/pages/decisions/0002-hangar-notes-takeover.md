@@ -125,9 +125,11 @@ writes Hangar's existing notes folders and formats unchanged; nothing is migrate
   an `endpoint.json` left behind by a crash names a port another local user may bind). A client
   first sends `POST /v1/hello` with an empty body and `X-Channel-Nonce: <64 hex>`; the server
   answers with `X-Channel-Proof: hex(HMAC-SHA256(key = SHA-256("hangar-channel-server" || token),
-  nonce || status as 3 ASCII digits || body))`. The client compares in constant time and sends the
-  real request only after a valid proof; without one it treats the app as not running. Real
-  responses carry the same proof over their own nonce. `endpoint.json` also carries `pid`.
+  nonce || path as sent || status as 3 ASCII digits || body))`; the path was added before contract
+  1 was frozen (security review L1b, agreed with Hangar). The client compares in constant time
+  and sends the real request only after a valid proof; without one it treats the app as not
+  running. Real responses carry the same proof over their own nonce and path. `endpoint.json`
+  also carries `pid`.
   Both apps implement both sides: Hangar Note's server and client now, Hangar's in phase 2.
 - **Hardening that both endpoints follow:** separate connection slots before and after
   authentication with eviction of the oldest silent unauthenticated connection, a header deadline
@@ -322,7 +324,9 @@ channel details: [[hangar-notes-format]], [[local-channel]]. Deviations and choi
     note refused this way gets `not-allowed` without a log line (`AppError::LabelsKept`), since
     every sticky note sends its texts on each settings change; any other window's refusal is
     logged as `not-allowed`.
-  - **B7:** a sticky window's title drops every invisible character (`export::is_invisible`).
+  - **B7:** a sticky window's title drops the invisible characters by the shared naming rule
+    (`naming::without_invisible`); joiners and variation selectors stay only inside emoji
+    sequences and Persian or Indic spelling.
   - **B8:** `read_note` and `get_sticky` carry `version` (modification time in ns and length,
     opaque); `write_note` and `write_sticky` take `expected` and answer `changed` without writing
     when the file moved on, and return the new version. Without `expected` as before. The channel

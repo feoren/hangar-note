@@ -529,15 +529,15 @@ pub fn sticky_note(service: &NotesService, label: &str) -> Result<OpenedNote, Ap
 /// The title of a sticky window, for the taskbar and Alt+Tab: "<title> · Hangar Note", or
 /// "`untitled` · Hangar Note" without a title. Only the note's title, never its text, so the
 /// taskbar or a shared screen shows no more than the notes area's list does. Invisible characters
-/// are dropped (`export::is_invisible`: zero-width and format characters, the direction marks
-/// among them, which could reorder or hide what the taskbar shows; security review B7), control
+/// are dropped (`naming::without_invisible`: zero-width and format characters, the direction
+/// marks among them, which could reorder or hide what the taskbar shows; security review B7;
+/// emoji sequences and Persian or Indic spelling keep their joiners, as in the list), control
 /// characters and runs of white space become one space, and a title longer than
 /// [`MAX_TITLE_CHARS`] characters is cut to that length, its last one an ellipsis.
 pub fn sticky_title(title: &str, untitled: &str) -> String {
     let clean = |text: &str| -> String {
-        let kept: String = text
+        let kept: String = crate::naming::without_invisible(text)
             .chars()
-            .filter(|c| !crate::export::is_invisible(*c))
             .map(|c| if c.is_control() { ' ' } else { c })
             .collect();
         kept.split_whitespace().collect::<Vec<_>>().join(" ")

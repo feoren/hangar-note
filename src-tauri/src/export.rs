@@ -5,6 +5,7 @@
 use std::path::Path;
 
 use crate::fsio::{write_atomic, StorageCode};
+use crate::naming::{is_reserved_on_windows, without_invisible, FORBIDDEN_CHARS, JOINERS};
 use crate::notes::MAX_NOTE_BYTES;
 
 pub const NOTE_EXTENSION: &str = "md";
@@ -13,76 +14,18 @@ pub const NOTE_FILTER: &str = "Markdown";
 const MAX_STEM_CHARS: usize = 100;
 const FALLBACK_STEM: &str = "note";
 
-/// Characters that show nothing but can reorder or hide text (Hangar's `is_invisible`: Unicode
-/// 16.0 `Default_Ignorable_Code_Point` and category Cf).
-pub fn is_invisible(c: char) -> bool {
-    matches!(
-        c,
-        '\u{00AD}'
-            | '\u{034F}'
-            | '\u{0600}'..='\u{0605}'
-            | '\u{061C}'
-            | '\u{06DD}'
-            | '\u{070F}'
-            | '\u{0890}'..='\u{0891}'
-            | '\u{08E2}'
-            | '\u{115F}'..='\u{1160}'
-            | '\u{17B4}'..='\u{17B5}'
-            | '\u{180B}'..='\u{180F}'
-            | '\u{200B}'..='\u{200F}'
-            | '\u{202A}'..='\u{202E}'
-            | '\u{2060}'..='\u{206F}'
-            | '\u{3164}'
-            | '\u{FE00}'..='\u{FE0F}'
-            | '\u{FEFF}'
-            | '\u{FFA0}'
-            | '\u{FFF0}'..='\u{FFFB}'
-            | '\u{110BD}'
-            | '\u{110CD}'
-            | '\u{13430}'..='\u{1343F}'
-            | '\u{1BCA0}'..='\u{1BCA3}'
-            | '\u{1D173}'..='\u{1D17A}'
-            | '\u{E0000}'..='\u{E0FFF}'
-    )
-}
-
-/// Device names Windows reserves in every folder, with or without extension.
-fn is_reserved_on_windows(stem: &str) -> bool {
-    let upper = stem.to_ascii_uppercase();
-    let base = upper.split('.').next().unwrap_or_default().trim_end();
-    matches!(base, "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
-        || ["COM", "LPT"].iter().any(|prefix| {
-            base.strip_prefix(prefix).is_some_and(|rest| {
-                matches!(
-                    rest,
-                    "1" | "2"
-                        | "3"
-                        | "4"
-                        | "5"
-                        | "6"
-                        | "7"
-                        | "8"
-                        | "9"
-                        | "\u{B9}"
-                        | "\u{B2}"
-                        | "\u{B3}"
-                )
-            })
-        })
-}
-
-/// A file name for a note title that is valid on Windows, macOS and Linux: no path separators or
-/// characters Windows forbids, no control or invisible characters, no leading or trailing dots
-/// and spaces, no reserved device name, at most [`MAX_STEM_CHARS`], then `.md`.
+/// A file name for a note title that is valid on Windows, macOS and Linux, by the shared naming
+/// rule (`naming.rs`): no path separators or characters Windows forbids, no control or invisible
+/// characters, no leading or trailing dots and spaces, no reserved device name, at most
+/// [`MAX_STEM_CHARS`], then `.md`.
 pub fn note_file_name(title: &str) -> String {
-    let mut stem: String = title
+    let mut stem: String = without_invisible(title)
         .chars()
         .map(|c| match c {
-            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            c if FORBIDDEN_CHARS.contains(c) => '_',
             c if c.is_control() => ' ',
             c => c,
         })
-        .filter(|c| !is_invisible(*c))
         .collect();
     let suffix = format!(".{NOTE_EXTENSION}");
     if stem.to_ascii_lowercase().ends_with(&suffix) {
@@ -96,7 +39,10 @@ pub fn note_file_name(title: &str) -> String {
         .chars()
         .take(MAX_STEM_CHARS)
         .collect();
-    stem = stem.trim_end_matches(['.', ' ']).to_owned();
+    // A joiner the length limit cut off from its second character would end the name unseen.
+    stem = stem
+        .trim_end_matches(|c: char| c == '.' || c == ' ' || JOINERS.contains(&c))
+        .to_owned();
     if stem.is_empty() {
         stem = FALLBACK_STEM.to_owned();
     }
@@ -165,6 +111,17 @@ mod tests {
         assert_eq!(note_file_name("a\u{202E}dm.exe"), "adm.exe.md");
         assert_eq!(note_file_name(""), "note.md");
         assert_eq!(note_file_name("Größe 😀"), "Größe 😀.md");
+        // Emoji sequences keep their joiners and selectors, Latin letters never get one.
+        assert_eq!(
+            note_file_name("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467} \u{2764}\u{FE0F}"),
+            "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467} \u{2764}\u{FE0F}.md"
+        );
+        assert_eq!(note_file_name("ad\u{200D}min\u{200B}"), "admin.md");
+        let start = "x".repeat(MAX_STEM_CHARS - 2);
+        assert_eq!(
+            note_file_name(&format!("{start}\u{1F468}\u{200D}\u{1F4BB}")),
+            format!("{start}\u{1F468}.md")
+        );
         for reserved in ["CON", "nul", "Com1", "LPT9", "aux.tar"] {
             assert!(note_file_name(reserved).starts_with('_'), "{reserved}");
         }

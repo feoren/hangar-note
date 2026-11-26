@@ -12,6 +12,7 @@ pub mod export;
 pub mod fsio;
 pub mod install;
 pub mod meta;
+pub mod naming;
 pub mod notes;
 pub mod replies;
 pub mod requests;
@@ -75,11 +76,12 @@ pub fn notes_writable_at_start() -> bool {
 
 /// `hangar-note capture`: hands the text to the running app over the local channel (never in
 /// argv, which Windows limits to 32 767 characters). [`ClientError::NotRunning`] and
-/// [`ClientError::NotProven`] mean the app has to start itself with the text.
+/// [`ClientError::NotProven`] mean the app has to start itself with the text. Only a proven
+/// answer with `"ok": true` counts as delivered.
 pub fn send_capture(folder: &Path, text: &str) -> Result<(), ClientError> {
     let dir = data_dir().ok_or(ClientError::NotRunning)?;
     let endpoint = channel::read_endpoint(&dir).map_err(|_| ClientError::NotRunning)?;
-    channel::post(
+    channel::post_confirmed(
         &endpoint,
         "/capture",
         &serde_json::json!({

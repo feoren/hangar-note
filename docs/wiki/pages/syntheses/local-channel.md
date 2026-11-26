@@ -120,23 +120,31 @@ The same five codes reach the window (`src/api.ts` `storageError`, one sentence 
    body**. Sending the token here would let a program on a stale port learn it and prove itself to
    the next client.
 2. The server answers 200 `{"version":1}` with
-   `X-Channel-Proof: hex(HMAC-SHA256(key, nonce || status || body))`:
+   `X-Channel-Proof: hex(HMAC-SHA256(key, nonce || path || status || body))`:
    `key = SHA-256("hangar-channel-server" || token)`, `token` its 64 ASCII hex digits as written in
-   `endpoint.json`, `nonce` the 64 ASCII hex digits as sent, `status` 3 ASCII digits, `body` the
-   exact bytes after the blank line. The proof is 64 lowercase hex digits.
+   `endpoint.json`, `nonce` the 64 ASCII hex digits as sent, `path` the request's path exactly as
+   sent and routed on (ASCII, no query: `/v1/hello`, `/capture`, `/team/...`), `status` 3 ASCII
+   digits, `body` the exact bytes after the blank line. The proof is 64 lowercase hex digits.
+   Binding the path (security review L1b, contract 1 changed before it was frozen, agreed with
+   Hangar) means an answer proven for one route never passes for another. The known answer
+   below includes the path.
 3. The client compares in constant time. Without status 200 and a valid proof it sends nothing
    else and treats the app as not running. A proven answer with `Connection: close` ends the
    exchange as `busy` (the app runs but takes no request now). Before the request, the client
    looks for 2 ms whether the server closed or reset the connection or sent anything more; then
    it sends nothing and treats the app as not running.
 4. The real request carries a new nonce and the token of its scope, on the same connection; its
-   answer (errors included) carries the proof over that nonce. An answer without a valid proof
-   counts as not delivered.
+   answer (errors included) carries the proof over that nonce and that request's path. An answer
+   without a valid proof counts as not delivered. On `open`, `quick` and `capture` a proven 200
+   counts only with `"ok": true` in the body; anything else is refused as `invalid`
+   (`channel::post_confirmed`, security review L1).
 
 Known answer (computed with Python's `hashlib` and `hmac`, pinned in
 `src-tauri/src/channel/proof.rs`): token `0123456789abcdef` × 4, nonce `fedcba9876543210` × 4,
-key `501e571e…4eabe0c`; status 200 with body `{"version":1}` gives
-`e3ad221eff7e1867f489a5e11f72acef5f310bb91349fb4c85416af3072d4bd8`.
+key `501e571e…4eabe0c`; path `/v1/hello`, status 200 and body `{"version":1}` give
+`7c4469d30cb086970cbf2786c2d5f0803277d036a002776156c76cb97d3a3b8e`; path `/capture`, status 409
+and body `{"version":1,"error":"read-only"}` give
+`5d5c0f2ff0c3182cb072618dcc7be561d44b0c6cccf116cb84771dfd2d773f19`.
 
 ## Routes
 

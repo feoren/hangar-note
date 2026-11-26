@@ -15,7 +15,8 @@
 //!   (`gate_service.rs`).
 //! - **The server proves itself first** (`proof.rs`): a client sends `POST /v1/hello` with a
 //!   nonce and neither token nor content, and goes on only after a valid `X-Channel-Proof`. Every
-//!   answer to a request with a nonce carries the proof over that nonce, its status and its body.
+//!   answer to a request with a nonce carries the proof over that nonce, the request's path, its
+//!   status and its body.
 //! - **One exchange, one connection:** the hello and the real request travel over the same
 //!   connection, which stays open after the hello for exactly one more request and then closes.
 //!   Content can only reach the program that proved itself; a connection that closes after the
@@ -820,9 +821,9 @@ impl Server {
         };
         let nonce = head.nonce.clone().filter(|nonce| proof::is_hex64(nonce));
         let respond = |(status, body): (Status, String), keep_alive: bool| {
-            let proof = nonce
-                .as_deref()
-                .map(|nonce| proof::proof(&self.key, nonce, status.code(), body.as_bytes()));
+            let proof = nonce.as_deref().map(|nonce| {
+                proof::proof(&self.key, nonce, &head.path, status.code(), body.as_bytes())
+            });
             http::response(status, &body, proof.as_deref(), keep_alive)
         };
         let refusal = match self.admit(&head) {
@@ -856,11 +857,12 @@ impl Server {
                     return After::Closed;
                 };
                 reader.get_mut().restart(BODY_TIME);
-                let mut bytes = Vec::new();
-                let read = reader.take(head.content_length).read_to_end(&mut bytes);
-                if !matches!(read, Ok(n) if n as u64 == head.content_length) {
+                // The length was checked against the route's limit above.
+                let Ok(bytes) =
+                    http::read_body(reader, head.content_length, body_limit(&head.path))
+                else {
                     return After::Closed;
-                }
+                };
                 let response = respond(route(self.actions.as_ref(), &head.path, &bytes), false);
                 // The authenticated slot is held until the socket closes: such an answer may
                 // wait the full linger time for its client.
@@ -947,14 +949,16 @@ struct Reply {
     proof: Option<String>,
     /// The server keeps the connection open for one more request.
     keep_alive: bool,
-    body: Vec<u8>,
+    /// Wiped when dropped: an answer may carry a note's text (`excerpts`, `search`).
+    body: Zeroizing<Vec<u8>>,
 }
 
 impl Reply {
-    fn proven(&self, key: &[u8; 32], nonce: &str) -> bool {
-        self.proof
-            .as_deref()
-            .is_some_and(|claimed| proof::verify(key, nonce, self.status, &self.body, claimed))
+    /// Whether this is the proven answer to the request sent to `path` with `nonce`.
+    fn proven(&self, key: &[u8; 32], path: &str, nonce: &str) -> bool {
+        self.proof.as_deref().is_some_and(|claimed| {
+            proof::verify(key, nonce, path, self.status, &self.body, claimed)
+        })
     }
 }
 
@@ -1011,11 +1015,7 @@ fn read_reply(reader: &mut impl BufRead) -> io::Result<Reply> {
     if length > MAX_ANSWER_BYTES {
         return Err(broken());
     }
-    let mut body = Vec::new();
-    reader.take(length).read_to_end(&mut body)?;
-    if body.len() as u64 != length {
-        return Err(io::ErrorKind::UnexpectedEof.into());
-    }
+    let body = http::read_body(reader, length, MAX_ANSWER_BYTES)?;
     Ok(Reply {
         status,
         proof,
@@ -1134,7 +1134,7 @@ pub fn post(
         read_reply(&mut reader)
     })()
     .map_err(|_| ClientError::NotProven)?;
-    if hello.status != 200 || !hello.proven(&key, &hello_nonce) {
+    if hello.status != 200 || !hello.proven(&key, HELLO_PATH, &hello_nonce) {
         return Err(ClientError::NotProven);
     }
     // The app proved itself but takes no request on this connection now.
@@ -1164,7 +1164,7 @@ pub fn post(
         read_reply(&mut reader)
     })()
     .map_err(|_| ClientError::Unconfirmed)?;
-    if !reply.proven(&key, &nonce) {
+    if !reply.proven(&key, path, &nonce) {
         return Err(ClientError::Unconfirmed);
     }
     let value: serde_json::Value =
@@ -1178,6 +1178,22 @@ pub fn post(
             .unwrap_or("unknown")
             .to_owned();
         Err(ClientError::Refused(code))
+    }
+}
+
+/// [`post`] for a route whose contract confirms with `"ok": true` (`open`, `quick`, `capture`):
+/// a proven answer without it is refused with `invalid` (security review L1), so a server that
+/// answers 200 but did not do the work never counts as having done it.
+pub fn post_confirmed(
+    endpoint: &EndpointFile,
+    path: &str,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value, ClientError> {
+    let value = post(endpoint, path, body)?;
+    if value.get("ok") == Some(&serde_json::Value::Bool(true)) {
+        Ok(value)
+    } else {
+        Err(ClientError::Refused(ErrorCode::Invalid.as_str().to_owned()))
     }
 }
 
@@ -1541,15 +1557,18 @@ mod tests {
         assert_eq!(reply.status, 200);
         // The client asked to close: so does the server.
         assert!(!reply.keep_alive);
-        assert_eq!(reply.body, br#"{"version":1}"#);
-        assert!(reply.proven(&key, &nonce));
+        assert_eq!(&reply.body[..], br#"{"version":1}"#);
+        assert!(reply.proven(&key, HELLO_PATH, &nonce));
         // Another token's key, or another nonce, does not verify.
-        assert!(!reply.proven(&proof::key(&"0".repeat(64)), &nonce));
-        assert!(!reply.proven(&key, &proof::new_nonce().unwrap()));
+        assert!(!reply.proven(&proof::key(&"0".repeat(64)), HELLO_PATH, &nonce));
+        assert!(!reply.proven(&key, HELLO_PATH, &proof::new_nonce().unwrap()));
+        // The proof binds the path the request was sent to (security review L1b).
+        assert!(!reply.proven(&key, "/capture", &nonce));
         // Errors carry the proof as well, so a client can trust a refusal.
         let refused = exchange(&endpoint, "/flush", &nonce, None, b"{\"version\":1}");
         assert_eq!(refused.status, 401);
-        assert!(refused.proven(&key, &nonce));
+        assert!(refused.proven(&key, "/flush", &nonce));
+        assert!(!refused.proven(&key, HELLO_PATH, &nonce));
         // The hello takes no body and calls nothing.
         let with_body = exchange(&endpoint, HELLO_PATH, &nonce, None, b"{}");
         assert_eq!(with_body.status, 413);
@@ -1643,7 +1662,7 @@ mod tests {
             let nonce = proof::new_nonce().unwrap();
             let reply = exchange(&endpoint, path, &nonce, Some(token), body);
             assert_eq!(reply.status, status, "{path}");
-            assert!(reply.proven(&key, &nonce));
+            assert!(reply.proven(&key, path, &nonce));
         }
         assert!(fake.calls().is_empty());
         // The client sends the team token on a team route.
@@ -1832,7 +1851,7 @@ mod tests {
         let hello = read_reply(&mut reader).unwrap();
         assert_eq!(hello.status, 200);
         assert!(hello.keep_alive);
-        assert!(hello.proven(&key, &hello_nonce));
+        assert!(hello.proven(&key, HELLO_PATH, &hello_nonce));
         let nonce = proof::new_nonce().unwrap();
         let flush = Request {
             path: "/flush",
@@ -1843,7 +1862,7 @@ mod tests {
         write_request(&stream, endpoint.port, &flush, true).unwrap();
         let reply = read_reply(&mut reader).unwrap();
         assert_eq!(reply.status, 200);
-        assert!(reply.proven(&key, &nonce));
+        assert!(reply.proven(&key, "/flush", &nonce));
         // The second request is the last, whatever the client asked for.
         assert!(!reply.keep_alive);
         let mut rest = Vec::new();
@@ -1887,11 +1906,22 @@ mod tests {
         Busy,
     }
 
-    /// A server that knows the token and answers the way `after` says. Returns its port and a
+    /// A server that knows the token and answers the way `after` says, with an answer that
+    /// confirms (`ok: true`) and a proof over the path it was asked on. Returns its port and a
     /// handle with everything it received and how many connections it accepted.
     fn proving_server(
         token: &str,
         after: AfterHello,
+    ) -> (u16, thread::JoinHandle<(Vec<u8>, usize)>) {
+        proving_server_with(token, after, r#"{"version":1,"ok":true}"#, |path| path)
+    }
+
+    /// [`proving_server`] with the body of every answer and the path its proof is signed for.
+    fn proving_server_with(
+        token: &str,
+        after: AfterHello,
+        text: &'static str,
+        signed_path: fn(&str) -> &str,
     ) -> (u16, thread::JoinHandle<(Vec<u8>, usize)>) {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -1919,9 +1949,9 @@ mod tests {
                     b" "
                 });
                 seen.extend_from_slice(&body);
-                let text = r#"{"version":1}"#;
                 let nonce = head.nonce.unwrap_or_default();
-                let claimed = proof::proof(&key, &nonce, 200, text.as_bytes());
+                let path = signed_path(&head.path);
+                let claimed = proof::proof(&key, &nonce, path, 200, text.as_bytes());
                 let response = http::response(Status::Ok, text, Some(&claimed), keep_alive);
                 write_all(&stream, &response)
             };
@@ -1975,6 +2005,70 @@ mod tests {
         assert!(seen.starts_with(HELLO_PATH), "{seen}");
         assert!(seen.contains("/capture Authorization "), "{seen}");
         assert!(seen.contains("marker-one-9c2"), "{seen}");
+    }
+
+    /// A proven 200 confirms a route only with `"ok": true` (security review L1): anything else
+    /// is refused with `invalid` and never counts as delivered.
+    #[test]
+    fn a_confirmed_post_needs_ok_true() {
+        for (text, confirmed) in [
+            (r#"{"version":1,"ok":true}"#, true),
+            (r#"{"version":1}"#, false),
+            (r#"{"version":1,"ok":false}"#, false),
+            (r#"{"version":1,"ok":"true"}"#, false),
+            (r#"{"version":1,"ok":1}"#, false),
+            ("[]", false),
+        ] {
+            let token = new_token().unwrap();
+            let (port, server) = proving_server_with(&token, AfterHello::Serve, text, |path| path);
+            let result = post_confirmed(
+                &endpoint_for(port, &token),
+                "/capture",
+                &serde_json::json!({ "version": 1, "folder": abs(), "text": "marker-ok-4d1" }),
+            );
+            server.join().unwrap();
+            match result {
+                Ok(answer) => assert!(confirmed, "{text}: {answer}"),
+                Err(ClientError::Refused(code)) => {
+                    assert!(!confirmed, "{text}");
+                    assert_eq!(code, ErrorCode::Invalid.as_str(), "{text}");
+                }
+                Err(other) => panic!("{text}: {other:?}"),
+            }
+        }
+    }
+
+    /// A proof the server signed for another path does not count: on the hello the program is
+    /// not proven, on the request the answer is not confirmed (security review L1b).
+    #[test]
+    fn a_proof_signed_for_another_path_does_not_count() {
+        let body =
+            || serde_json::json!({ "version": 1, "folder": abs(), "text": "marker-path-2a6" });
+        let token = new_token().unwrap();
+        let (port, server) = proving_server_with(
+            &token,
+            AfterHello::Serve,
+            r#"{"version":1,"ok":true}"#,
+            |_| "/capture",
+        );
+        let result = post(&endpoint_for(port, &token), "/capture", &body());
+        assert!(matches!(result, Err(ClientError::NotProven)), "{result:?}");
+        let (seen, _) = server.join().unwrap();
+        assert!(!String::from_utf8_lossy(&seen).contains("marker-path-2a6"));
+
+        let token = new_token().unwrap();
+        let (port, server) = proving_server_with(
+            &token,
+            AfterHello::Serve,
+            r#"{"version":1,"ok":true}"#,
+            |_| HELLO_PATH,
+        );
+        let result = post(&endpoint_for(port, &token), "/capture", &body());
+        assert!(
+            matches!(result, Err(ClientError::Unconfirmed)),
+            "{result:?}"
+        );
+        server.join().unwrap();
     }
 
     /// Closed between hello and request (or the proven hello says it closes): the client sends

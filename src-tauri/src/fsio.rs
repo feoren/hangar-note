@@ -340,6 +340,111 @@ pub fn utf8_prefix(bytes: &[u8], max: usize) -> String {
     }
 }
 
+/// Renames `from` to `to` only while `to` does not exist, in one step: a file that appeared under
+/// `to` after a check for a free name is never replaced (security review L3); the caller gets
+/// [`io::ErrorKind::AlreadyExists`] and picks the next name. `std::fs::rename` replaces the
+/// target on every platform.
+///
+/// - Windows: `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`. A change of case only
+///   (`a.md` to `A.md`) renames the file itself.
+/// - Unix: `hard_link` (which fails if `to` exists), then `remove_file(from)`. A change of case
+///   only on a file system that compares names without case (macOS) finds `to` "taken" by the
+///   file itself and renames it in place. A file system without hard links (FAT, some network
+///   shares) falls back to a check and `rename`, the one case left with a short window.
+pub fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+        let from_wide = wide_verbatim(from)?;
+        let to_wide = wide_verbatim(to)?;
+        // SAFETY: both buffers are NUL-terminated UTF-16 strings that live until the call returns;
+        // flags 0 means: fail if the target exists, never copy across volumes.
+        let moved = unsafe { MoveFileExW(from_wide.as_ptr(), to_wide.as_ptr(), 0) };
+        if moved == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        match fs::hard_link(from, to) {
+            Ok(()) => {
+                if let Err(error) = fs::remove_file(from) {
+                    // Undo the second name, so the note is not listed twice.
+                    let _ = fs::remove_file(to);
+                    return Err(error);
+                }
+                Ok(())
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                if only_case_differs(from, to) && same_file(from, to)? {
+                    fs::rename(from, to)
+                } else {
+                    Err(error)
+                }
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::Unsupported | io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                // No hard links here. A real lack of rights fails the rename the same way.
+                if fs::symlink_metadata(to).is_ok() {
+                    return Err(io::ErrorKind::AlreadyExists.into());
+                }
+                fs::rename(from, to)
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
+/// `path` as a NUL-terminated verbatim path (`\\?\C:\...`, `\\?\UNC\server\share\...`), which
+/// `MoveFileExW` takes beyond 260 characters whatever the process's long path setting. Made
+/// absolute first (`GetFullPathNameW`, which also resolves `.`, `..` and `/`), since a verbatim
+/// path is used exactly as written.
+#[cfg(windows)]
+fn wide_verbatim(path: &Path) -> io::Result<Vec<u16>> {
+    use std::os::windows::ffi::OsStrExt;
+    let full = std::path::absolute(path)?;
+    let wide: Vec<u16> = full.as_os_str().encode_wide().collect();
+    if wide.contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path with a NUL character",
+        ));
+    }
+    let utf16 = |text: &str| text.encode_utf16().collect::<Vec<u16>>();
+    let (prefix, rest) = if wide.starts_with(&utf16(r"\\?\")) || wide.starts_with(&utf16(r"\\.\")) {
+        (Vec::new(), &wide[..])
+    } else if wide.starts_with(&utf16(r"\\")) {
+        (utf16(r"\\?\UNC\"), &wide[2..])
+    } else {
+        (utf16(r"\\?\"), &wide[..])
+    };
+    let mut out = Vec::with_capacity(prefix.len() + rest.len() + 1);
+    out.extend_from_slice(&prefix);
+    out.extend_from_slice(rest);
+    out.push(0);
+    Ok(out)
+}
+
+/// Same folder, and the names differ in case only.
+#[cfg(not(windows))]
+fn only_case_differs(from: &Path, to: &Path) -> bool {
+    let name = |path: &Path| path.file_name().map(|n| n.to_string_lossy().to_lowercase());
+    from.parent() == to.parent() && from != to && name(from).is_some() && name(from) == name(to)
+}
+
+/// Whether both names lead to the same file, without following a link.
+#[cfg(not(windows))]
+fn same_file(a: &Path, b: &Path) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let (a, b) = (fs::symlink_metadata(a)?, fs::symlink_metadata(b)?);
+    Ok(a.dev() == b.dev() && a.ino() == b.ino())
+}
+
 /// Moves a corrupt file aside under `<name>.broken-<millis>` (a counter keeps two in one
 /// millisecond apart), so nothing the user could still rescue is overwritten.
 pub fn set_aside(path: &Path) {
@@ -354,14 +459,13 @@ pub fn set_aside(path: &Path) {
             format!("-{attempt}")
         };
         let target = path.with_file_name(format!("{name}.broken-{stamp}{suffix}"));
-        if target.exists() {
-            continue;
-        }
-        if let Err(error) = fs::rename(path, &target) {
-            eprintln!(
+        match rename_no_replace(path, &target) {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => eprintln!(
                 "hangar-note: corrupt file not set aside: {}",
                 storage_log_io(path, &error)
-            );
+            ),
+            Ok(()) => {}
         }
         return;
     }
@@ -580,5 +684,63 @@ mod tests {
         let all = names(dir.path());
         assert_eq!(all.len(), 1);
         assert!(all[0].starts_with("meta.json.broken-"), "{all:?}");
+    }
+
+    /// A rename never replaces a file that is already there (security review L3): the target
+    /// may appear between the check for a free name and the rename.
+    #[test]
+    fn a_rename_never_replaces_an_existing_file() {
+        let dir = TempDir::new("fsio-noreplace");
+        let from = dir.path().join("moving note.md");
+        let to = dir.path().join("taken.md");
+        fs::write(&from, "marker-moving-1c4").unwrap();
+        fs::write(&to, "marker-taken-6b0").unwrap();
+        let error = rename_no_replace(&from, &to).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&from).unwrap(), "marker-moving-1c4");
+        assert_eq!(fs::read_to_string(&to).unwrap(), "marker-taken-6b0");
+        // A free name works, and the source is gone afterwards.
+        let free = dir.path().join("free ä.md");
+        rename_no_replace(&from, &free).unwrap();
+        assert!(!from.exists());
+        assert_eq!(fs::read_to_string(&free).unwrap(), "marker-moving-1c4");
+        assert_eq!(names(dir.path()), ["free ä.md", "taken.md"]);
+        // A missing source is an error of its own, not a replaced target.
+        let error = rename_no_replace(&dir.path().join("gone.md"), &to).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert_eq!(fs::read_to_string(&to).unwrap(), "marker-taken-6b0");
+    }
+
+    /// Changing only the case of a name renames the file itself, also where the file system
+    /// compares names without case (Windows, macOS) and the target therefore "exists".
+    #[test]
+    fn a_rename_may_change_only_the_case() {
+        let dir = TempDir::new("fsio-case");
+        let from = dir.path().join("idea.md");
+        fs::write(&from, "marker-case-0d9").unwrap();
+        rename_no_replace(&from, &dir.path().join("IDEA.md")).unwrap();
+        assert_eq!(names(dir.path()), ["IDEA.md"]);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("IDEA.md")).unwrap(),
+            "marker-case-0d9"
+        );
+    }
+
+    /// Paths beyond Windows' 260 characters, which a deep profile folder and the trash's
+    /// time-stamped names can reach.
+    #[test]
+    fn a_rename_works_on_long_paths() {
+        let dir = TempDir::new("fsio-long");
+        let deep = dir.path().join("d".repeat(120)).join("e".repeat(120));
+        fs::create_dir_all(&deep).unwrap();
+        let from = deep.join(format!("{}.md", "f".repeat(60)));
+        let to = deep.join(format!("{}.md", "g".repeat(60)));
+        assert!(to.as_os_str().len() > 260);
+        fs::write(&from, "marker-long-5e2").unwrap();
+        rename_no_replace(&from, &to).unwrap();
+        assert_eq!(fs::read_to_string(&to).unwrap(), "marker-long-5e2");
+        fs::write(&from, "x").unwrap();
+        let error = rename_no_replace(&from, &to).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
     }
 }

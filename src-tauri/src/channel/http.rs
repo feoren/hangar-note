@@ -81,6 +81,21 @@ impl<R: Read> BufRead for WipingReader<R> {
     }
 }
 
+/// Reads a body of exactly `length` bytes, at most `max`, into one buffer allocated at its final
+/// size and wiped when dropped (security review L4). `read_to_end` into a growing `Vec` would
+/// reallocate and leave unwiped copies of a note's text behind; `read_exact` into a buffer that
+/// is already `length` bytes long never grows it.
+pub fn read_body(reader: &mut impl Read, length: u64, max: u64) -> io::Result<Zeroizing<Vec<u8>>> {
+    if length > max {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "body too large"));
+    }
+    let size = usize::try_from(length)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "body too large"))?;
+    let mut body = Zeroizing::new(vec![0u8; size]);
+    reader.read_exact(&mut body)?;
+    Ok(body)
+}
+
 use super::proof::{NONCE_HEADER, PROOF_HEADER};
 
 /// Request line plus headers, in bytes.
@@ -398,6 +413,32 @@ pub fn response(status: Status, body: &str, proof: Option<&str>, keep_alive: boo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A body lands in one buffer of exactly its length, allocated once and wiped when dropped
+    /// (security review L4): a growing `Vec` would leave copies of the content in the memory it
+    /// gave back on every reallocation.
+    #[test]
+    fn a_body_is_read_into_one_buffer_of_its_length() {
+        let content = b"marker-body-3f7 ".repeat(2048);
+        let length = content.len() as u64;
+        let mut source = WipingReader::new(&content[..]);
+        let body = read_body(&mut source, length, length).unwrap();
+        assert_eq!(&body[..], &content[..]);
+        assert_eq!(body.capacity(), content.len());
+        // Fewer bytes than announced, or more announced than allowed, are refused; the limit is
+        // checked before anything is allocated.
+        let mut short = WipingReader::new(&content[..10]);
+        assert_eq!(
+            read_body(&mut short, 11, 64).unwrap_err().kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+        let mut empty = WipingReader::new(&b""[..]);
+        assert_eq!(
+            read_body(&mut empty, u64::MAX, 64).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert!(read_body(&mut empty, 0, 0).unwrap().is_empty());
+    }
 
     fn head(raw: &[u8]) -> Result<Head, HeadError> {
         read_head(&mut io::BufReader::new(raw))

@@ -37,9 +37,10 @@ use serde::{Deserialize, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 
 use crate::fsio::{
-    create_private_dir, lock, log_cause, millis, read_capped, read_prefix, storage_log,
-    storage_log_io, utf8_prefix, write_atomic, StorageCode,
+    create_private_dir, lock, log_cause, millis, read_capped, read_prefix, rename_no_replace,
+    storage_log, storage_log_io, utf8_prefix, write_atomic, StorageCode,
 };
+use crate::naming::{is_reserved_on_windows, without_invisible, FORBIDDEN_CHARS, JOINERS};
 
 pub const GENERAL_KEY: &str = "general";
 const META_FILE: &str = "folder.json";
@@ -67,12 +68,6 @@ const MAX_SEARCH_BYTES: usize = 64 * 1024 * 1024;
 /// Characters of context before a hit in the excerpt.
 const EXCERPT_CONTEXT: usize = 60;
 const EXCERPT_MAX_CHARS: usize = 160;
-/// Not usable as a file name on Windows, not even with an extension (`CON.md`).
-const RESERVED_NAMES: &[&str] = &[
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-];
-const FORBIDDEN_CHARS: &str = "<>:\"/\\|?*";
 
 /// A scope: `{ "path": "C:\\..." }` or `{ "path": null }` for the General area.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -354,9 +349,15 @@ pub fn is_folder_key(name: &str) -> bool {
     name == GENERAL_KEY || (name.len() == 32 && name.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
-/// Check and clean up a display title (outer whitespace removed).
+/// Check and clean up a display title: invisible characters (`naming::without_invisible`, the
+/// direction marks among them, while emoji sequences and Persian or Indic spelling keep their
+/// joiners) and outer white space are dropped, as typed or pasted titles carry them by accident
+/// and they could reorder or hide what the list shows (security review L2).
+/// Titles of files already on disk go through here as well, so such a file is still listed, under
+/// its visible name.
 pub fn validate_title(title: &str) -> Result<String, NotesError> {
-    let title = title.trim();
+    let visible = without_invisible(title);
+    let title = visible.trim();
     if title.is_empty() {
         return Err(NotesError::InvalidTitle("must not be empty"));
     }
@@ -369,11 +370,13 @@ pub fn validate_title(title: &str) -> Result<String, NotesError> {
     Ok(title.to_owned())
 }
 
-/// File name (without `.md`) from a title, safe on all platforms: no path parts and no forbidden
-/// characters, no dot or space at the end (Windows strips them), no dot at the start (hidden, and
-/// `.trash` stays unambiguous), no reserved device names, limited length.
+/// File name (without `.md`) from a title, safe on all platforms by the shared naming rule
+/// (`naming.rs`): no path parts, forbidden or invisible characters, no dot or space at the end
+/// (Windows strips them), no dot at the start (hidden, and `.trash` stays unambiguous), no
+/// reserved device names, limited length. Sanitized rather than refused: the title stays as
+/// given, only its file name differs.
 pub fn file_stem(title: &str) -> String {
-    let cleaned: String = title
+    let cleaned: String = without_invisible(title)
         .chars()
         .map(|c| {
             if c.is_control() || FORBIDDEN_CHARS.contains(c) {
@@ -384,18 +387,18 @@ pub fn file_stem(title: &str) -> String {
         })
         .take(MAX_STEM_CHARS)
         .collect();
-    let mut stem = cleaned.trim_start().trim_end_matches(['.', ' ']).to_owned();
+    // A joiner the length limit cut off from its second character would end the name unseen.
+    let mut stem = cleaned
+        .trim_start()
+        .trim_end_matches(|c: char| c == '.' || c == ' ' || JOINERS.contains(&c))
+        .to_owned();
     if stem.starts_with('.') {
         stem.insert(0, '_');
     }
     if stem.is_empty() {
         return FALLBACK_STEM.to_owned();
     }
-    let device = stem.split('.').next().unwrap_or_default().trim_end();
-    if RESERVED_NAMES
-        .iter()
-        .any(|r| r.eq_ignore_ascii_case(device))
-    {
+    if is_reserved_on_windows(&stem) {
         stem.insert(0, '_');
     }
     stem
@@ -658,6 +661,32 @@ fn log_migration_error(path: &Path, error: &io::Error) {
     );
 }
 
+/// How often a move looks for another free name after the one it found was taken in between.
+const MAX_MOVE_ATTEMPTS: usize = 16;
+
+/// Moves `from` into `dir` under the name `pick` returns, never over a file that is already there
+/// (security review L3): a name found free can be taken before the rename, by Hangar or another
+/// program, and `fs::rename` would replace that file. On [`io::ErrorKind::AlreadyExists`] `pick`
+/// is asked again (it sees the new file), at most [`MAX_MOVE_ATTEMPTS`] times.
+fn move_to_free_name(
+    from: &Path,
+    dir: &Path,
+    mut pick: impl FnMut() -> String,
+) -> io::Result<String> {
+    for _ in 0..MAX_MOVE_ATTEMPTS {
+        let name = pick();
+        match rename_no_replace(from, &dir.join(&name)) {
+            Ok(()) => return Ok(name),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "no free file name",
+    ))
+}
+
 /// `name` in `dir` if free, otherwise `stem (2).ext`, `stem (3).ext` and so on.
 fn free_name(dir: &Path, name: &str) -> String {
     if !dir.join(name).exists() {
@@ -700,8 +729,7 @@ fn merge_dir(old: &Path, new: &Path, skip: &[&str]) -> io::Result<Vec<(String, S
             move_dir(&from, &new.join(&name))?;
             continue;
         }
-        let target = free_name(new, &name);
-        fs::rename(&from, new.join(&target))?;
+        let target = move_to_free_name(&from, new, || free_name(new, &name))?;
         moved.push((name, target));
     }
     Ok(moved)
@@ -1240,11 +1268,20 @@ impl NotesStore {
         let _guard = lock(&self.guard);
         let mut opened = self.opened(folder)?;
         let entry = opened.entry(id)?.clone();
-        let file = opened.free_file_name(&title, Some(&entry.file));
-        if file != entry.file {
+        let first = opened.free_file_name(&title, Some(&entry.file));
+        let file = if first == entry.file {
+            first
+        } else {
             let from = opened.dir.join(&entry.file);
-            fs::rename(&from, opened.dir.join(&file)).map_err(io_error(&from))?;
-        }
+            let mut pick = Some(first);
+            // After a clash the note's own name no longer counts as free: on a case-sensitive
+            // file system another file may sit under the new spelling of it.
+            move_to_free_name(&from, &opened.dir, || {
+                pick.take()
+                    .unwrap_or_else(|| opened.free_file_name(&title, None))
+            })
+            .map_err(io_error(&from))?
+        };
         if let Some(note) = opened.meta.notes.iter_mut().find(|n| n.id == entry.id) {
             note.title = title;
             note.file = file;
@@ -1267,9 +1304,9 @@ impl NotesStore {
         create_private_dir(&trash).map_err(io_error(&trash))?;
         let stamp = millis(SystemTime::now()).unwrap_or(0);
         let from = opened.file(&entry);
-        let file = free_name(&trash, &format!("{stamp}-{}", entry.file));
-        let to = trash.join(&file);
-        fs::rename(&from, &to).map_err(io_error(&from))?;
+        let wanted = format!("{stamp}-{}", entry.file);
+        let file = move_to_free_name(&from, &trash, || free_name(&trash, &wanted))
+            .map_err(io_error(&from))?;
         opened.meta.notes.retain(|n| n.id != entry.id);
         opened.save()?;
         // Without the record the file is still adopted by `list_trash`, only under a new ID.
@@ -1403,9 +1440,11 @@ impl NotesStore {
             .position(|item| item.id == id)
             .ok_or(NotesError::UnknownNote)?;
         let item = items.remove(index);
-        let file = opened.free_file_name(&item.title, None);
         let from = trash.join(&item.file);
-        fs::rename(&from, opened.dir.join(&file)).map_err(io_error(&from))?;
+        let file = move_to_free_name(&from, &opened.dir, || {
+            opened.free_file_name(&item.title, None)
+        })
+        .map_err(io_error(&from))?;
         let restored = if opened.meta.notes.iter().any(|n| n.id == item.id) {
             new_id()
         } else {
@@ -1706,6 +1745,65 @@ mod tests {
         assert_eq!(validate_title("  Title ").unwrap(), "Title");
     }
 
+    /// One naming rule for notes and export (security review L2): invisible characters never
+    /// reach a file name or a new title, and every name Windows reserves for a device gets a `_`
+    /// in front, superscript digits and the console names included.
+    #[test]
+    fn names_follow_the_shared_rule() {
+        for (title, stem) in [
+            ("a\u{202E}dm", "adm"),
+            ("\u{200B}CON", "_CON"),
+            ("Plan\u{FEFF}\u{2066}", "Plan"),
+            ("\u{200B}\u{200D}", FALLBACK_STEM),
+            ("COM\u{B9}", "_COM\u{B9}"),
+            ("com\u{B2}.txt", "_com\u{B2}.txt"),
+            ("LPT\u{B3}. .", "_LPT\u{B3}"),
+            ("conin$", "_conin$"),
+            ("CONOUT$ .log", "_CONOUT$ .log"),
+            ("CONOUT$x", "CONOUT$x"),
+            ("COM\u{B9}0", "COM\u{B9}0"),
+        ] {
+            assert_eq!(file_stem(title), stem, "{title:?}");
+        }
+        // A new title loses its invisible characters the way it loses its outer white space;
+        // nothing left is no title.
+        assert_eq!(validate_title(" a\u{202E}b\u{200B} ").unwrap(), "ab");
+        assert!(validate_title("\u{200B}\u{FEFF}").is_err());
+        // An emoji sequence is a title and a file name of its own, not three loose emoji.
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+        assert_eq!(validate_title(family).unwrap(), family);
+        assert_eq!(file_stem(&format!("{family}\u{202E}")), family);
+        assert_eq!(file_stem("ad\u{200D}min"), "admin");
+        // A cut at the length limit never leaves a joiner at the end of the name.
+        let start = "a".repeat(MAX_STEM_CHARS - 2);
+        let cut = format!("{start}\u{1F468}\u{200D}\u{1F4BB}");
+        assert_eq!(file_stem(&cut), format!("{start}\u{1F468}"));
+        assert_eq!(validate_title("COM\u{B9}").unwrap(), "COM\u{B9}");
+    }
+
+    /// A file Hangar wrote under a name the rule would never create stays listed and readable;
+    /// only the title shown drops the invisible characters.
+    #[test]
+    fn existing_files_with_invisible_names_stay_readable() {
+        let t = TempNotes::new("invisible");
+        let folder = project();
+        t.0.create_note(&folder, "own").unwrap();
+        let dir = t.0.root().join(folder_key(&folder).unwrap());
+        let name = "a\u{200B}b\u{202E}c.md";
+        fs::write(dir.join(name), "marker-kept-81e").unwrap();
+        let notes = t.0.list_notes(&folder).unwrap();
+        let adopted = notes.iter().find(|n| n.title == "abc").unwrap();
+        assert_eq!(
+            t.0.read_note(&folder, &adopted.id).unwrap(),
+            "marker-kept-81e"
+        );
+        assert!(dir.join(name).is_file());
+        // Renaming it gives a file name without them.
+        t.0.rename_note(&folder, &adopted.id, "x\u{200B}y").unwrap();
+        assert!(dir.join("xy.md").is_file());
+        assert!(!dir.join(name).exists());
+    }
+
     #[test]
     fn untitled_titles_take_the_smallest_free_number() {
         let existing = vec![
@@ -1870,6 +1968,70 @@ mod tests {
         // The adopted ID stays stable.
         assert_eq!(t.0.list_notes(&folder).unwrap()[0].id, notes[0].id);
         assert_eq!(t.0.read_note(&folder, &notes[0].id).unwrap(), "hello");
+    }
+
+    /// A target that appears between the free-name check and the rename is never replaced: the
+    /// move takes the next free name (security review L3).
+    #[test]
+    fn a_name_taken_during_the_move_is_skipped() {
+        let t = TempNotes::new("race");
+        let dir = t.1.path().join("race");
+        fs::create_dir_all(&dir).unwrap();
+        let from = dir.join("source.md");
+        fs::write(&from, "marker-source-a17").unwrap();
+        let mut picks = 0;
+        let moved = move_to_free_name(&from, &dir, || {
+            picks += 1;
+            if picks == 1 {
+                // Someone else writes the name right after it was found free.
+                fs::write(dir.join("x.md"), "marker-other-3c5").unwrap();
+                "x.md".to_owned()
+            } else {
+                free_name(&dir, "x.md")
+            }
+        })
+        .unwrap();
+        assert_eq!(moved, "x (2).md");
+        assert_eq!(picks, 2);
+        assert_eq!(
+            fs::read_to_string(dir.join("x.md")).unwrap(),
+            "marker-other-3c5"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("x (2).md")).unwrap(),
+            "marker-source-a17"
+        );
+        // Bounded: a name that is always taken ends in an error, with the source untouched.
+        fs::write(&from, "marker-source-a17").unwrap();
+        let error = move_to_free_name(&from, &dir, || "x.md".to_owned()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&from).unwrap(), "marker-source-a17");
+        assert_eq!(
+            fs::read_to_string(dir.join("x.md")).unwrap(),
+            "marker-other-3c5"
+        );
+    }
+
+    /// Rename, delete and restore go through the move that never replaces and still carry the
+    /// note's text.
+    #[test]
+    fn rename_delete_and_restore_still_move_the_file() {
+        let t = TempNotes::new("noreplace");
+        let folder = project();
+        let id = t.0.create_note(&folder, "first").unwrap();
+        t.0.write_note(&folder, &id, "marker-first-77a").unwrap();
+        let dir = t.0.root().join(folder_key(&folder).unwrap());
+        t.0.rename_note(&folder, &id, "Plan").unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("Plan.md")).unwrap(),
+            "marker-first-77a"
+        );
+        t.0.delete_note(&folder, &id).unwrap();
+        let restored = t.0.restore_note(&folder, &id).unwrap();
+        assert_eq!(
+            t.0.read_note(&folder, &restored).unwrap(),
+            "marker-first-77a"
+        );
     }
 
     #[test]

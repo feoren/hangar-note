@@ -129,3 +129,13 @@ no policy.
 Added to B6 in the "Phase 1 as built" section of pages/decisions/0002-hangar-notes-takeover.md: a
 sticky note whose menu texts are refused gets `not-allowed` without a log line
 (`AppError::LabelsKept`); refusals of other windows are still logged.
+
+## [2026-11-26] query | Proof binds the path; findings L1 to L4
+Contract 1 changed before it was frozen (agreed with Hangar): the server proof is now
+`HMAC(key, nonce || path || status || body)`, path as sent and routed on. Updated the "Server proof"
+section of pages/syntheses/local-channel.md (with the new known answer) and the "Local channel"
+section of pages/decisions/0002-hangar-notes-takeover.md. Also from the same review: `capture` counts
+only a proven answer with `"ok": true` (L1); notes, export and sticky titles share one naming rule
+in `naming.rs`, which drops invisible characters but keeps joiners and variation selectors inside
+emoji sequences and Persian or Indic spelling (L2); renames, deletes and restores never replace a file (`fsio::rename_no_replace`, L3); request
+and answer bodies land in one wiped buffer of their exact length (L4).
