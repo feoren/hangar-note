@@ -13,9 +13,12 @@ export type NotesScope =
 
 export const DEFAULT_SCOPE: NotesScope = { kind: "project" };
 
-/** "This project" needs a folder; without one, the list shows General. */
+/**
+ * "This project" needs a folder; without one, the list shows All, so a first start finds every
+ * note. New notes still go to General (`newNoteFolder`).
+ */
 export function effectiveScope(scope: NotesScope, projectFolder: NoteFolder | null): NotesScope {
-  if (scope.kind === "project" && projectFolder === null) return { kind: "general" };
+  if (scope.kind === "project" && projectFolder === null) return { kind: "all" };
   if (scope.kind === "folder") {
     if (scope.folder.path === null) return { kind: "general" };
     if (projectFolder !== null && sameFolder(scope.folder, projectFolder)) {

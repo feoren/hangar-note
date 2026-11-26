@@ -34,13 +34,16 @@ import {
   colorName,
   NOTE_COLORS,
   noteTone,
+  swatchColor,
   toneVariables,
   type NoteColor,
   type Theme,
 } from "./colors";
+import { copyText } from "./clipboard";
 import { createNoteEditor, type Format, type NoteEditor } from "./editor";
 import { DICTIONARIES, LANGUAGES, useT } from "./i18n";
 import { BulletIcon, CheckIcon, CloseIcon, MoreIcon, PlusIcon, TaskIcon } from "./icons";
+import { createLeaveAnyway } from "./leaveAnyway";
 import { focusFirstItem, moveMenuFocus } from "./menuKeys";
 import { nextAutoTitle } from "./notes";
 import { createSaver, type SaveState } from "./saver";
@@ -69,6 +72,10 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
   const [tooLarge, setTooLarge] = useState(false);
   const [focused, setFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  /** Closing was refused because the text is not saved: offer to copy it. */
+  const [stuck, setStuck] = useState(false);
+  const [copyResult, setCopyResult] = useState<"copied" | "failed" | null>(null);
+  const [leaveAnyway] = useState(() => createLeaveAnyway());
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<NoteEditor | null>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -83,6 +90,11 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
       },
       onState: (state) => {
         setSaveState(state);
+        if (state === "saved") {
+          leaveAnyway.reset();
+          setStuck(false);
+          setCopyResult(null);
+        }
       },
     }),
   );
@@ -164,12 +176,26 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
   const close = useCallback(async () => {
     if (closing.current) return;
     closing.current = true;
-    // A failed write (full disk, folder gone) keeps the window: closing it would throw away the
-    // text that only exists here. The note shows "Not saved" and the person can retry.
-    if (!(await saver.flush())) {
-      closing.current = false;
+    // A failed write (full disk, folder gone) or a text over the limit keeps the window: closing
+    // it would throw away the text that only exists here. The note offers to copy it; closing
+    // again within 10 s closes anyway (leaveAnyway.ts), so the note cannot trap the person.
+    const saved = (await saver.flush()) && utf8Bytes(textRef.current) <= MAX_NOTE_BYTES;
+    if (!saved) {
+      if (!leaveAnyway.refused()) {
+        setStuck(true);
+        closing.current = false;
+        return;
+      }
+      saver.dispose();
+      try {
+        await closeNote();
+      } catch {
+        closing.current = false;
+      }
       return;
     }
+    leaveAnyway.reset();
+    setStuck(false);
     const open = noteRef.current;
     try {
       if (open && writable && open.autoTitled && textRef.current.trim() === "") {
@@ -183,7 +209,11 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
     } catch {
       closing.current = false;
     }
-  }, [saver, retitle, writable]);
+  }, [saver, retitle, writable, leaveAnyway]);
+
+  const copyUnsaved = async () => {
+    setCopyResult((await copyText(textRef.current)) ? "copied" : "failed");
+  };
 
   const remove = useCallback(async () => {
     setMenuOpen(false);
@@ -388,7 +418,7 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
                 className="swatch"
                 title={colorName(option, colorNames, t)}
                 aria-label={colorName(option, colorNames, t)}
-                style={{ background: noteTone(option, theme).header }}
+                style={{ background: swatchColor(option) }}
                 onClick={() => {
                   pickColor(option);
                 }}
@@ -449,10 +479,30 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
         </p>
       )}
 
-      {(tooLarge || saveState === "failed") && (
+      {(tooLarge || saveState === "failed") && !stuck && (
         <p className="note-message note-error" role="status">
           {tooLarge ? t("note.tooLarge") : t("note.saveFailed")}
         </p>
+      )}
+
+      {stuck && (
+        <div className="note-message note-error note-stuck" role="alert">
+          <p>{t("note.closeUnsaved")}</p>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              void copyUnsaved();
+            }}
+          >
+            {t("notes.copyMarkdown")}
+          </button>
+          {copyResult !== null && (
+            <p role="status">
+              {copyResult === "copied" ? t("notes.copied") : t("notes.copyFailed")}
+            </p>
+          )}
+        </div>
       )}
 
       {focused && writable && (

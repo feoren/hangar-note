@@ -101,6 +101,11 @@ export interface Settings {
 export interface SettingsView extends Settings {
   /** Whether the app starts with the system (the OS state). */
   autostart: boolean;
+  /**
+   * Whether the notes area stays above other windows (`settings.json`). Optional: a backend
+   * without the setting leaves it out, and the switch starts off.
+   */
+  hubOnTop?: boolean;
 }
 
 export interface TrayLabels {
@@ -182,9 +187,16 @@ export const revealNotesFolder = (folder: NoteFolder) =>
   invoke<null>("reveal_notes_folder", { folder });
 export const copyNote = (folder: NoteFolder, id: string) =>
   invoke<null>("copy_note", { folder, id });
+/** Text that exists only in this window onto the clipboard (at most one note, `MAX_NOTE_BYTES`). */
+export const copyTextToClipboard = (text: string) => invoke<null>("copy_text", { text });
 export const openHub = () => invoke<null>("open_hub");
 export const getSettings = () => invoke<SettingsView>("get_settings");
 export const setSettings = (value: Settings) => invoke<Settings>("set_settings", { value });
+/**
+ * Keeps the notes area (window `hub`) above other windows; the backend stores the choice in
+ * `settings.json` and answers the state it applied.
+ */
+export const setHubOnTop = (onTop: boolean) => invoke<boolean>("set_hub_on_top", { onTop });
 export const setAutostart = (enabled: boolean) => invoke<boolean>("set_autostart", { enabled });
 export const setTrayLabels = (labels: TrayLabels) => invoke<null>("set_tray_labels", { labels });
 export const windowReady = () => invoke<null>("window_ready");

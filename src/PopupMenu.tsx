@@ -17,6 +17,8 @@ export type MenuItem =
       shortcut?: string;
       danger?: boolean;
       disabled?: boolean;
+      /** A switch: shown with a check mark and announced as checked or not. */
+      checked?: boolean;
       run: () => void;
     }
   | { type: "separator"; key: string }
@@ -96,7 +98,8 @@ export function PopupMenu({ items, label, anchor, onClose }: Props) {
           <button
             key={item.key}
             type="button"
-            role="menuitem"
+            role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+            aria-checked={item.checked}
             className={item.danger === true ? "menu-item danger" : "menu-item"}
             disabled={item.disabled}
             onClick={() => {
@@ -104,6 +107,7 @@ export function PopupMenu({ items, label, anchor, onClose }: Props) {
               item.run();
             }}
           >
+            {item.checked !== undefined && <MenuCheck on={item.checked} />}
             <span className="menu-label">{item.label}</span>
             {item.shortcut !== undefined && <kbd className="menu-shortcut">{item.shortcut}</kbd>}
           </button>

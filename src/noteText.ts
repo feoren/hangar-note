@@ -175,11 +175,12 @@ export function appendCapture(
   captured: string,
   stamp: string,
   source: string,
+  compose: (stamp: string, label: string) => string = (time, label) => `${time} · ${label}`,
 ): string {
   const body = captured.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
   const fence = fenceFor(body);
   const label = headingText(source);
-  const heading = label === "" ? `_${stamp}_` : `_${stamp} · ${label}_`;
+  const heading = label === "" ? `_${stamp}_` : `_${compose(stamp, label)}_`;
   const block = `${heading}\n\n${fence}\n${body}\n${fence}\n`;
   const trimmed = existing.replace(/\s+$/, "");
   return trimmed === "" ? block : `${trimmed}\n\n${block}`;

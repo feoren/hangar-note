@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { relativeTime, shortTime } from "./format";
+import { captureStamp, relativeTime, shortTime } from "./format";
 
 describe("relativeTime", () => {
   const now = Date.UTC(2026, 10, 26, 12, 0, 0);
@@ -20,5 +20,12 @@ describe("relativeTime", () => {
 
   it("formats a short time", () => {
     expect(shortTime(new Date(2026, 0, 1, 9, 5), "de")).toBe("09:05");
+  });
+
+  it("names day, month and time of a capture", () => {
+    const stamp = captureStamp(new Date(2026, 10, 26, 9, 5), "de");
+    expect(stamp).toContain("26.");
+    expect(stamp).toContain("Nov");
+    expect(stamp).toContain("09:05");
   });
 });

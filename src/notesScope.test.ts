@@ -19,8 +19,10 @@ const folders = [
 ];
 
 describe("notes scope", () => {
-  it("shows General for This project without a project folder", () => {
-    expect(effectiveScope({ kind: "project" }, null)).toEqual({ kind: "general" });
+  it("shows All for This project without a project folder, and puts new notes into General", () => {
+    expect(effectiveScope({ kind: "project" }, null)).toEqual({ kind: "all" });
+    expect(newNoteFolder({ kind: "project" }, null)).toEqual({ path: null });
+    expect(mixesScopes({ kind: "project" }, null)).toBe(true);
     expect(effectiveScope({ kind: "project" }, shop)).toEqual({ kind: "project" });
     expect(effectiveScope({ kind: "folder", folder: { path: "c:/p/shop" } }, shop)).toEqual({
       kind: "project",

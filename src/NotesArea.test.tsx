@@ -57,6 +57,8 @@ const api = vi.hoisted(() => ({
   fromDesktop: vi.fn(),
   toDesktop: vi.fn(),
   noteFlushed: vi.fn(),
+  setHubOnTop: vi.fn(),
+  copyText: vi.fn(),
 }));
 
 vi.mock("./api", () => ({
@@ -86,7 +88,10 @@ vi.mock("./api", () => ({
   revealNotesFolder: vi.fn(),
   noteFlushed: api.noteFlushed,
   onNotesChanged: vi.fn(() => Promise.resolve(() => undefined)),
-  onHubRequests: vi.fn(() => Promise.resolve(() => undefined)),
+  onHubRequests: vi.fn((handler: () => void) => {
+    api.handlers.set("hub-requests", handler);
+    return Promise.resolve(() => undefined);
+  }),
   onFlushRequested: vi.fn((label: string, handler: () => void) => {
     api.handlers.set(`flush:${label}`, handler);
     return Promise.resolve(() => undefined);
@@ -94,7 +99,10 @@ vi.mock("./api", () => ({
   windowReady: vi.fn(() => Promise.resolve(null)),
   setSettings: vi.fn(),
   setAutostart: vi.fn(),
+  setHubOnTop: api.setHubOnTop,
 }));
+
+vi.mock("./clipboard", () => ({ copyText: api.copyText }));
 
 const editor = vi.hoisted((): { options: EditorOptions | null; text: string } => ({
   options: null,
@@ -202,6 +210,8 @@ beforeEach(() => {
   api.fromDesktop.mockResolvedValue(null);
   api.toDesktop.mockResolvedValue(null);
   api.noteFlushed.mockResolvedValue(null);
+  api.setHubOnTop.mockImplementation((onTop: boolean) => Promise.resolve(onTop));
+  api.copyText.mockResolvedValue(true);
   api.createNote.mockResolvedValue(opened(A, "Notiz 1", { autoTitled: true, text: "" }));
 });
 
@@ -300,5 +310,228 @@ describe("notes area", () => {
     expect(api.noteFlushed).toHaveBeenCalledWith(true);
     await click(button(t("notes.backToList")));
     expect(api.deleteNote).toHaveBeenCalledWith(GENERAL, A);
+  });
+});
+
+const readOnly: Status = { ...writable, access: { state: "readOnly", reason: "notHandedOver" } };
+const capture: HubRequest = { kind: "capture", folder: "C:/p/Demo Projekt", text: "Ausgabe" };
+
+function rowButton(title: string): HTMLButtonElement {
+  const found = Array.from(container.querySelectorAll<HTMLButtonElement>(".note-row")).find(
+    (element) => element.querySelector(".note-row-title")?.textContent === title,
+  );
+  if (!found) throw new Error(`row ${title} missing`);
+  return found;
+}
+
+async function type(text: string) {
+  await act(async () => {
+    editor.options?.onChange(text);
+    await Promise.resolve();
+  });
+  await settle();
+}
+
+describe("notes area: capture and quick note", () => {
+  it("says a capture was saved only once its note exists, titled after its source", async () => {
+    api.takeHubRequests.mockResolvedValue([capture]);
+    await render();
+    expect(api.createNote).toHaveBeenCalledTimes(1);
+    const written = String(api.writeNote.mock.calls[0]?.[2]);
+    expect(written).toMatch(/^_Aus Demo Projekt, /);
+    expect(container.textContent).toContain(t("notes.capturedNew"));
+  });
+
+  it("does not claim a capture was saved when creating its note failed", async () => {
+    api.takeHubRequests.mockResolvedValue([capture]);
+    api.createNote.mockRejectedValue("disk full");
+    await render();
+    expect(container.textContent).not.toContain(t("notes.capturedNew"));
+    expect(container.textContent).toContain(t("notes.heldHint"));
+  });
+
+  it("keeps a capture in a draft to copy while the notes are read only", async () => {
+    api.getStatus.mockResolvedValue(readOnly);
+    api.takeHubRequests.mockResolvedValue([capture]);
+    await render();
+    expect(api.createNote).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain(t("notes.capturedNew"));
+    expect(container.textContent).toContain(t("notes.heldHint"));
+    expect(editor.text).toContain("Ausgabe");
+    await click(button(t("notes.copyMarkdown")));
+    expect(api.copyText).toHaveBeenCalledWith(editor.text);
+    expect(container.textContent).toContain(t("notes.copied"));
+  });
+
+  it("opens no draft for a quick note while the notes are read only", async () => {
+    api.getStatus.mockResolvedValue(readOnly);
+    api.takeHubRequests.mockResolvedValue([{ kind: "quick" }]);
+    await render();
+    expect(container.querySelector(".note-bar")).toBeNull();
+    expect(container.textContent).toContain(t("notes.pickReadOnly"));
+  });
+});
+
+describe("notes area: leaving an unsaved note", () => {
+  it("keeps the note open and says it is not saved instead of switching", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nneu");
+    api.writeNote.mockRejectedValue("disk full");
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    await click(rowButton("Projekt"));
+    expect(api.readNote).toHaveBeenCalledTimes(1);
+    expect(container.querySelector(".note-pane")?.getAttribute("aria-label")).toBe("Einkaufen");
+    expect(container.querySelector(".note-unsaved")?.textContent).toBe(t("notes.unsaved"));
+    expect(container.querySelector(".notes-stuck")?.textContent).toContain(t("notes.leaveUnsaved"));
+    // After 10 s a try counts as a first one again.
+    now.mockReturnValue(1_010_000);
+    await click(button(t("notes.backToList")));
+    expect(container.querySelector(".note-bar")).not.toBeNull();
+    // Once a save works again, leaving works and the warning is gone.
+    api.writeNote.mockResolvedValue(null);
+    await click(button(t("notes.backToList")));
+    expect(container.querySelector(".note-bar")).toBeNull();
+    expect(container.querySelector(".notes-stuck")).toBeNull();
+    now.mockRestore();
+  });
+
+  it("offers the text to copy and leaves without it on a second try within 10 s", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nneu");
+    api.writeNote.mockRejectedValue("disk full");
+    const now = vi.spyOn(Date, "now").mockReturnValue(2_000_000);
+    await click(rowButton("Projekt"));
+    expect(api.readNote).toHaveBeenCalledTimes(1);
+    const warning = container.querySelector<HTMLElement>(".notes-stuck");
+    expect(warning?.getAttribute("role")).toBe("alert");
+    const copy = Array.from(warning?.querySelectorAll("button") ?? []).find(
+      (element) => element.textContent === t("notes.copyMarkdown"),
+    );
+    if (!copy) throw new Error("copy button missing");
+    await click(copy);
+    expect(api.copyText).toHaveBeenCalledWith("Einkaufen\nneu");
+    now.mockReturnValue(2_009_999);
+    await click(rowButton("Projekt"));
+    // The second try saved once more, failed again and left.
+    const writes = api.writeNote.mock.calls.length;
+    expect(api.readNote).toHaveBeenCalledTimes(2);
+    expect(container.querySelector(".note-pane")?.getAttribute("aria-label")).toBe("Projekt");
+    expect(container.querySelector(".notes-stuck")).toBeNull();
+    expect(container.querySelector(".note-unsaved")).toBeNull();
+    // The dropped text is never written later, not even by the flush before quitting.
+    api.writeNote.mockResolvedValue(null);
+    await act(async () => {
+      api.handlers.get("flush:hub")?.();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(api.writeNote.mock.calls.slice(writes)).toEqual([]);
+    expect(api.noteFlushed).toHaveBeenLastCalledWith(true);
+    now.mockRestore();
+  });
+
+  it("never drops unsaved text for a request from the command line or Hangar", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nneu");
+    api.writeNote.mockRejectedValue("disk full");
+    const now = vi.spyOn(Date, "now").mockReturnValue(3_000_000);
+    await click(rowButton("Projekt"));
+    api.takeHubRequests.mockResolvedValue([{ kind: "quick" }]);
+    await act(async () => {
+      api.handlers.get("hub-requests")?.();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(api.readNote).toHaveBeenCalledTimes(1);
+    expect(container.querySelector(".note-pane")?.getAttribute("aria-label")).toBe("Einkaufen");
+    now.mockRestore();
+  });
+});
+
+describe("notes area: trash and back", () => {
+  it("gives the open note its editor and text again after the trash", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nneu");
+    await click(button(t("notes.more")));
+    const trash = Array.from(container.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+      (element) => element.textContent.includes(t("notes.trash")),
+    );
+    if (!trash) throw new Error("trash item missing");
+    await click(trash);
+    expect(container.querySelector(".note-editor")).toBeNull();
+    await click(button(t("notes.back")));
+    const content = container.querySelector(".note-editor .cm-content");
+    expect(content?.textContent).toBe("Einkaufen\nneu");
+    // Typing goes on in the new editor and is saved for the same note.
+    await type("Einkaufen\nneu\nmehr");
+    await act(async () => {
+      api.handlers.get("flush:hub")?.();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(api.writeNote).toHaveBeenLastCalledWith(GENERAL, A, "Einkaufen\nneu\nmehr");
+  });
+});
+
+describe("notes area: list", () => {
+  it("shows All on a start without a project, and new notes still go to General", async () => {
+    await render();
+    const on = container.querySelector('.chip[aria-pressed="true"]');
+    expect(on?.textContent).toBe(t("notes.scopeAll"));
+    await click(button(t("notes.new")));
+    await type("Neu");
+    expect(api.createNote).toHaveBeenCalledWith(GENERAL, "Notiz");
+  });
+
+  it("switches the window on top from the list menu", async () => {
+    await render();
+    await click(button(t("notes.more")));
+    const item = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"]'),
+    ).find((element) => element.textContent.includes(t("note.keepOnTop")));
+    expect(item?.getAttribute("aria-checked")).toBe("false");
+    if (!item) throw new Error("on-top switch missing");
+    await click(item);
+    expect(api.setHubOnTop).toHaveBeenCalledWith(true);
+    await click(button(t("notes.more")));
+    const again = container.querySelector('[role="menuitemcheckbox"]');
+    expect(again?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("offers On the desktop once, in the note's footer", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    expect(container.querySelector(".note-footer")?.textContent).toContain(t("notes.toDesktop"));
+    await click(button(t("notes.more")));
+    expect(container.querySelector(".popup-menu")?.textContent).not.toContain(t("notes.toDesktop"));
+  });
+
+  it("offers a way out of an empty search", async () => {
+    await render();
+    const search = container.querySelector<HTMLInputElement>('input[type="search"]');
+    if (!search) throw new Error("search missing");
+    await act(async () => {
+      // The prototype's setter, so React's value tracking sees a change (as typing would).
+      Reflect.set(HTMLInputElement.prototype, "value", "zzz", search);
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+    await settle();
+    expect(container.textContent).toContain(t("notes.noHits", { query: "zzz" }));
+    await click(button(t("notes.searchClear")));
+    expect(search.value).toBe("");
+  });
+
+  it("says the list could not load and loads it again on request", async () => {
+    api.listNotes.mockRejectedValueOnce("broken");
+    await render();
+    expect(container.textContent).toContain(t("notes.loadFailed"));
+    expect(container.textContent).not.toContain(t("notes.empty"));
+    await click(button(t("notes.retry")));
+    expect(titles()).toEqual(["Einkaufen", "Projekt"]);
   });
 });

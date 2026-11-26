@@ -34,3 +34,20 @@ pages/overview.md.
 Added the server proof (`/v1/hello`, HMAC over nonce, status and body) and the shared hardening
 rules to the local channel section of pages/decisions/0002-hangar-notes-takeover.md, after the
 security review of phase 1.
+
+## [2026-11-26] query | Usability pass of the notes area
+Created pages/syntheses/usability-pass.md (review findings and own findings with change and
+reason). Updated index.md.
+
+## [2026-11-26] schema | Phase 1 hardening after the security and acceptance reviews
+Extended "Phase 1 as built" in pages/decisions/0002-hangar-notes-takeover.md: ADR 0001's store
+given up without a migration, CRLF to LF on saving, debug starts rewriting `install.json`, and the
+hardening (server proof, connection slots, owner-only `endpoint.json`, `SO_EXCLUSIVEADDRUSE`,
+`Zeroizing`, 415, navigation filter, capture exit codes and guard, stable IDs, no links followed,
+development root check, "Always on top" of the notes area). Rewrote
+pages/syntheses/local-channel.md for the new contract (proof, exit codes, checks, slots).
+
+## [2026-11-26] update | Leaving an unsaved note, copying through the backend
+Added "Leaving an unsaved note" to pages/decisions/0001-foundation.md (refused first with "Copy as
+Markdown", a second try within 10 s leaves, as "Quit" does) and the backend command `copy_text`.
+Moved both open items of pages/syntheses/usability-pass.md to "Resolved after the pass".

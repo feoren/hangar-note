@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { setAutostart, setSettings, type Settings, type ThemeSetting } from "./api";
 import type { AppSettings } from "./appSettings";
-import { colorLabelKey, colorName, NOTE_COLORS, noteTone, type NoteColor } from "./colors";
+import { colorLabelKey, colorName, NOTE_COLORS, swatchColor, type NoteColor } from "./colors";
 import { LANGUAGE_NAMES, LANGUAGES, useT, type MessageKey } from "./i18n";
 import { BackIcon, CheckIcon } from "./icons";
 
@@ -38,7 +38,7 @@ export function withColorName(
 export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () => void }) {
   const t = useT();
   const [failed, setFailed] = useState(false);
-  const { settings, theme, applySaved, applyAutostart } = app;
+  const { settings, applySaved, applyAutostart } = app;
   if (!settings) return null;
 
   const save = (change: Partial<Settings>) => {
@@ -68,7 +68,13 @@ export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () =>
   return (
     <>
       <header className="pane-head">
-        <button type="button" className="icon-button" aria-label={t("notes.back")} onClick={onBack}>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={t("notes.back")}
+          title={t("notes.back")}
+          onClick={onBack}
+        >
           <BackIcon />
         </button>
         <h1>{t("notes.settings")}</h1>
@@ -124,7 +130,7 @@ export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () =>
                 className="swatch"
                 title={colorName(color, settings.colorNames, t)}
                 aria-label={colorName(color, settings.colorNames, t)}
-                style={{ background: noteTone(color, theme).header }}
+                style={{ background: swatchColor(color) }}
                 onClick={() => {
                   save({ newNoteColor: color });
                 }}
@@ -144,7 +150,7 @@ export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () =>
                 <span
                   className="swatch small"
                   aria-hidden="true"
-                  style={{ background: noteTone(color, theme).header }}
+                  style={{ background: swatchColor(color) }}
                 />
                 <input
                   // A new key after each save, so the field shows what was stored.

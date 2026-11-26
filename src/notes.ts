@@ -53,7 +53,9 @@ export function titleFromText(text: string): string | null {
   for (const raw of text.split(/\r?\n/)) {
     const line = raw
       .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)*/, "")
-      .replace(/[*_`~]+/g, "")
+      // Markdown marks go, escaped characters stay as typed: "x\_y" (a captured folder name in a
+      // heading) gives "x_y", not "x\y".
+      .replace(/\\([\\`*_~[\]])|[*_`~]+/g, (_mark, escaped?: string) => escaped ?? "")
       .replace(/\s+/g, " ")
       .trim();
     if (line === "" || /^[-=#>]+$/.test(line)) continue;

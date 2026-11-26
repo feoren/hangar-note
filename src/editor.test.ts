@@ -24,4 +24,18 @@ describe("createNoteEditor", () => {
     editor.destroy();
     parent.remove();
   });
+
+  it("tells screen readers when the note is read only", () => {
+    const parent = document.createElement("div");
+    document.body.append(parent);
+    const editor = createNoteEditor(parent, { ...options, text: "Text", readOnly: true });
+    const content = () => parent.querySelector(".cm-content");
+    expect(content()?.getAttribute("aria-readonly")).toBe("true");
+    editor.setReadOnly(false);
+    expect(content()?.hasAttribute("aria-readonly")).toBe(false);
+    editor.setReadOnly(true);
+    expect(content()?.getAttribute("aria-readonly")).toBe("true");
+    editor.destroy();
+    parent.remove();
+  });
 });

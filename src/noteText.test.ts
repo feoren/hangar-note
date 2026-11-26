@@ -97,6 +97,13 @@ describe("appendCapture", () => {
     expect(appendCapture("", "a", "9:01", "")).toBe("_9:01_\n\n```\na\n```\n");
   });
 
+  it("lets the caller word the heading, with the source still escaped", () => {
+    const from = (time: string, label: string) => `Aus ${label}, ${time}`;
+    expect(appendCapture("", "a", "26. Nov.", "my_shop", from)).toBe(
+      "_Aus my\\_shop, 26. Nov._\n\n```\na\n```\n",
+    );
+  });
+
   it("uses a longer fence when the output contains one", () => {
     expect(appendCapture("", "```js\nx\n```", "1", "")).toContain("````\n```js");
   });

@@ -126,6 +126,13 @@ Lemon (default), Peach, Mint, Sky, Lilac, Rose, Sand, Slate. The app chrome uses
   save cannot trap the user in the app. A note that does not answer within 2 s does not block
   either (fallback: delete, quit). Requests to one note use
   `emit_to` its label, and the note listens for its own label only.
+- Leaving an unsaved note (added 2026-11-26, `src/leaveAnyway.ts`): when a save keeps failing (or
+  the text is over 1 MiB), switching notes in the notes area (another note, the list, a new note,
+  the trash, the settings) and closing a sticky note are refused first, with a warning that the
+  unsaved text is lost on a second try and "Copy as Markdown" (`copy_text`: the backend's
+  clipboard plugin, notes area and sticky notes only, at most 1 MiB, never logged). A second try
+  within 10 s leaves anyway, as "Quit" does. Requests from the command line or Hangar never drop
+  text this way.
 - `src/main.tsx` picks the view by window label (one React root, kept across hot reloads by
   `src/hotRoot.ts`); `src/NoteWindow.tsx`, `src/Hub.tsx`,
   `src/editor.ts` (CodeMirror setup), `src/api.ts` (typed command wrappers), `src/i18n.ts`

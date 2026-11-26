@@ -22,7 +22,6 @@ import {
   isReadOnly,
   listNoteFolders,
   listNotes,
-  listTrash,
   MAX_NOTE_BYTES,
   noteFlushed,
   onFlushRequested,
@@ -34,6 +33,7 @@ import {
   revealNote,
   revealNotesFolder,
   searchNotes,
+  setHubOnTop,
   setNoteColor,
   takeHubRequests,
   toDesktop,
@@ -45,12 +45,20 @@ import {
   type NoteFolder,
   type OpenedNote,
   type Status,
-  type TrashRow,
 } from "./api";
 import type { AppSettings } from "./appSettings";
-import { colorName, NOTE_COLORS, noteTone, toneVariables, type NoteColor } from "./colors";
+import { copyText } from "./clipboard";
+import { createLeaveAnyway } from "./leaveAnyway";
+import {
+  colorName,
+  NOTE_COLORS,
+  noteTone,
+  swatchColor,
+  toneVariables,
+  type NoteColor,
+} from "./colors";
 import { createNoteEditor, type NoteEditor } from "./editor";
-import { relativeTime, shortTime } from "./format";
+import { captureStamp, relativeTime } from "./format";
 import { DICTIONARIES, LANGUAGES, useT, type MessageKey } from "./i18n";
 import {
   BackIcon,
@@ -100,6 +108,7 @@ import {
   matchHubShortcut,
   matchNoteShortcut,
 } from "./shortcuts";
+import { Trash } from "./Trash";
 
 const SAVE_DELAY_MS = 500;
 /** Word count, progress and preview follow the text after a short pause. */
@@ -189,6 +198,15 @@ export function NotesArea({ app }: { app: AppSettings }) {
   const [menu, setMenu] = useState<{ kind: MenuKind; anchor: HTMLElement } | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [listFailed, setListFailed] = useState(false);
+  /** The open draft has text that could not become a note (read only): offer to copy it. */
+  const [held, setHeld] = useState(false);
+  /** The open note's last save failed; it stays open until a save works. */
+  const [unsaved, setUnsaved] = useState(false);
+  /** Leaving was refused because the open note is not saved: warn and offer to copy. */
+  const [stuck, setStuck] = useState(false);
+  /** The switch as set in this window, until the settings bring the stored state. */
+  const [onTopSet, setOnTopSet] = useState<boolean | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const noteRef = useRef<Current | null>(null);
@@ -197,13 +215,16 @@ export function NotesArea({ app }: { app: AppSettings }) {
   const saveTimer = useRef<number | null>(null);
   const statsTimer = useRef<number | null>(null);
   const toastTimer = useRef<number | null>(null);
-  const creating = useRef<Promise<void> | null>(null);
+  const creating = useRef<Promise<boolean> | null>(null);
   const generation = useRef(0);
   const editorHost = useRef<HTMLDivElement>(null);
   const editor = useRef<NoteEditor | null>(null);
+  /** The element the editor lives in, to notice when React replaced it. */
+  const editorOn = useRef<HTMLElement | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const shown = useRef(false);
   const rows = useRef(new Map<string, HTMLButtonElement>());
+  const leaveAnyway = useRef(createLeaveAnyway());
 
   const writable = status?.access.state === "writable";
   const writableRef = useRef(writable);
@@ -291,11 +312,15 @@ export function NotesArea({ app }: { app: AppSettings }) {
     pending.current = null;
     if (utf8Bytes(job.text) > MAX_NOTE_BYTES) {
       pending.current = job;
+      setUnsaved(true);
       setError(t("notes.tooLarge"));
       return false;
     }
     try {
       await writeNote(job.folder, job.id, job.text);
+      setUnsaved(false);
+      setStuck(false);
+      leaveAnyway.current.reset();
       // The row follows the saved text at once; reading every note again after each save would
       // cost more than it shows.
       setList((rows) =>
@@ -316,20 +341,21 @@ export function NotesArea({ app }: { app: AppSettings }) {
     } catch (e) {
       // Kept for the next attempt, unless newer text replaced it meanwhile.
       pending.current ??= job;
+      setUnsaved(true);
       if (isReadOnly(e)) fail(e);
       else setError(t("notes.saveFailed", { error: errorText(e) }));
       return false;
     }
   }, [fail, t]);
 
-  /** Creates the quick note in the backend as soon as it has content. */
-  const ensureCreated = useCallback(async () => {
-    if (creating.current) {
-      await creating.current;
-      return;
-    }
+  /**
+   * Creates the quick note in the backend as soon as it has content. `true` when the open draft
+   * is a note now (or needs none yet).
+   */
+  const ensureCreated = useCallback(async (): Promise<boolean> => {
+    if (creating.current) return creating.current;
     const draft = noteRef.current;
-    if (!draft || draft.id !== null || textRef.current.trim() === "") return;
+    if (!draft || draft.id !== null || textRef.current.trim() === "") return true;
     const work = (async () => {
       try {
         const made = await createNote(draft.folder, t("notes.untitled"));
@@ -338,16 +364,21 @@ export function NotesArea({ app }: { app: AppSettings }) {
         if (noteRef.current === draft) {
           noteRef.current = created;
           setNote(created);
+          setHeld(false);
         }
         pending.current = { folder: created.folder, id: made.id, text: textRef.current };
-        await flush();
+        return await flush();
       } catch (e) {
+        if (isReadOnly(e)) writableRef.current = false;
+        if (noteRef.current === draft) setHeld(true);
         fail(e);
+        return false;
       }
     })();
     creating.current = work;
-    await work;
+    const made = await work;
     creating.current = null;
+    return made;
   }, [fail, flush, t]);
 
   /**
@@ -355,7 +386,7 @@ export function NotesArea({ app }: { app: AppSettings }) {
    * note that ended up empty. `false` when the text could not be saved.
    */
   const leave = useCallback(async (): Promise<boolean> => {
-    await (creating.current ?? Promise.resolve());
+    await (creating.current ?? Promise.resolve(true));
     const saved = await flush();
     const open = noteRef.current;
     if (!saved || !open || open.id === null || open.onDesktop || !writableRef.current) {
@@ -381,6 +412,33 @@ export function NotesArea({ app }: { app: AppSettings }) {
     }
     return true;
   }, [flush]);
+
+  /**
+   * Leaving because the person asked to (another note, the list, the trash, the settings, a new
+   * note). A note that cannot save stays open with a warning and "Copy as Markdown"; a second
+   * try within 10 s leaves it without the unsaved text (leaveAnyway.ts). Requests from the
+   * command line or Hangar use `leave` and never drop text.
+   */
+  const leaveByPerson = useCallback(async (): Promise<boolean> => {
+    if (await leave()) {
+      leaveAnyway.current.reset();
+      setStuck(false);
+      return true;
+    }
+    if (!leaveAnyway.current.refused()) {
+      setStuck(true);
+      return false;
+    }
+    if (saveTimer.current !== null) {
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    pending.current = null;
+    setUnsaved(false);
+    setStuck(false);
+    setError(null);
+    return true;
+  }, [leave]);
 
   // ---- The editor ------------------------------------------------------------------------------
 
@@ -410,11 +468,17 @@ export function NotesArea({ app }: { app: AppSettings }) {
     onEditorChangeRef.current = onEditorChange;
   });
 
-  /** The editor, created on first use and kept for every note after that. */
+  /**
+   * The editor, created on first use and kept for every note after that. The trash and the
+   * settings replace the notes view and with it the editor's host element; back in the notes
+   * view, the editor is made again in the new host.
+   */
   const ensureEditor = useCallback((): NoteEditor | null => {
-    if (editor.current) return editor.current;
     const host = editorHost.current;
+    if (editor.current && editorOn.current === host) return editor.current;
     if (!host) return null;
+    editor.current?.destroy();
+    editorOn.current = host;
     editor.current = createNoteEditor(host, {
       text: "",
       label: t("note.editorLabel"),
@@ -445,6 +509,8 @@ export function NotesArea({ app }: { app: AppSettings }) {
       textRef.current = content;
       setNote(open);
       setRenaming(false);
+      setHeld(false);
+      setUnsaved(false);
       setPreviewHtml(null);
       computeStats(content, open);
       if (open !== null && !open.onDesktop) {
@@ -460,6 +526,17 @@ export function NotesArea({ app }: { app: AppSettings }) {
   useEffect(() => {
     editor.current?.setReadOnly(!writable);
   }, [writable]);
+
+  // Back from the trash or the settings with a note still open: it gets its editor again.
+  useEffect(() => {
+    if (view !== "browse") return;
+    const open = noteRef.current;
+    if (open === null || open.onDesktop) return;
+    if (editor.current && editorOn.current === editorHost.current) return;
+    const fresh = ensureEditor();
+    fresh?.load(textRef.current);
+    fresh?.setReadOnly(!writableRef.current);
+  }, [view, ensureEditor]);
 
   // ---- Loading ---------------------------------------------------------------------------------
 
@@ -485,6 +562,7 @@ export function NotesArea({ app }: { app: AppSettings }) {
         })),
       );
       setList(next);
+      setListFailed(false);
       // The open note's sticky note was closed elsewhere: edit it here again, fresh from disk.
       const open = noteRef.current;
       if (open?.id != null) {
@@ -495,7 +573,9 @@ export function NotesArea({ app }: { app: AppSettings }) {
         }
       }
     } catch (e) {
-      fail(e);
+      // An empty list here would read as "no notes yet"; the list says it could not load instead.
+      if (isReadOnly(e)) fail(e);
+      else setListFailed(true);
       setList((old) => old ?? []);
     } finally {
       if (!shown.current) {
@@ -573,14 +653,15 @@ export function NotesArea({ app }: { app: AppSettings }) {
   // ---- Opening and creating --------------------------------------------------------------------
 
   const openNote = useCallback(
-    async (ref: NoteRef, focus: boolean) => {
+    async (ref: NoteRef, focus: boolean, byPerson = true) => {
       generation.current += 1;
       const mine = generation.current;
       const open = noteRef.current;
       if (open?.id != null && sameNote({ folder: open.folder, id: open.id }, ref)) {
         await flush();
-      } else {
-        await leave();
+      } else if (!(await (byPerson ? leaveByPerson() : leave()))) {
+        // Not saved: switching would lose the text. The note stays open and says so.
+        return;
       }
       if (mine !== generation.current) return;
       try {
@@ -593,16 +674,25 @@ export function NotesArea({ app }: { app: AppSettings }) {
         if (mine === generation.current) fail(e);
       }
     },
-    [fail, flush, leave, show],
+    [fail, flush, leave, leaveByPerson, show],
   );
 
-  /** A new quick note in `folder`; it is created once it has content. */
+  /**
+   * A new quick note in `folder`; it is created once it has content. "stayed": the open note
+   * could not be saved, so nothing changed. "held": the content could not become a note and waits
+   * in the draft to be copied.
+   */
   const startDraft = useCallback(
-    async (folder: NoteFolder, focus: boolean, content = "") => {
+    async (
+      folder: NoteFolder,
+      focus: boolean,
+      content = "",
+      byPerson = false,
+    ): Promise<"created" | "draft" | "held" | "stayed"> => {
       generation.current += 1;
       const mine = generation.current;
-      await leave();
-      if (mine !== generation.current) return;
+      const left = await (byPerson ? leaveByPerson() : leave());
+      if (!left || mine !== generation.current) return "stayed";
       setView("browse");
       setPane("note");
       show(
@@ -617,18 +707,23 @@ export function NotesArea({ app }: { app: AppSettings }) {
         content,
         focus,
       );
-      if (content !== "") {
-        await ensureCreated();
-        void reloadRef.current();
+      if (content === "") return "draft";
+      if (!writableRef.current) {
+        setHeld(true);
+        return "held";
       }
+      const made = await ensureCreated();
+      void reloadRef.current();
+      return made ? "created" : "held";
     },
-    [ensureCreated, leave, settings?.newNoteColor, show],
+    [ensureCreated, leave, leaveByPerson, settings?.newNoteColor, show],
   );
 
   const backToList = useCallback(async () => {
     const open = noteRef.current;
     generation.current += 1;
-    await leave();
+    // Not saved: the note stays open and says so, instead of losing the text.
+    if (!(await leaveByPerson())) return;
     show(null, "", false);
     setPane("list");
     await reloadRef.current();
@@ -637,13 +732,37 @@ export function NotesArea({ app }: { app: AppSettings }) {
       if (row) row.focus();
       else searchInput.current?.focus();
     });
-  }, [leave, show]);
+  }, [leaveByPerson, show]);
 
   const newNote = () => {
     if (!writable) return;
     setQuery("");
-    void startDraft(newFolder, true);
+    void startDraft(newFolder, true, "", true);
   };
+
+  /**
+   * A capture while the open note cannot be left (its text is not saved): the capture becomes a
+   * note of its own in the background, so neither text is lost.
+   */
+  const keepCapture = useCallback(
+    async (folder: NoteFolder, content: string) => {
+      if (!writableRef.current) {
+        setError(t("notes.heldHint"));
+        return;
+      }
+      try {
+        const made = await createNote(folder, t("notes.untitled"));
+        await writeNote(folder, made.id, content);
+        const title = nextAutoTitle(current(made), content, UNTITLED_BASES);
+        if (title !== null) await renameNote(folder, made.id, title, false);
+        void reloadRef.current();
+        showToast({ message: t("notes.capturedNew") });
+      } catch (e) {
+        fail(e);
+      }
+    },
+    [fail, showToast, t],
+  );
 
   // Requests from the command line and from Hangar: quick note, capture, open a note.
   const handleRequests = useCallback(
@@ -658,24 +777,27 @@ export function NotesArea({ app }: { app: AppSettings }) {
             const folder = { path: request.folder };
             setScope(scopeForFolder(folder, project));
             setQuery("");
-            await openNote({ folder, id: request.id }, true);
+            await openNote({ folder, id: request.id }, true, false);
             break;
           }
           case "quick":
             setScope(DEFAULT_SCOPE);
             setQuery("");
-            await startDraft(newNoteFolder(DEFAULT_SCOPE, project), true);
+            // Read only: no draft that could never be saved; the banner says why.
+            if (writableRef.current) await startDraft(newNoteFolder(DEFAULT_SCOPE, project), true);
             break;
           case "capture": {
             const folder = { path: request.folder };
             const content = appendCapture(
               "",
               request.text,
-              shortTime(new Date(), language),
+              captureStamp(new Date(), language),
               folderName(request.folder),
+              (time, source) => t("notes.capturedFrom", { source, time }),
             );
-            await startDraft(folder, false, content);
-            showToast({ message: t("notes.capturedNew") });
+            const result = await startDraft(folder, false, content);
+            if (result === "created") showToast({ message: t("notes.capturedNew") });
+            else if (result === "stayed") await keepCapture(folder, content);
             break;
           }
           case "sharedUnavailable":
@@ -686,7 +808,7 @@ export function NotesArea({ app }: { app: AppSettings }) {
     },
     // `project` is rebuilt every render; its path says when it changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [projectId, language, openNote, showToast, startDraft, t],
+    [projectId, language, keepCapture, openNote, showToast, startDraft, t],
   );
   const requestsRef = useRef(handleRequests);
   useEffect(() => {
@@ -698,6 +820,8 @@ export function NotesArea({ app }: { app: AppSettings }) {
       void getStatus()
         .then((next) => {
           setStatus(next);
+          // The requests run before the next render, so they read the fresh state here.
+          writableRef.current = next.access.state === "writable";
           return takeHubRequests();
         })
         .then((requests) => requestsRef.current(requests))
@@ -714,7 +838,7 @@ export function NotesArea({ app }: { app: AppSettings }) {
   useEffect(() => {
     const unlisten = onFlushRequested(HUB_LABEL, () => {
       void (async () => {
-        await (creating.current ?? Promise.resolve());
+        await (creating.current ?? Promise.resolve(true));
         const saved = await flush();
         await noteFlushed(saved).catch(() => null);
       })();
@@ -886,6 +1010,12 @@ export function NotesArea({ app }: { app: AppSettings }) {
       .catch(fail);
   };
 
+  /** The open text to the clipboard (a held draft, a note that cannot save), so it survives. */
+  const copyOpenText = async () => {
+    if (await copyText(textRef.current)) showToast({ message: t("notes.copied") });
+    else setError(t("notes.copyFailed"));
+  };
+
   const togglePreview = () => {
     const open = noteRef.current;
     if (open?.id == null) return;
@@ -918,7 +1048,7 @@ export function NotesArea({ app }: { app: AppSettings }) {
         event.preventDefault();
         if (writableRef.current) {
           setQuery("");
-          void startDraft(newFolder, true);
+          void startDraft(newFolder, true, "", true);
         }
         return;
       }
@@ -1034,7 +1164,7 @@ export function NotesArea({ app }: { app: AppSettings }) {
                     className="swatch"
                     title={colorName(color, colorNames, t)}
                     aria-label={colorName(color, colorNames, t)}
-                    style={{ background: noteTone(color, theme).header }}
+                    style={{ background: swatchColor(color) }}
                     onClick={() => {
                       setMenu(null);
                       pickColor(color);
@@ -1046,16 +1176,6 @@ export function NotesArea({ app }: { app: AppSettings }) {
               </div>
             ),
           },
-          ...(note.onDesktop
-            ? []
-            : [
-                {
-                  type: "action" as const,
-                  key: "desktop",
-                  label: t("notes.toDesktop"),
-                  run: () => void putOnDesktop(),
-                },
-              ]),
           {
             type: "action",
             key: "copy",
@@ -1100,15 +1220,32 @@ export function NotesArea({ app }: { app: AppSettings }) {
             : []),
         ];
 
+  const onTop = onTopSet ?? settings?.hubOnTop ?? false;
+  const toggleOnTop = () => {
+    const next = !onTop;
+    setOnTopSet(next);
+    setHubOnTop(next)
+      .then(setOnTopSet)
+      .catch((e: unknown) => {
+        setOnTopSet(!next);
+        fail(e);
+      });
+  };
+
+  /** Trash and settings replace the list; an unsaved note keeps the window where it is. */
+  const leaveFor = (next: View) => {
+    void leaveByPerson().then((left) => {
+      if (left) setView(next);
+    });
+  };
+
   const listMenu: MenuItem[] = [
     {
       type: "action",
       key: "trash",
       label: t("notes.trash"),
       run: () => {
-        void leave().then(() => {
-          setView("trash");
-        });
+        leaveFor("trash");
       },
     },
     {
@@ -1122,21 +1259,33 @@ export function NotesArea({ app }: { app: AppSettings }) {
     { type: "separator", key: "sep" },
     {
       type: "action",
+      key: "onTop",
+      label: t("note.keepOnTop"),
+      checked: onTop,
+      run: toggleOnTop,
+    },
+    {
+      type: "action",
       key: "settings",
       label: t("notes.settings"),
       run: () => {
-        void leave().then(() => {
-          setView("settings");
-        });
+        leaveFor("settings");
       },
     },
   ];
 
   const banner =
     status?.access.state === "readOnly" ? (
-      <p className="notes-banner" role="status">
-        {status.access.reason === "notHandedOver" ? t("notes.readOnly") : t("notes.otherWriter")}
-      </p>
+      <div className="notes-banner" role="status">
+        {status.access.reason === "notHandedOver" ? (
+          <>
+            <p className="notes-banner-title">{t("notes.readOnlyTitle")}</p>
+            <p>{t("notes.readOnly")}</p>
+          </>
+        ) : (
+          <p>{t("notes.otherWriter")}</p>
+        )}
+      </div>
     ) : null;
 
   const closeMenu = (reason: "done" | "dismiss") => {
@@ -1270,6 +1419,9 @@ export function NotesArea({ app }: { app: AppSettings }) {
           </div>
         )}
         <div className="color-filter" role="group" aria-label={t("notes.colorFilter")}>
+          <span className="color-filter-label" aria-hidden="true">
+            {t("notes.color")}
+          </span>
           {NOTE_COLORS.map((color) => {
             const on = colors.has(color);
             const name = colorName(color, colorNames, t);
@@ -1297,7 +1449,8 @@ export function NotesArea({ app }: { app: AppSettings }) {
               </button>
             );
           })}
-          {colors.size > 0 && (
+          {/* Without a match the empty state below offers it; one button is enough. */}
+          {colors.size > 0 && visible.length > 0 && (
             <button
               type="button"
               className="link-button"
@@ -1310,25 +1463,37 @@ export function NotesArea({ app }: { app: AppSettings }) {
           )}
         </div>
         <div className="list-wrap">
-          {error && (
-            <div className="notes-error" role="alert">
-              <span>{error}</span>
+          {listFailed && !searching && (
+            <div className="notes-empty" role="alert">
+              <p>{t("notes.loadFailed")}</p>
               <button
                 type="button"
-                className="icon-button"
-                aria-label={t("notes.dismiss")}
+                className="secondary-button"
                 onClick={() => {
-                  setError(null);
+                  reloadFolders();
+                  void reloadRef.current();
                 }}
               >
-                <CloseIcon size={12} />
+                {t("notes.retry")}
               </button>
             </div>
           )}
           {searching && shownHits !== null && allRows.length === 0 && (
-            <p className="notes-message">{t("notes.noHits", { query: query.trim() })}</p>
+            <div className="notes-empty">
+              <p>{t("notes.noHits", { query: query.trim() })}</p>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setQuery("");
+                  searchInput.current?.focus();
+                }}
+              >
+                {t("notes.searchClear")}
+              </button>
+            </div>
           )}
-          {!searching && list !== null && allRows.length === 0 && (
+          {!searching && !listFailed && list !== null && allRows.length === 0 && (
             <div className="notes-empty">
               <p>
                 {scopeName !== null
@@ -1347,7 +1512,18 @@ export function NotesArea({ app }: { app: AppSettings }) {
             </div>
           )}
           {allRows.length > 0 && visible.length === 0 && (
-            <p className="notes-message">{t("notes.noColorMatches")}</p>
+            <div className="notes-empty">
+              <p>{t("notes.noColorMatches")}</p>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setColors(new Set());
+                }}
+              >
+                {t("notes.colorFilterClear")}
+              </button>
+            </div>
           )}
           <ul className="note-list">
             {visible.map((row, index) => {
@@ -1524,6 +1700,15 @@ export function NotesArea({ app }: { app: AppSettings }) {
           </div>
         )}
 
+        {held && note?.id === null && (
+          <div className="note-held" role="status">
+            <p>{t("notes.heldHint")}</p>
+            <button type="button" className="secondary-button" onClick={() => void copyOpenText()}>
+              {t("notes.copyMarkdown")}
+            </button>
+          </div>
+        )}
+
         {note?.onDesktop === true && (
           <div className="on-desktop">
             <DesktopIcon size={28} />
@@ -1563,6 +1748,7 @@ export function NotesArea({ app }: { app: AppSettings }) {
         {note !== null && !note.onDesktop && (
           <footer className="note-footer">
             <span className="note-words">{t("notes.words", { count: stats.words })}</span>
+            {unsaved && <span className="note-unsaved">{t("notes.unsaved")}</span>}
             <button
               type="button"
               className={preview ? "icon-button toggle on" : "icon-button toggle"}
@@ -1589,26 +1775,52 @@ export function NotesArea({ app }: { app: AppSettings }) {
         )}
       </section>
 
-      {toast && (
-        <div className="toast" role="status">
-          <span>{toast.message}</span>
-          {toast.action && (
-            <button type="button" className="link-button" onClick={toast.action.run}>
-              {toast.action.label}
+      <div className="notices">
+        {stuck && (
+          <div className="notes-error notes-stuck" role="alert">
+            <p>{t("notes.leaveUnsaved")}</p>
+            <button type="button" className="secondary-button" onClick={() => void copyOpenText()}>
+              {t("notes.copyMarkdown")}
             </button>
-          )}
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={t("notes.dismiss")}
-            onClick={() => {
-              setToast(null);
-            }}
-          >
-            <CloseIcon size={12} />
-          </button>
-        </div>
-      )}
+          </div>
+        )}
+        {error && (
+          <div className="notes-error" role="alert">
+            <span>{error}</span>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={t("notes.dismiss")}
+              title={t("notes.dismiss")}
+              onClick={() => {
+                setError(null);
+              }}
+            >
+              <CloseIcon size={12} />
+            </button>
+          </div>
+        )}
+        {toast && (
+          <div className="toast" role="status">
+            <span>{toast.message}</span>
+            {toast.action && (
+              <button type="button" className="link-button" onClick={toast.action.run}>
+                {toast.action.label}
+              </button>
+            )}
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={t("notes.dismiss")}
+              onClick={() => {
+                setToast(null);
+              }}
+            >
+              <CloseIcon size={12} />
+            </button>
+          </div>
+        )}
+      </div>
 
       {menu && (
         <PopupMenu
@@ -1622,107 +1834,13 @@ export function NotesArea({ app }: { app: AppSettings }) {
   );
 }
 
-/** The light tone reads as the color in both themes; the dark ones are too quiet for a dot. */
+/** The filter dot's color as a custom property (styles.css draws the dot). */
 function dotStyle(color: NoteColor): Record<string, string> {
-  return { "--dot": noteTone(color, "light").header };
+  return { "--dot": swatchColor(color) };
 }
 
 function revealKey(): MessageKey {
   if (PLATFORM === "windows") return "notes.revealExplorer";
   if (PLATFORM === "mac") return "notes.revealFinder";
   return "notes.revealFileManager";
-}
-
-interface TrashProps {
-  folders: readonly NoteFolder[];
-  mixed: boolean;
-  language: string;
-  now: number;
-  theme: AppSettings["theme"];
-  writable: boolean;
-  projectLabel: (folder: NoteFolder) => string;
-  onRestore: (folder: NoteFolder, id: string, title: string) => Promise<string | undefined>;
-  onBack: () => void;
-}
-
-/** "Recently deleted": the trash of the shown scopes, newest first. */
-function Trash(props: TrashProps) {
-  const { folders, mixed, language, now, theme, writable, projectLabel, onRestore, onBack } = props;
-  const t = useT();
-  const [items, setItems] = useState<TrashRow[] | null>(null);
-  const [failed, setFailed] = useState(false);
-  const back = useRef<HTMLButtonElement>(null);
-  const key = folders.map((folder) => folder.path ?? "").join("|");
-
-  useEffect(() => {
-    let live = true;
-    Promise.all(folders.map((folder) => listTrash(folder)))
-      .then((lists) => {
-        if (!live) return;
-        setItems(lists.flat().sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0)));
-      })
-      .catch(() => {
-        if (live) setFailed(true);
-      });
-    back.current?.focus();
-    return () => {
-      live = false;
-    };
-    // `key` names the folders.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-
-  return (
-    <>
-      <header className="pane-head">
-        <button
-          ref={back}
-          type="button"
-          className="icon-button"
-          aria-label={t("notes.back")}
-          onClick={onBack}
-        >
-          <BackIcon />
-        </button>
-        <h1>{t("notes.trash")}</h1>
-      </header>
-      <div className="list-wrap single-wrap">
-        {failed && <p className="notes-message error-text">{t("notes.loadFailed")}</p>}
-        {items?.length === 0 && <p className="notes-message">{t("notes.trashEmpty")}</p>}
-        <ul className="trash-list">
-          {items?.map((item) => (
-            <li
-              key={`${item.folderKey}\n${item.id}`}
-              className="trash-row"
-              style={toneVariables(noteTone(item.color, theme))}
-            >
-              <span className="trash-text">
-                <span className="note-row-title">{item.title}</span>
-                <span className="note-row-meta">
-                  {mixed && <>{projectLabel({ path: item.path })} · </>}
-                  {item.deletedAt !== null &&
-                    t("notes.deletedAgo", { time: relativeTime(item.deletedAt, now, language) })}
-                </span>
-              </span>
-              {writable && (
-                <button
-                  type="button"
-                  className="secondary-button"
-                  aria-label={t("notes.restoreNamed", { title: item.title })}
-                  onClick={() => {
-                    void onRestore({ path: item.path }, item.id, item.title).then((restored) => {
-                      if (restored !== undefined)
-                        setItems((rows) => rows?.filter((row) => row !== item) ?? null);
-                    });
-                  }}
-                >
-                  {t("notes.restore")}
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </>
-  );
 }

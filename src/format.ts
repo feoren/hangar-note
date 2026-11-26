@@ -29,3 +29,13 @@ export function relativeTime(then: number, now: number, language: string): strin
 export function shortTime(date: Date, language: string): string {
   return new Intl.DateTimeFormat(language, { hour: "2-digit", minute: "2-digit" }).format(date);
 }
+
+/** "26. Nov., 14:32" in the UI language: when a captured text arrived, for its note's title. */
+export function captureStamp(date: Date, language: string): string {
+  return new Intl.DateTimeFormat(language, {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}

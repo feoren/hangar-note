@@ -49,6 +49,12 @@ describe("titleFromText", () => {
     expect(titleFromText("---\nText")).toBe("Text");
   });
 
+  it("keeps escaped characters of a captured heading", () => {
+    expect(titleFromText("_Aus my\\_project, 26. Nov._\n\n```\nx\n```")).toBe(
+      "Aus my_project, 26. Nov.",
+    );
+  });
+
   it("returns null without content", () => {
     expect(titleFromText("")).toBeNull();
     expect(titleFromText("   \n#\n- \n")).toBeNull();

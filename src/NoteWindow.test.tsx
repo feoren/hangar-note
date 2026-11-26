@@ -41,6 +41,7 @@ const api = vi.hoisted(() => {
     deleteNote: vi.fn(),
     noteFlushed: vi.fn(),
     closeNote: vi.fn(),
+    copyText: vi.fn(),
     onCloseRequested: listener("close"),
     onDeleteRequested: listener("delete"),
     onFlushRequested: listener("flush"),
@@ -73,6 +74,8 @@ vi.mock("./api", () => ({
   setNoteOnTop: vi.fn(),
   windowReady: vi.fn(() => Promise.resolve(null)),
 }));
+
+vi.mock("./clipboard", () => ({ copyText: api.copyText }));
 
 // The real editor needs layout; a contenteditable stands in for it and reports its changes.
 const editor = vi.hoisted(() => {
@@ -175,6 +178,7 @@ beforeEach(() => {
   api.deleteNote.mockResolvedValue(null);
   api.noteFlushed.mockResolvedValue(null);
   api.closeNote.mockResolvedValue(null);
+  api.copyText.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -237,6 +241,47 @@ describe("note window", () => {
     expect(api.deleteNote).not.toHaveBeenCalled();
     expect(api.noteFlushed).toHaveBeenCalledWith(false);
     expect(container.textContent).toContain(t("note.saveFailed"));
+  });
+
+  it("offers the text to copy when closing fails and closes on a second try within 10 s", async () => {
+    api.writeSticky.mockRejectedValue(new Error("disk full"));
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    await render();
+    await type("Nur hier");
+    await request("close");
+    expect(api.closeNote).not.toHaveBeenCalled();
+    const warning = get(".note-stuck", HTMLElement);
+    expect(warning.getAttribute("role")).toBe("alert");
+    expect(warning.textContent).toContain(t("note.closeUnsaved"));
+    const copy = Array.from(warning.querySelectorAll("button")).find(
+      (element) => element.textContent === t("notes.copyMarkdown"),
+    );
+    if (!copy) throw new Error("copy button missing");
+    await act(async () => {
+      copy.click();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(api.copyText).toHaveBeenCalledWith("Nur hier");
+    expect(warning.textContent).toContain(t("notes.copied"));
+    // After 10 s it is a first try again; within 10 s of that it closes without the text.
+    now.mockReturnValue(1_010_000);
+    await request("close");
+    expect(api.closeNote).not.toHaveBeenCalled();
+    now.mockReturnValue(1_019_999);
+    await request("close");
+    expect(api.closeNote).toHaveBeenCalledTimes(1);
+    expect(api.deleteNote).not.toHaveBeenCalled();
+    expect(api.renameNote).not.toHaveBeenCalled();
+    now.mockRestore();
+  });
+
+  it("does not close a note over the size limit on the first try", async () => {
+    await render();
+    await type("x".repeat(1024 * 1024 + 1));
+    await request("close");
+    expect(api.closeNote).not.toHaveBeenCalled();
+    expect(container.querySelector(".note-stuck")).not.toBeNull();
   });
 
   it("answers a flush request before quitting with the save result", async () => {

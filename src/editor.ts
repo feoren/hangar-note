@@ -16,7 +16,13 @@ import {
 } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
-import { Compartment, EditorSelection, EditorState, type Range } from "@codemirror/state";
+import {
+  Compartment,
+  EditorSelection,
+  EditorState,
+  type Extension,
+  type Range,
+} from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -244,6 +250,14 @@ function applyFormat(view: EditorView, format: Format): void {
   });
 }
 
+/** Read only for the editor and for screen readers: CodeMirror keeps `contenteditable` either way. */
+function readOnlyLock(readOnly: boolean): Extension {
+  return [
+    EditorState.readOnly.of(readOnly),
+    EditorView.contentAttributes.of(readOnly ? { "aria-readonly": "true" } : {}),
+  ];
+}
+
 export function createNoteEditor(parent: HTMLElement, options: EditorOptions): NoteEditor {
   let readOnly = options.readOnly === true;
   const lock = new Compartment();
@@ -253,7 +267,7 @@ export function createNoteEditor(parent: HTMLElement, options: EditorOptions): N
       doc: text,
       selection: EditorSelection.cursor(text.length),
       extensions: [
-        lock.of(EditorState.readOnly.of(readOnly)),
+        lock.of(readOnlyLock(readOnly)),
         history(),
         keymap.of([
           { key: "Tab", run: indentList(true), shift: indentList(false) },
@@ -296,7 +310,7 @@ export function createNoteEditor(parent: HTMLElement, options: EditorOptions): N
     setReadOnly: (next) => {
       if (next === readOnly) return;
       readOnly = next;
-      view.dispatch({ effects: lock.reconfigure(EditorState.readOnly.of(next)) });
+      view.dispatch({ effects: lock.reconfigure(readOnlyLock(next)) });
     },
     destroy: () => {
       view.destroy();

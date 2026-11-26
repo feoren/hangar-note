@@ -91,6 +91,14 @@ export function noteTone(color: NoteColor, theme: Theme): NoteTone {
   return NOTE_TONES[theme][color];
 }
 
+/**
+ * The color of a swatch or a filter dot: the light header tone in both themes. The dark tones are
+ * too quiet for a small dot, and the color menu, the filter and the settings show the same tone.
+ */
+export function swatchColor(color: NoteColor): string {
+  return NOTE_TONES.light[color].header;
+}
+
 /** The tone as CSS custom properties for the note window's root. */
 export function toneVariables(tone: NoteTone): Record<string, string> {
   return {

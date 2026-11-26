@@ -17,6 +17,8 @@
   --danger: #f47067;
   --shadow: rgb(0 0 0 / 45%);
   --note-selection: rgb(90 169 255 / 30%);
+  /* Ring around color dots and swatches; they are pale, so the light theme needs a firm one. */
+  --swatch-border: rgb(255 255 255 / 22%);
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   --space-1: 8px;
   --space-2: 16px;
@@ -51,6 +53,7 @@
   --danger: #cf222e;
   --shadow: rgb(31 35 40 / 18%);
   --note-selection: rgb(9 105 218 / 22%);
+  --swatch-border: #6e7781;
   color-scheme: light;
 }
 
@@ -209,24 +212,18 @@ button {
   padding: 4px 2px 8px;
 }
 
+/* Swatches show the light tone of each color in both themes (colors.ts, swatchColor), so the
+   check mark is always the dark text color. */
 .swatch {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+  border: 1px solid var(--swatch-border);
   border-radius: 50%;
-  color: var(--text);
-}
-
-:root[data-theme="light"] .swatch {
   color: #1f2328;
-}
-
-:root[data-theme="dark"] .swatch {
-  color: #e6edf3;
 }
 
 /* ---- Note window ---- */
@@ -370,14 +367,26 @@ button {
   font-weight: 600;
 }
 
+/* Read only is a state, not a fault: calm, without a warning color. */
 .notes-banner {
   flex: none;
   margin: 0 12px 8px;
   padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: var(--panel-raised);
+  color: var(--muted);
   line-height: 1.4;
+}
+
+.notes-banner p {
+  margin: 0;
+}
+
+.notes-banner .notes-banner-title {
+  margin-bottom: 2px;
+  color: var(--text);
+  font-weight: 600;
 }
 
 .search {
@@ -449,15 +458,24 @@ button {
 
 .color-filter {
   align-items: center;
-  gap: 4px;
+  gap: 0;
 }
 
+.color-filter-label {
+  margin-inline-end: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* At least 32 x 32 px to hit, however small the dot. */
 .color-chip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  height: 22px;
-  padding: 0 5px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
   border: 1px solid transparent;
   border-radius: 999px;
   background: transparent;
@@ -476,9 +494,10 @@ button {
 }
 
 .color-dot {
-  width: 12px;
-  height: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--swatch-border);
   border-radius: 50%;
   background: var(--dot);
 }
@@ -510,15 +529,37 @@ button {
   color: var(--error);
 }
 
+/* Errors and toasts sit at the bottom of the window, so they show in the list and in the note
+   alike, also when a narrow window shows only one of them. */
+.notices {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: min(520px, calc(100% - 32px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.notices > * {
+  pointer-events: auto;
+}
+
 .notes-error {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 6px;
-  margin: 4px 4px 8px;
-  padding: 6px 4px 6px 10px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--error) 12%, transparent);
+  max-width: 100%;
+  padding: 6px 6px 6px 14px;
+  border: 1px solid color-mix(in srgb, var(--error) 55%, var(--border));
+  border-radius: var(--radius);
+  background: var(--panel-raised);
   color: var(--text);
+  box-shadow: 0 8px 24px var(--shadow);
   line-height: 1.4;
 }
 
@@ -533,6 +574,11 @@ button {
   gap: 10px;
   margin: 12px 8px;
   color: var(--muted);
+  line-height: 1.45;
+}
+
+.notes-empty .secondary-button {
+  color: var(--text);
 }
 
 .notes-empty p {
@@ -822,6 +868,30 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.note-unsaved {
+  color: var(--note-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* A captured text that could not become a note: it stays in the draft with a way to copy it. */
+.note-held {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px 8px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--note-text) 12%, transparent);
+  color: var(--note-text);
+  line-height: 1.4;
+}
+
+.note-held p {
+  flex: 1 1 220px;
+  margin: 0;
+}
+
 .icon-button.toggle.on {
   background: color-mix(in srgb, currentColor 16%, transparent);
   color: var(--note-text);
@@ -871,21 +941,16 @@ button {
 }
 
 .toast {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  z-index: 20;
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  max-width: min(520px, calc(100% - 32px));
+  max-width: 100%;
   padding: 6px 6px 6px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--panel-raised);
   color: var(--text);
   box-shadow: 0 8px 24px var(--shadow);
-  transform: translateX(-50%);
 }
 
 .toast span {
@@ -999,8 +1064,8 @@ button {
 
 .swatch.small {
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }
 
 .segmented {
@@ -1074,4 +1139,36 @@ button {
   * {
     transition: none !important;
   }
+}
+
+/* In the menus the eight colors form two calm rows of four. */
+.popup-menu .swatches,
+.note-menu .swatches {
+  display: grid;
+  grid-template-columns: repeat(4, 32px);
+  justify-content: start;
+}
+
+/* A note that cannot save and was asked to close or to switch: the warning with a way to copy. */
+.note-stuck {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  line-height: 1.4;
+}
+
+.note-stuck p {
+  flex: 1 1 200px;
+  margin: 0;
+}
+
+.notes-error.notes-stuck {
+  flex-wrap: wrap;
+  padding: 8px 14px;
+}
+
+.notes-stuck p {
+  flex: 1 1 220px;
+  margin: 0;
 }
