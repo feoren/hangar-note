@@ -1,16 +1,16 @@
-//! Who may write Hangar's private notes (ADR 0002, "Ownership and the single writer").
+//! Whether this Hangar Note may write Hangar's private notes (ADR 0005, contract "notes-shared 1").
 //!
 //! - **Root.** Hangar's notes folder `<local data>/com.feoren.hangar/notes`, or in debug builds the
-//!   folder named by [`ROOT_ENV`] (the development root), which counts as handed over.
-//! - **Handover marker.** Hangar writes `notes/.handover.json` with `contract >= 1` once it stops
-//!   writing notes. Without it Hangar Note only reads, because Hangar may still write the same
-//!   files. Hangar Note never writes the marker.
+//!   folder named by [`ROOT_ENV`] (the development root).
+//! - **Shared with Hangar.** Hangar and Hangar Note both write the folder at the same time; there
+//!   is no handover. Every read-modify-write of a scope's index files holds the scope lock
+//!   (`notes.rs`, `<scope>/.lock`), and every note write by an editor carries the version it read.
 //! - **Writer lock.** `notes/.writer.lock`, held open with an exclusive OS file lock
-//!   (`File::try_lock`, `LockFileEx` on Windows, `flock` on Unix) for as long as the app runs. The
-//!   lock goes with the process, also on a crash, so a stale lock file never blocks anyone. The
-//!   standard library has it since Rust 1.89, so no crate is needed (fs2 and fs4 do the same).
-//!   It is taken only once the folder is handed over: a read-only Hangar Note writes nothing at
-//!   all into Hangar's folder, not even the lock file.
+//!   (`File::try_lock`, `LockFileEx` on Windows, `flock` on Unix) for as long as the app runs. It
+//!   keeps a second Hangar Note (another user session, a second copy) from writing alongside the
+//!   first; Hangar does not take it. The lock goes with the process, also on a crash, so a stale
+//!   lock file never blocks anyone. The standard library has it since Rust 1.89, so no crate is
+//!   needed (fs2 and fs4 do the same).
 
 use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
-use crate::fsio::{create_private_dir, lock, read_capped};
+use crate::fsio::{create_private_dir, lock};
 use crate::notes::normalize_path;
 
 /// The environment variable of the development root; read only in debug builds.
@@ -28,11 +28,7 @@ pub const ROOT_ENV: &str = "HANGAR_NOTE_NOTES_ROOT";
 /// Hangar's identifier: its notes live in its local data folder (in-place storage, ADR 0002).
 pub const HANGAR_IDENTIFIER: &str = "com.feoren.hangar";
 pub const NOTES_DIR: &str = "notes";
-pub const HANDOVER_FILE: &str = ".handover.json";
 pub const WRITER_LOCK_FILE: &str = ".writer.lock";
-/// The oldest handover contract this Hangar Note understands.
-pub const HANDOVER_CONTRACT: u64 = 1;
-const MAX_HANDOVER_BYTES: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,8 +59,9 @@ pub enum RootError {
 /// release build always uses Hangar's folder. `data_local` is the user's local data folder.
 ///
 /// A development root that is Hangar's own folder or lies inside it (spelled differently, through
-/// `..`, or through a link or junction) is not one: it would skip the handover marker for the
-/// person's real notes. It is then treated as if none was given, with a note in the log.
+/// `..`, or through a link or junction) is not one: a debug build would then write the person's
+/// real notes while it claims to use a test folder, and keep their colors in the test `meta.json`.
+/// It is then treated as if none was given, with a note in the log.
 pub fn resolve_root(
     env: Option<OsString>,
     debug: bool,
@@ -169,19 +166,6 @@ pub fn within_folder(path: &Path, folder: &Path) -> bool {
         || inside(comparable(path), comparable(folder))
 }
 
-/// Whether Hangar handed the folder over: `.handover.json` is a small regular file with a
-/// `contract` of at least [`HANDOVER_CONTRACT`]. Other fields (`version`, `since`) are not
-/// required, so a newer Hangar may add more.
-pub fn handed_over(root: &Path) -> bool {
-    let Ok(Some(bytes)) = read_capped(&root.join(HANDOVER_FILE), MAX_HANDOVER_BYTES) else {
-        return false;
-    };
-    serde_json::from_slice::<serde_json::Value>(&bytes)
-        .ok()
-        .and_then(|value| value.get("contract").and_then(serde_json::Value::as_u64))
-        .is_some_and(|contract| contract >= HANDOVER_CONTRACT)
-}
-
 /// The held writer lock; dropping it releases the lock.
 #[derive(Debug)]
 pub struct WriterLock {
@@ -225,8 +209,6 @@ pub enum Access {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ReadOnlyReason {
-    /// No handover marker: Hangar still keeps these notes.
-    NotHandedOver,
     /// Another writer holds the lock (a second Hangar Note of another user session, a tool).
     OtherWriter,
     /// The lock file could not be created or locked (permissions, a full disk).
@@ -247,7 +229,7 @@ impl AccessGate {
         let gate = Self {
             root,
             writable: Arc::new(AtomicBool::new(false)),
-            state: Mutex::new((Access::ReadOnly(ReadOnlyReason::NotHandedOver), None)),
+            state: Mutex::new((Access::ReadOnly(ReadOnlyReason::LockFailed), None)),
         };
         gate.refresh();
         gate
@@ -266,24 +248,19 @@ impl AccessGate {
         lock(&self.state).0
     }
 
-    /// Looks again while read only: Hangar may have handed the folder over meanwhile, or the
-    /// other writer ended. Once writable, it stays so while the app runs.
+    /// Looks again while read only: the other writer may have ended, or the folder may have
+    /// become writable. Once writable, it stays so while the app runs.
     pub fn refresh(&self) -> Access {
         let mut state = lock(&self.state);
         if state.0 == Access::Writable {
             return state.0;
         }
-        let handed = self.root.kind == RootKind::Development || handed_over(&self.root.path);
-        let next = if !handed {
-            (Access::ReadOnly(ReadOnlyReason::NotHandedOver), None)
-        } else {
-            match take_writer_lock(&self.root.path) {
-                Ok(held) => (Access::Writable, Some(held)),
-                Err(LockError::Held) => (Access::ReadOnly(ReadOnlyReason::OtherWriter), None),
-                Err(LockError::Io(error)) => {
-                    eprintln!("hangar-note: notes stay read only: {error}");
-                    (Access::ReadOnly(ReadOnlyReason::LockFailed), None)
-                }
+        let next = match take_writer_lock(&self.root.path) {
+            Ok(held) => (Access::Writable, Some(held)),
+            Err(LockError::Held) => (Access::ReadOnly(ReadOnlyReason::OtherWriter), None),
+            Err(LockError::Io(error)) => {
+                eprintln!("hangar-note: notes stay read only: {error}");
+                (Access::ReadOnly(ReadOnlyReason::LockFailed), None)
             }
         };
         *state = next;
@@ -414,44 +391,46 @@ mod tests {
         }
     }
 
+    /// Contract "notes-shared 1" (ADR 0005): Hangar's own folder is writable at once, without any
+    /// marker from Hangar, and Hangar Note writes no marker either.
     #[test]
-    fn without_a_marker_hangars_folder_stays_untouched() {
-        let dir = TempDir::new("access-marker");
+    fn hangars_folder_is_writable_without_a_marker() {
+        let dir = TempDir::new("access-shared");
         let root = hangar(&dir);
         fs::create_dir_all(&root.path).unwrap();
         let gate = AccessGate::open(root.clone());
-        assert_eq!(
-            gate.current(),
-            Access::ReadOnly(ReadOnlyReason::NotHandedOver)
-        );
-        assert!(!gate.writable_flag().load(Ordering::SeqCst));
-        // Not even the lock file was written.
-        assert_eq!(fs::read_dir(&root.path).unwrap().count(), 0);
-
-        for (text, handed) in [
-            ("{\"version\":1,\"contract\":0,\"since\":1}", false),
-            ("{\"version\":1,\"since\":1}", false),
-            ("not json", false),
-            ("{\"version\":1,\"contract\":1,\"since\":1}", true),
-            (
-                "{\"version\":2,\"contract\":3,\"since\":1,\"by\":\"x\"}",
-                true,
-            ),
-        ] {
-            fs::write(root.path.join(HANDOVER_FILE), text).unwrap();
-            assert_eq!(handed_over(&root.path), handed, "{text}");
-        }
-        assert_eq!(gate.refresh(), Access::Writable);
+        assert_eq!(gate.current(), Access::Writable);
         assert!(gate.writable_flag().load(Ordering::SeqCst));
         assert!(root.path.join(WRITER_LOCK_FILE).is_file());
+        assert!(!root.path.join(".handover.json").exists());
+
+        // The folder does not even have to exist yet: it is created with the lock.
+        let fresh = TempDir::new("access-shared-fresh");
+        let gate = AccessGate::open(hangar(&fresh));
+        assert_eq!(gate.current(), Access::Writable);
     }
 
     #[test]
-    fn the_development_root_counts_as_handed_over() {
+    fn the_development_root_is_writable() {
         let dir = TempDir::new("access-dev");
         let gate = AccessGate::open(dev(&dir));
         assert_eq!(gate.current(), Access::Writable);
-        assert!(!gate.root().path.join(HANDOVER_FILE).exists());
+    }
+
+    /// A second Hangar Note on Hangar's own folder is still refused, until the first ends.
+    #[test]
+    fn a_second_hangar_note_on_hangars_folder_stays_read_only() {
+        let dir = TempDir::new("access-shared-second");
+        let first = AccessGate::open(hangar(&dir));
+        assert_eq!(first.current(), Access::Writable);
+        let second = AccessGate::open(hangar(&dir));
+        assert_eq!(
+            second.current(),
+            Access::ReadOnly(ReadOnlyReason::OtherWriter)
+        );
+        assert!(!second.writable_flag().load(Ordering::SeqCst));
+        drop(first);
+        assert_eq!(second.refresh(), Access::Writable);
     }
 
     #[test]
@@ -475,8 +454,12 @@ mod tests {
             serde_json::json!({ "state": "writable" })
         );
         assert_eq!(
-            serde_json::to_value(Access::ReadOnly(ReadOnlyReason::NotHandedOver)).unwrap(),
-            serde_json::json!({ "state": "readOnly", "reason": "notHandedOver" })
+            serde_json::to_value(Access::ReadOnly(ReadOnlyReason::OtherWriter)).unwrap(),
+            serde_json::json!({ "state": "readOnly", "reason": "otherWriter" })
+        );
+        assert_eq!(
+            serde_json::to_value(Access::ReadOnly(ReadOnlyReason::LockFailed)).unwrap(),
+            serde_json::json!({ "state": "readOnly", "reason": "lockFailed" })
         );
     }
 }

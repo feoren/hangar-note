@@ -20,10 +20,18 @@
 //! Hangar Note never adds a field to `folder.json` or `trash.json` (both parsed with
 //! `deny_unknown_fields`, as in Hangar). Contents are never logged.
 //!
-//! **Read only.** Until Hangar hands the folder over (`access.rs`), the store writes nothing at
-//! all: no sync, no set-aside metadata, no migration. Reading still syncs in memory; a file
-//! without an entry then gets an ID derived from its scope and name, so the same note keeps the
-//! same ID between two calls without anything being written.
+//! **Shared with Hangar** (ADR 0005, contract "notes-shared 1"). Hangar writes the same folder at
+//! the same time. Every read-modify-write of a scope's `folder.json` or `.trash/trash.json` holds
+//! the scope lock, an exclusive OS file lock on `<scope>/.lock` ([`SCOPE_LOCK_FILE`]), waits for
+//! it at most [`SCOPE_LOCK_WAIT`], re-reads the file from disk under it and writes it atomically.
+//! Nothing is written from a copy kept in memory. A note's text is written only while its file is
+//! still at the version the editor read ([`NotesStore::write_note_checked`]); new files are
+//! created without replacing one that appeared meanwhile, and moves never replace a file.
+//!
+//! **Read only** (another Hangar Note holds the writer lock, `access.rs`): the store writes
+//! nothing at all, no sync, no set-aside metadata, no migration, not even the scope lock file.
+//! Reading still syncs in memory; a file without an entry then gets an ID derived from its scope
+//! and name, so the same note keeps the same ID between two calls without anything being written.
 
 use std::collections::HashSet;
 use std::fs;
@@ -31,16 +39,17 @@ use std::io;
 use std::path::{Component, Path, PathBuf, Prefix};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 
 use crate::fsio::{
     create_private_dir, lock, log_cause, millis, read_capped, read_prefix, rename_no_replace,
-    storage_log, storage_log_io, utf8_prefix, write_atomic, StorageCode,
+    storage_log, storage_log_io, utf8_prefix, write_atomic, write_atomic_versioned, StorageCode,
 };
 use crate::naming::{is_reserved_on_windows, without_invisible, FORBIDDEN_CHARS, JOINERS};
+use crate::watch::Watch;
 
 pub const GENERAL_KEY: &str = "general";
 const META_FILE: &str = "folder.json";
@@ -58,6 +67,13 @@ const MAX_STEM_CHARS: usize = 80;
 const FALLBACK_STEM: &str = "Note";
 const TRASH_META_FILE: &str = "trash.json";
 const TRASH_META_VERSION: u32 = 1;
+/// The scope lock of contract "notes-shared 1" (ADR 0005): held by Hangar and Hangar Note around
+/// every read-modify-write of the scope's `folder.json` and `.trash/trash.json`. Never a note.
+pub const SCOPE_LOCK_FILE: &str = ".lock";
+/// How long a write waits for the scope lock before it gives up with the storage code `io`.
+pub const SCOPE_LOCK_WAIT: Duration = Duration::from_secs(2);
+/// The pause between two tries while the other program holds the lock.
+const SCOPE_LOCK_RETRY: Duration = Duration::from_millis(10);
 /// At most this many hits per search; title hits first, then the newest notes.
 pub const MAX_SEARCH_RESULTS: usize = 50;
 pub const MAX_QUERY_CHARS: usize = 200;
@@ -95,6 +111,9 @@ pub struct FolderInfo {
     pub folder_key: String,
     /// `null` for the General area.
     pub path: Option<PathBuf>,
+    /// The last segment of `path` (the project folder's name), or the whole path where it has
+    /// none (a drive root); `null` for the General area, whose name the window translates.
+    pub name: Option<String>,
     pub note_count: usize,
     /// Unix time in milliseconds of the newest note; `null` without notes.
     pub updated_at: Option<u64>,
@@ -189,7 +208,7 @@ pub enum NotesError {
     NotText,
     #[error("Invalid search: {0}")]
     InvalidQuery(&'static str),
-    /// Hangar still keeps these notes (no handover marker) or another writer holds the lock.
+    /// Another Hangar Note holds the writer lock, or the folder cannot be locked (`access.rs`).
     #[error("{READ_ONLY_CODE}")]
     ReadOnly,
     /// The file is no longer at the version the editor read (another program changed it).
@@ -543,12 +562,60 @@ pub struct NotesStore {
     root: PathBuf,
     guard: Arc<Mutex<()>>,
     writable: Arc<AtomicBool>,
+    watch: Arc<Watch>,
+    lock_wait: Duration,
+}
+
+/// The held scope lock; dropping it releases the lock (and closing the handle does on a crash).
+#[derive(Debug)]
+struct ScopeLock {
+    _file: fs::File,
+}
+
+/// Takes `<dir>/.lock` exclusively, trying again every [`SCOPE_LOCK_RETRY`] for at most `wait`.
+/// On timeout [`io::ErrorKind::TimedOut`], which reaches the window as the storage code `io`.
+fn lock_scope(dir: &Path, wait: Duration) -> io::Result<ScopeLock> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(dir.join(SCOPE_LOCK_FILE))?;
+    let deadline = Instant::now() + wait;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(ScopeLock { _file: file }),
+            Err(fs::TryLockError::WouldBlock) => {
+                if Instant::now() >= deadline {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "another program holds the scope lock",
+                    ));
+                }
+                std::thread::sleep(SCOPE_LOCK_RETRY);
+            }
+            Err(fs::TryLockError::Error(error)) => return Err(error),
+        }
+    }
+}
+
+/// How [`NotesStore::open`] treats the scope lock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Hold {
+    /// Reading: the lock is taken only if the sync has to save, and released again.
+    WhileSyncing,
+    /// Changing the scope: the lock is held from the read until the returned [`Folder`] drops.
+    UntilDone,
 }
 
 struct Folder {
     key: String,
     dir: PathBuf,
     meta: FolderMeta,
+    /// Held while the scope is being changed ([`Hold::UntilDone`]).
+    _lock: Option<ScopeLock>,
 }
 
 impl Folder {
@@ -652,6 +719,41 @@ impl Folder {
         }
         Ok(changed)
     }
+}
+
+/// The name a scope is shown with: the last segment of its working folder, or the whole path
+/// where it has none (`C:\`, `/`).
+pub fn display_name(path: &Path) -> String {
+    path.file_name().map_or_else(
+        || path.to_string_lossy().into_owned(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
+
+/// Creates an empty file in `dir` under the name `pick` returns, never over a file that is
+/// already there: a name found free can be taken by Hangar before the file is made, and an atomic
+/// write would replace that note. On [`io::ErrorKind::AlreadyExists`] `pick` runs again.
+fn create_free_file(dir: &Path, mut pick: impl FnMut() -> String) -> io::Result<String> {
+    let mut last = None;
+    for _ in 0..MAX_MOVE_ATTEMPTS {
+        let name = pick();
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(dir.join(&name)) {
+            Ok(file) => {
+                file.sync_all()?;
+                return Ok(name);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => last = Some(error),
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last.unwrap_or_else(|| io::ErrorKind::AlreadyExists.into()))
 }
 
 fn log_migration_error(path: &Path, error: &io::Error) {
@@ -910,14 +1012,39 @@ fn trash_title(file: &str) -> (String, Option<u64>) {
 
 impl NotesStore {
     /// `root` is the notes folder itself (`<Hangar local data>/notes` or the development root).
-    /// `writable` is shared with the access gate, which turns it on once the folder is handed over
-    /// and the writer lock is held.
+    /// `writable` is shared with the access gate, which turns it on once the writer lock is held.
     pub fn new(root: &Path, writable: Arc<AtomicBool>) -> Self {
         Self {
             root: root.to_path_buf(),
             guard: Arc::default(),
             writable,
+            watch: Arc::new(Watch::new(root)),
+            lock_wait: SCOPE_LOCK_WAIT,
         }
+    }
+
+    /// The same store with another wait for the scope lock, so a test of the timeout is quick.
+    #[cfg(test)]
+    fn with_lock_wait(mut self, wait: Duration) -> Self {
+        self.lock_wait = wait;
+        self
+    }
+
+    /// The scopes another program (Hangar) changed since the last call; the first call names
+    /// none. For the poll in `lib.rs`; see `watch.rs`.
+    pub fn outside_changes(&self) -> std::collections::BTreeSet<String> {
+        self.watch.poll()
+    }
+
+    /// Records files this store just wrote or moved away, so the poll does not report them.
+    fn own(&self, paths: &[&Path]) {
+        for path in paths {
+            self.watch.own(path);
+        }
+    }
+
+    fn lock_scope(&self, dir: &Path) -> Result<ScopeLock, NotesError> {
+        lock_scope(dir, self.lock_wait).map_err(io_error(&dir.join(SCOPE_LOCK_FILE)))
     }
 
     pub fn root(&self) -> &Path {
@@ -972,8 +1099,17 @@ impl NotesStore {
 
     /// Opens the scope. With `create` it is created; otherwise the result is `None` if it is
     /// missing. An unusable `folder.json` is set aside and rebuilt from the files. Read only,
-    /// nothing is created, set aside or saved.
-    fn open(&self, folder: &NoteFolder, create: bool) -> Result<Option<Folder>, NotesError> {
+    /// nothing is created, set aside, locked or saved.
+    ///
+    /// While writable, `folder.json` is read again under the scope lock before anything is saved
+    /// ([`Hold`]): with [`Hold::UntilDone`] the lock stays with the returned folder, so the
+    /// caller's change and its save see no write of Hangar in between.
+    fn open(
+        &self,
+        folder: &NoteFolder,
+        create: bool,
+        hold: Hold,
+    ) -> Result<Option<Folder>, NotesError> {
         let key = folder_key(folder)?;
         let dir = self.root.join(&key);
         let writable = self.writable();
@@ -990,11 +1126,39 @@ impl NotesStore {
             }
             create_private_dir(&dir).map_err(io_error(&dir))?;
         }
+        if !writable {
+            return Self::load(key, dir, folder, false).map(|(opened, _)| Some(opened));
+        }
+        if hold == Hold::WhileSyncing {
+            let (opened, changed) = Self::load(key.clone(), dir.clone(), folder, false)?;
+            if !changed {
+                return Ok(Some(opened));
+            }
+        }
+        let held = self.lock_scope(&dir)?;
+        let (mut opened, changed) = Self::load(key, dir, folder, true)?;
+        if changed {
+            opened.save()?;
+        }
+        if hold == Hold::UntilDone {
+            opened._lock = Some(held);
+        }
+        Ok(Some(opened))
+    }
+
+    /// Reads `folder.json` from disk and syncs it with the files. `repair`: an unusable
+    /// `folder.json` is set aside (only under the scope lock). Returns whether it needs saving.
+    fn load(
+        key: String,
+        dir: PathBuf,
+        folder: &NoteFolder,
+        repair: bool,
+    ) -> Result<(Folder, bool), NotesError> {
         let meta_path = dir.join(META_FILE);
         let (meta, mut changed) = match Self::read_meta(&dir) {
             Some(meta) => (meta, false),
             None => {
-                if writable && meta_path.exists() {
+                if repair && meta_path.exists() {
                     let aside = dir.join(format!(
                         "{META_FILE}.broken-{}",
                         millis(SystemTime::now()).unwrap_or(0)
@@ -1009,16 +1173,25 @@ impl NotesStore {
                 (meta, true)
             }
         };
-        let mut opened = Folder { key, dir, meta };
+        let mut opened = Folder {
+            key,
+            dir,
+            meta,
+            _lock: None,
+        };
         changed |= opened.sync()?;
-        if changed && writable {
-            opened.save()?;
-        }
-        Ok(Some(opened))
+        Ok((opened, changed))
     }
 
     fn opened(&self, folder: &NoteFolder) -> Result<Folder, NotesError> {
-        self.open(folder, false)?.ok_or(NotesError::UnknownNote)
+        self.open(folder, false, Hold::WhileSyncing)?
+            .ok_or(NotesError::UnknownNote)
+    }
+
+    /// The scope for a change, with its lock held until the folder drops.
+    fn opened_for_change(&self, folder: &NoteFolder) -> Result<Folder, NotesError> {
+        self.open(folder, false, Hold::UntilDone)?
+            .ok_or(NotesError::UnknownNote)
     }
 
     /// The scope a folder key belongs to: General, or the path its `folder.json` records, if that
@@ -1046,6 +1219,7 @@ impl NotesStore {
         let mut general = FolderInfo {
             folder_key: GENERAL_KEY.to_owned(),
             path: None,
+            name: None,
             note_count: 0,
             updated_at: None,
         };
@@ -1076,12 +1250,17 @@ impl NotesStore {
                 .collect();
             let info = FolderInfo {
                 folder_key: key.clone(),
+                name: meta.path.as_deref().map(display_name),
                 path: meta.path,
                 note_count: files.len(),
                 updated_at: files.iter().filter_map(|p| modified(p)).max(),
             };
             if key == GENERAL_KEY {
-                general = FolderInfo { path: None, ..info };
+                general = FolderInfo {
+                    path: None,
+                    name: None,
+                    ..info
+                };
             } else if info.note_count > 0 {
                 others.push(info);
             }
@@ -1108,7 +1287,7 @@ impl NotesStore {
         preview: usize,
     ) -> Result<Vec<(NoteInfo, String)>, NotesError> {
         let _guard = lock(&self.guard);
-        let Some(opened) = self.open(folder, false)? else {
+        let Some(opened) = self.open(folder, false, Hold::WhileSyncing)? else {
             return Ok(Vec::new());
         };
         let mut notes: Vec<(NoteInfo, String)> = opened
@@ -1211,9 +1390,12 @@ impl NotesStore {
                 return Err(NotesError::Changed);
             }
         }
-        write_atomic(&path, content.as_bytes()).map_err(io_error(&path))?;
-        let written = handle_meta(&path).map_err(io_error(&path))?;
-        Ok(version(&written))
+        // The version comes from the written file's own handle, not from a look at the path after
+        // the rename, which could already see a file Hangar saved in between.
+        let written = write_atomic_versioned(&path, content.as_bytes()).map_err(io_error(&path))?;
+        let written = version(&written);
+        self.watch.own_as(&path, Some(written.clone()));
+        Ok(written)
     }
 
     /// Creates an empty note and returns its ID.
@@ -1222,11 +1404,11 @@ impl NotesStore {
         self.check_writable()?;
         let _guard = lock(&self.guard);
         let mut opened = self
-            .open(folder, true)?
+            .open(folder, true, Hold::UntilDone)?
             .ok_or(NotesError::InvalidFolder("cannot be created"))?;
-        let file = opened.free_file_name(&title, None);
+        let file = create_free_file(&opened.dir, || opened.free_file_name(&title, None))
+            .map_err(io_error(&opened.dir))?;
         let path = opened.dir.join(&file);
-        write_atomic(&path, b"").map_err(io_error(&path))?;
         let id = new_id();
         let order = opened.next_order();
         opened.meta.notes.push(NoteEntry {
@@ -1236,6 +1418,7 @@ impl NotesStore {
             order,
         });
         opened.save()?;
+        self.own(&[&path, &opened.dir.join(META_FILE)]);
         Ok(id)
     }
 
@@ -1266,7 +1449,7 @@ impl NotesStore {
         let title = validate_title(title)?;
         self.check_writable()?;
         let _guard = lock(&self.guard);
-        let mut opened = self.opened(folder)?;
+        let mut opened = self.opened_for_change(folder)?;
         let entry = opened.entry(id)?.clone();
         let first = opened.free_file_name(&title, Some(&entry.file));
         let file = if first == entry.file {
@@ -1284,16 +1467,22 @@ impl NotesStore {
         };
         if let Some(note) = opened.meta.notes.iter_mut().find(|n| n.id == entry.id) {
             note.title = title;
-            note.file = file;
+            note.file.clone_from(&file);
         }
-        opened.save()
+        opened.save()?;
+        self.own(&[
+            &opened.dir.join(&entry.file),
+            &opened.dir.join(&file),
+            &opened.dir.join(META_FILE),
+        ]);
+        Ok(())
     }
 
     /// Moves the file to `.trash/`; nothing is ever deleted for good.
     pub fn delete_note(&self, folder: &NoteFolder, id: &str) -> Result<(), NotesError> {
         self.check_writable()?;
         let _guard = lock(&self.guard);
-        let mut opened = self.opened(folder)?;
+        let mut opened = self.opened_for_change(folder)?;
         let entry = opened.entry(id)?.clone();
         let trash = opened.dir.join(TRASH_DIR);
         if is_link(&trash) {
@@ -1303,6 +1492,8 @@ impl NotesStore {
         }
         create_private_dir(&trash).map_err(io_error(&trash))?;
         let stamp = millis(SystemTime::now()).unwrap_or(0);
+        // Whatever the file holds now goes to the trash, also a text Hangar saved a moment ago:
+        // nothing is lost, and restoring brings that text back.
         let from = opened.file(&entry);
         let wanted = format!("{stamp}-{}", entry.file);
         let file = move_to_free_name(&from, &trash, || free_name(&trash, &wanted))
@@ -1310,6 +1501,7 @@ impl NotesStore {
         opened.meta.notes.retain(|n| n.id != entry.id);
         opened.save()?;
         // Without the record the file is still adopted by `list_trash`, only under a new ID.
+        // Read again here, under the scope lock that `opened` holds.
         let mut items = Self::read_trash(&trash);
         items.push(TrashEntry {
             id: entry.id,
@@ -1320,6 +1512,11 @@ impl NotesStore {
         if let Err(error) = Self::save_trash(&trash, items) {
             eprintln!("hangar-note: trash record not saved: {error}");
         }
+        self.own(&[
+            &from,
+            &opened.dir.join(META_FILE),
+            &trash.join(TRASH_META_FILE),
+        ]);
         Ok(())
     }
 
@@ -1366,9 +1563,8 @@ impl NotesStore {
 
     /// The trash records matched with the files: records without a file are dropped, `.md` files
     /// without a record (deleted before records existed) are adopted under their [`stable_id`].
-    /// Saved only while the store may write.
-    fn synced_trash(&self, key: &str, trash: &Path) -> Result<Vec<TrashEntry>, NotesError> {
-        let writable = self.writable();
+    /// Returns whether the records differ from `trash.json`; the caller saves under the lock.
+    fn synced_trash(key: &str, trash: &Path) -> Result<(Vec<TrashEntry>, bool), NotesError> {
         let mut items = Self::read_trash(trash);
         let before = items.clone();
         items.retain(|item| trash.join(&item.file).is_file());
@@ -1395,10 +1591,8 @@ impl NotesStore {
                 deleted_at,
             });
         }
-        if items != before && writable {
-            Self::save_trash(trash, items.clone())?;
-        }
-        Ok(items)
+        let changed = items != before;
+        Ok((items, changed))
     }
 
     /// Deleted notes of the scope, the most recently deleted first; `[]` without a trash.
@@ -1410,8 +1604,17 @@ impl NotesStore {
         if !is_plain_dir(&dir) || !is_plain_dir(&trash) {
             return Ok(Vec::new());
         }
-        let mut list: Vec<TrashInfo> = self
-            .synced_trash(&key, &trash)?
+        let (mut items, changed) = Self::synced_trash(&key, &trash)?;
+        if changed && self.writable() {
+            // Read again under the scope lock, so a record Hangar added meanwhile stays.
+            let _held = self.lock_scope(&dir)?;
+            let (fresh, changed) = Self::synced_trash(&key, &trash)?;
+            if changed {
+                Self::save_trash(&trash, fresh.clone())?;
+            }
+            items = fresh;
+        }
+        let mut list: Vec<TrashInfo> = items
             .into_iter()
             .map(|item| TrashInfo {
                 id: item.id,
@@ -1429,12 +1632,12 @@ impl NotesStore {
         let id = check_id(id)?;
         self.check_writable()?;
         let _guard = lock(&self.guard);
-        let mut opened = self.opened(folder)?;
+        let mut opened = self.opened_for_change(folder)?;
         let trash = opened.dir.join(TRASH_DIR);
         if !is_plain_dir(&trash) {
             return Err(NotesError::UnknownNote);
         }
-        let mut items = self.synced_trash(&opened.key, &trash)?;
+        let (mut items, _) = Self::synced_trash(&opened.key, &trash)?;
         let index = items
             .iter()
             .position(|item| item.id == id)
@@ -1451,6 +1654,7 @@ impl NotesStore {
             item.id
         };
         let order = opened.next_order();
+        let path = opened.dir.join(&file);
         opened.meta.notes.push(NoteEntry {
             id: restored.clone(),
             title: item.title,
@@ -1459,6 +1663,12 @@ impl NotesStore {
         });
         opened.save()?;
         Self::save_trash(&trash, items)?;
+        self.own(&[
+            &from,
+            &path,
+            &opened.dir.join(META_FILE),
+            &trash.join(TRASH_META_FILE),
+        ]);
         Ok(restored)
     }
 
@@ -1573,9 +1783,9 @@ impl NotesStore {
             });
         }
         let opened = self
-            .open(folder, true)?
+            .open(folder, true, Hold::WhileSyncing)?
             .ok_or(NotesError::InvalidFolder("cannot be created"))?;
-        Ok(opened.dir)
+        Ok(opened.dir.clone())
     }
 
     /// One-time move from the German folder names (`allgemein/`, `.papierkorb/`) to the current
@@ -2073,16 +2283,285 @@ mod tests {
         assert_eq!(list[0].folder_key, GENERAL_KEY);
         assert_eq!(list[0].note_count, 1);
         assert_eq!(list[1].path, project().path);
+        assert_eq!(list[1].name.as_deref(), Some("Project"));
+        assert_eq!(list[0].name, None);
         assert_eq!(list[1].note_count, 2);
         assert!(list[1].updated_at.is_some());
         let json = serde_json::to_value(&list[1]).unwrap();
         assert!(json["folderKey"].is_string());
+        assert_eq!(json["name"], "Project");
         assert!(json["noteCount"].is_number());
         assert!(json.get("updatedAt").is_some());
+        assert!(serde_json::to_value(&list[0]).unwrap()["name"].is_null());
         // The key of a scope leads back to its folder.
         assert_eq!(t.0.folder_for_key(&list[1].folder_key), Some(project()));
         assert_eq!(t.0.folder_for_key(GENERAL_KEY), Some(general()));
         assert_eq!(t.0.folder_for_key("../x"), None);
+    }
+
+    #[test]
+    fn a_scope_is_named_after_its_folder() {
+        let (project, root) = if cfg!(windows) {
+            (r"C:\Users\Test User\My Project", r"C:\")
+        } else {
+            ("/home/test/My Project", "/")
+        };
+        assert_eq!(display_name(Path::new(project)), "My Project");
+        assert_eq!(display_name(Path::new(root)), root);
+    }
+
+    // Contract "notes-shared 1" (ADR 0005): Hangar writes the same folder at the same time.
+
+    /// What Hangar does under the contract: takes the scope lock, reads `folder.json`, changes it
+    /// and writes it back. Here it holds the lock for a while in between.
+    fn hangar_adds_an_entry(
+        dir: &Path,
+        file: &str,
+        hold: Duration,
+        locked: Option<std::sync::mpsc::Sender<()>>,
+    ) {
+        let _held = lock_scope(dir, SCOPE_LOCK_WAIT).unwrap();
+        let path = dir.join(META_FILE);
+        let mut meta: FolderMeta = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        if let Some(locked) = locked {
+            locked.send(()).unwrap();
+        }
+        std::thread::sleep(hold);
+        fs::write(dir.join(file), "from Hangar").unwrap();
+        let order = meta.notes.iter().map(|n| n.order + 1).max().unwrap_or(0);
+        meta.notes.push(NoteEntry {
+            id: new_id(),
+            title: file.trim_end_matches(".md").to_owned(),
+            file: file.to_owned(),
+            order,
+        });
+        write_atomic(&path, &serde_json::to_vec_pretty(&meta).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_change_waits_for_hangars_lock_and_keeps_its_entry() {
+        let t = TempNotes::new("shared-wait");
+        t.0.create_note(&project(), "First").unwrap();
+        let dir = t.0.root().join(folder_key(&project()).unwrap());
+        let (taken, wait_taken) = std::sync::mpsc::channel();
+        let hangar = {
+            let dir = dir.clone();
+            std::thread::spawn(move || {
+                hangar_adds_an_entry(
+                    &dir,
+                    "From Hangar.md",
+                    Duration::from_millis(300),
+                    Some(taken),
+                );
+            })
+        };
+        // Hangar holds the lock and has read folder.json; this change must wait and read again.
+        wait_taken.recv().unwrap();
+        let started = Instant::now();
+        let second = t.0.create_note(&project(), "Second").unwrap();
+        hangar.join().unwrap();
+        let notes = t.0.list_notes(&project()).unwrap();
+        let titles: Vec<&str> = notes.iter().map(|n| n.title.as_str()).collect();
+        assert_eq!(titles, ["First", "From Hangar", "Second"], "no entry lost");
+        // The entry itself survived, not only its file (which would come back under a new ID).
+        assert_eq!(notes[2].id, second);
+        assert!(started.elapsed() >= Duration::from_millis(100), "it waited");
+        assert!(dir.join(SCOPE_LOCK_FILE).is_file());
+    }
+
+    /// Two writers, each with a store of its own (as two programs), change the same scope at the
+    /// same time: the scope lock serialises them, so no entry is lost.
+    #[test]
+    fn the_scope_lock_serialises_two_writers() {
+        let t = TempNotes::new("shared-two");
+        t.0.create_note(&project(), "Start").unwrap();
+        let other = NotesStore::new(t.0.root(), Arc::new(AtomicBool::new(true)));
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let writers: Vec<_> = [("a", t.0.clone()), ("b", other)]
+            .into_iter()
+            .map(|(name, store)| {
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    for n in 0..15 {
+                        let id = store
+                            .create_note(&project(), &format!("{name} {n}"))
+                            .unwrap();
+                        if n % 5 == 0 {
+                            store
+                                .rename_note(&project(), &id, &format!("{name} {n} renamed"))
+                                .unwrap();
+                        }
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        let notes = t.0.list_notes(&project()).unwrap();
+        assert_eq!(notes.len(), 31, "{notes:?}");
+        let dir = t.0.root().join(folder_key(&project()).unwrap());
+        let files = names(&dir).into_iter().filter(|n| is_markdown(n)).count();
+        assert_eq!(files, 31, "every file has its entry");
+        for name in ["a", "b"] {
+            assert!(notes
+                .iter()
+                .any(|n| n.title == format!("{name} 10 renamed")));
+        }
+    }
+
+    #[test]
+    fn a_held_lock_ends_in_a_storage_error_after_the_wait() {
+        let t = TempNotes::new("shared-timeout");
+        let id = t.0.create_note(&project(), "Kept").unwrap();
+        let dir = t.0.root().join(folder_key(&project()).unwrap());
+        let before = fs::read(dir.join(META_FILE)).unwrap();
+        let quick = t.0.clone().with_lock_wait(Duration::from_millis(150));
+        let held = lock_scope(&dir, SCOPE_LOCK_WAIT).unwrap();
+
+        let started = Instant::now();
+        let refused = quick.create_note(&project(), "New").unwrap_err();
+        assert!(started.elapsed() >= Duration::from_millis(150));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(refused.code(), "io", "{refused}");
+        assert!(matches!(
+            &refused,
+            NotesError::Io { source, .. } if source.kind() == io::ErrorKind::TimedOut
+        ));
+        assert_eq!(
+            quick
+                .rename_note(&project(), &id, "Other")
+                .unwrap_err()
+                .code(),
+            "io"
+        );
+        assert_eq!(quick.delete_note(&project(), &id).unwrap_err().code(), "io");
+        // Reading needs no lock, and writing the text of a note does not either.
+        assert_eq!(quick.list_notes(&project()).unwrap().len(), 1);
+        quick.write_note(&project(), &id, "text").unwrap();
+        assert_eq!(fs::read(dir.join(META_FILE)).unwrap(), before);
+        assert!(!dir.join("New.md").exists());
+
+        drop(held);
+        quick.create_note(&project(), "New").unwrap();
+    }
+
+    #[test]
+    fn a_read_only_store_takes_no_scope_lock() {
+        let t = TempNotes::new("shared-read-only");
+        t.0.create_note(&project(), "x").unwrap();
+        let dir = t.0.root().join(folder_key(&project()).unwrap());
+        fs::remove_file(dir.join(SCOPE_LOCK_FILE)).unwrap();
+        // A file without an entry would make a writable store save.
+        fs::write(dir.join("from outside.md"), "y").unwrap();
+        assert_eq!(t.read_only().list_notes(&project()).unwrap().len(), 2);
+        assert!(!dir.join(SCOPE_LOCK_FILE).exists());
+    }
+
+    #[test]
+    fn a_write_with_a_stale_version_is_refused() {
+        let t = TempNotes::new("shared-stale");
+        let id = t.0.create_note(&project(), "Note").unwrap();
+        let (_, read) = t.0.read_note_versioned(&project(), &id).unwrap();
+        let path = t.0.note_path(&project(), &id).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(&path, "Hangar's text").unwrap();
+        let refused = t.0.write_note_checked(&project(), &id, "mine", Some(&read));
+        assert!(matches!(refused, Err(NotesError::Changed)));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "Hangar's text");
+        let (_, fresh) = t.0.read_note_versioned(&project(), &id).unwrap();
+        t.0.write_note_checked(&project(), &id, "mine", Some(&fresh))
+            .unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "mine");
+    }
+
+    /// The version a write returns is the one of the file it wrote, taken before the rename, and
+    /// it is what a look at the file right afterwards gives too.
+    #[test]
+    fn a_write_returns_the_version_of_the_file_it_wrote() {
+        let t = TempNotes::new("shared-written-version");
+        let id = t.0.create_note(&project(), "Note").unwrap();
+        let path = t.0.note_path(&project(), &id).unwrap();
+        let mut expected = None;
+        for text in ["first", "second, longer", ""] {
+            let written =
+                t.0.write_note_checked(&project(), &id, text, expected.as_deref())
+                    .unwrap();
+            assert_eq!(written, version(&handle_meta(&path).unwrap()), "{text:?}");
+            let (read_text, read) = t.0.read_note_versioned(&project(), &id).unwrap();
+            assert_eq!(
+                (read_text.as_str(), read.as_str()),
+                (text, written.as_str())
+            );
+            expected = Some(written);
+        }
+        // Its own write is no news for the poll.
+        assert!(t.0.outside_changes().is_empty());
+    }
+
+    #[test]
+    fn a_new_note_never_replaces_a_file_that_appeared() {
+        let t = TempNotes::new("shared-create");
+        let dir = t.1.path().join("scope");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("Taken.md"), "Hangar's note").unwrap();
+        let mut picks = vec!["Free.md".to_owned(), "Taken.md".to_owned()];
+        let made = create_free_file(&dir, || picks.pop().unwrap()).unwrap();
+        assert_eq!(made, "Free.md");
+        assert_eq!(
+            fs::read_to_string(dir.join("Taken.md")).unwrap(),
+            "Hangar's note"
+        );
+        assert_eq!(fs::read(dir.join("Free.md")).unwrap(), b"");
+    }
+
+    #[test]
+    fn a_delete_moves_the_text_hangar_saved_last() {
+        let t = TempNotes::new("shared-delete");
+        let id = t.0.create_note(&project(), "Note").unwrap();
+        let path = t.0.note_path(&project(), &id).unwrap();
+        fs::write(&path, "saved by Hangar a moment ago").unwrap();
+        t.0.delete_note(&project(), &id).unwrap();
+        let restored = t.0.restore_note(&project(), &id).unwrap();
+        assert_eq!(
+            t.0.read_note(&project(), &restored).unwrap(),
+            "saved by Hangar a moment ago"
+        );
+    }
+
+    #[test]
+    fn hangars_changes_are_seen_and_own_changes_are_not() {
+        let t = TempNotes::new("shared-watch");
+        let id = t.0.create_note(&project(), "Note").unwrap();
+        let key = folder_key(&project()).unwrap();
+        let dir = t.0.root().join(&key);
+        assert!(
+            t.0.outside_changes().is_empty(),
+            "the first look names nothing"
+        );
+
+        // Own changes: a write, a new note, a rename, a delete and a restore.
+        t.0.write_note(&project(), &id, "typed here").unwrap();
+        let other = t.0.create_note(&project(), "Other").unwrap();
+        t.0.rename_note(&project(), &other, "Renamed").unwrap();
+        t.0.delete_note(&project(), &other).unwrap();
+        t.0.restore_note(&project(), &other).unwrap();
+        assert!(t.0.outside_changes().is_empty());
+
+        // Hangar edits a note.
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(dir.join("Note.md"), "typed in Hangar").unwrap();
+        assert_eq!(t.0.outside_changes(), [key.clone()].into());
+        // Hangar adds a note with its entry, under the lock.
+        hangar_adds_an_entry(&dir, "Hangar's.md", Duration::ZERO, None);
+        assert_eq!(t.0.outside_changes(), [key.clone()].into());
+        // Hangar writes into General.
+        let general_dir = t.0.root().join(GENERAL_KEY);
+        fs::create_dir_all(&general_dir).unwrap();
+        fs::write(general_dir.join("Quick.md"), "x").unwrap();
+        assert_eq!(t.0.outside_changes(), [GENERAL_KEY.to_owned()].into());
+        assert!(t.0.outside_changes().is_empty());
     }
 
     /// Turns the current layout into the one written before the English folder names.

@@ -57,7 +57,7 @@ pub async fn get_status(
     requests: State<'_, Requests>,
 ) -> Result<StatusView, AppError> {
     Ok(StatusView {
-        // Hangar may have handed the folder over since the last look.
+        // The other writer may have ended since the last look.
         access: access.refresh(),
         root_kind: access.root().kind,
         project: requests.project(),

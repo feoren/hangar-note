@@ -19,6 +19,7 @@ pub mod requests;
 pub mod service;
 pub mod settings;
 pub mod tray;
+pub mod watch;
 pub mod windows;
 #[cfg(windows)]
 pub mod winsec;
@@ -66,12 +67,12 @@ fn start_root() -> Result<access::NotesRoot, access::RootError> {
     )
 }
 
-/// Whether a start could save a captured text: the development root, or a folder Hangar handed
-/// over. Checked before a `capture` becomes the app, so a text that would only be shown and then
-/// lost ends with [`cli::EXIT_READ_ONLY`] instead.
+/// Whether a start could save a captured text: whenever a notes root resolves, since Hangar's
+/// folder is shared from the start (ADR 0005). Checked before a `capture` becomes the app, so a
+/// text that could not be stored anywhere ends with [`cli::EXIT_READ_ONLY`] instead. Should another
+/// Hangar Note hold the writer lock, the started app keeps the text in a draft to copy.
 pub fn notes_writable_at_start() -> bool {
-    start_root()
-        .is_ok_and(|root| root.kind == RootKind::Development || access::handed_over(&root.path))
+    start_root().is_ok()
 }
 
 /// `hangar-note capture`: hands the text to the running app over the local channel (never in
@@ -116,6 +117,25 @@ pub fn capture_note(
     Ok((id, request))
 }
 
+/// Hangar writes the same notes folder (ADR 0005): a light poll tells the windows about its
+/// changes within about [`watch::POLL_INTERVAL`], without anyone pressing a key. The first pass
+/// only takes the starting point. The thread ends with the process.
+fn watch_outside_changes(app: AppHandle, service: Arc<NotesService>) {
+    let started = std::thread::Builder::new()
+        .name("notes-watch".into())
+        .spawn(move || {
+            service.outside_changes();
+            loop {
+                std::thread::sleep(watch::POLL_INTERVAL);
+                let changed = service.outside_changes();
+                windows::notify_outside(&app, &service, &changed);
+            }
+        });
+    if let Err(error) = started {
+        eprintln!("hangar-note: changes from Hangar show only on the next reload: {error}");
+    }
+}
+
 /// What the local channel's routes do in the running app.
 struct AppActions {
     app: AppHandle,
@@ -156,8 +176,8 @@ impl Actions for AppActions {
     }
 
     fn capture(&self, folder: PathBuf, text: String) -> Result<String, ServiceError> {
-        // Hangar may have handed the folder over since the last look; still read only, the
-        // store refuses and the caller knows the text was not taken.
+        // The other writer may have ended since the last look; still read only, the store
+        // refuses and the caller knows the text was not taken.
         if self.app.state::<AccessGate>().refresh() != Access::Writable {
             return Err(NotesError::ReadOnly.into());
         }
@@ -327,6 +347,7 @@ pub fn run(command: CliCommand, capture_text: Option<String>) -> tauri::Result<(
             app.manage(QuitMemory::default());
             app.manage(Requests::default());
             app.manage(tray::CurrentLabels::default());
+            watch_outside_changes(app.handle().clone(), service.clone());
 
             let actions = Arc::new(AppActions {
                 app: app.handle().clone(),

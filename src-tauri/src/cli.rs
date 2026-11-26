@@ -23,13 +23,14 @@ pub const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
 pub const EXIT_FAILED: u8 = 1;
 /// A wrong command line, or more than 1 MiB of text or no UTF-8 on stdin.
 pub const EXIT_USAGE: u8 = 2;
-/// The notes are read only (Hangar has not handed them over): the text was not saved.
+/// The notes are read only (another Hangar Note writes them, or the folder cannot be locked): the
+/// text was not saved.
 pub const EXIT_READ_ONLY: u8 = 3;
 /// A Hangar Note runs but did not take the text (no proven answer, or it got the arguments only).
 pub const EXIT_NOT_DELIVERED: u8 = 4;
 
 pub const READ_ONLY_MESSAGE: &str =
-    "the notes are read only until Hangar hands them over; the text was not saved";
+    "the notes are read only (another Hangar Note writes them); the text was not saved";
 pub const NOT_DELIVERED_MESSAGE: &str =
     "Hangar Note is running but did not take the text over its local channel; the text was not saved";
 pub const UNCONFIRMED_MESSAGE: &str =

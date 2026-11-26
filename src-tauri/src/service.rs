@@ -130,7 +130,7 @@ pub struct TrashRow {
     pub color: NoteColor,
 }
 
-/// A note's start for Hangar's handover (`excerpts` route).
+/// A note's start for Hangar (`excerpts` route).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Excerpt {
@@ -214,6 +214,11 @@ impl NotesService {
 
     pub fn list_folders(&self) -> Result<Vec<FolderInfo>, ServiceError> {
         Ok(self.store.list_folders()?)
+    }
+
+    /// The scopes another program changed since the last call (`watch.rs`, ADR 0005).
+    pub fn outside_changes(&self) -> std::collections::BTreeSet<String> {
+        self.store.outside_changes()
     }
 
     pub fn list_notes(&self, folder: &NoteFolder) -> Result<Vec<NoteRow>, ServiceError> {

@@ -143,6 +143,7 @@ fn log_file_kind(path: &Path) -> &'static str {
         "meta.json" | ".hangar-note-meta.json" => "meta.json",
         "settings.json" => "settings.json",
         "endpoint.json" => "endpoint.json",
+        ".lock" => "scope lock",
         _ if Path::new(base)
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("md")) =>
@@ -230,6 +231,14 @@ pub fn millis(time: SystemTime) -> Option<u64> {
 /// `rename` replaces the target on all platforms and within one folder is a single operation, so
 /// readers see either the old or the new file, never half of one.
 pub fn write_atomic(path: &Path, data: &[u8]) -> io::Result<()> {
+    write_atomic_with(path, data, create_private_file).map(drop)
+}
+
+/// Like [`write_atomic`], and returns the metadata of the written file, taken from the temporary
+/// file's own handle after `sync_all` and before the rename. A rename keeps modification time and
+/// length, so this is the version of what this call wrote, even when another program replaces the
+/// target right after the rename (a look at the path afterwards could see that file instead).
+pub fn write_atomic_versioned(path: &Path, data: &[u8]) -> io::Result<fs::Metadata> {
     write_atomic_with(path, data, create_private_file)
 }
 
@@ -239,11 +248,11 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> io::Result<()> {
 pub fn write_atomic_owner_only(path: &Path, data: &[u8]) -> io::Result<()> {
     #[cfg(windows)]
     {
-        write_atomic_with(path, data, crate::winsec::create_owner_only)
+        write_atomic_with(path, data, crate::winsec::create_owner_only).map(drop)
     }
     #[cfg(not(windows))]
     {
-        write_atomic_with(path, data, create_private_file)
+        write_atomic_with(path, data, create_private_file).map(drop)
     }
 }
 
@@ -251,7 +260,7 @@ fn write_atomic_with(
     path: &Path,
     data: &[u8],
     create: fn(&Path) -> io::Result<File>,
-) -> io::Result<()> {
+) -> io::Result<fs::Metadata> {
     let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -269,8 +278,10 @@ fn write_atomic_with(
         let mut file = create(&temp)?;
         file.write_all(data)?;
         file.sync_all()?;
+        let written = file.metadata()?;
         drop(file);
-        fs::rename(&temp, path)
+        fs::rename(&temp, path)?;
+        Ok(written)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temp);

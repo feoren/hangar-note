@@ -73,6 +73,12 @@ Option C, storage in place (option 1; the owner chose it on 2026-11-26). Hangar 
 writes Hangar's existing notes folders and formats unchanged; nothing is migrated.
 
 ### Ownership and the single writer
+> [!note] Superseded by [[0005-shared-notes-folder]] (2026-11-26) for Hangar's private notes
+> The single writer, the handover marker and the read-only phase below no longer apply to Hangar's
+> private notes folder: Hangar and Hangar Note both write it at once under contract
+> "notes-shared 1". `.writer.lock` stays, but only keeps Hangar Note instances apart. The text is
+> kept as the record of the earlier decision; shared project notes are unaffected.
+
 - From the moment Hangar detects an installed Hangar Note with a compatible contract version,
   Hangar stops writing notes files and hides its own notes area. Hangar Note is the only writer.
 - A writer lock file `notes/.writer.lock` (held open, OS file lock) guards the private notes root;
@@ -182,7 +188,8 @@ Everything listed under "What exists", plus:
 1. **Hangar Note, private:** private notes in place with the full feature set, colors, sticky
    windows, CLI commands, `install.json`, own endpoint. Hangar unchanged except tolerant parsing.
 2. **Hangar:** reads `install.json`, starts Hangar Note, shows "Open in Hangar Note", stops writing
-   notes when it is installed, serves `sessions`, `send` and the event stream, routes the daily
+   notes when it is installed (superseded for private notes by [[0005-shared-notes-folder]]: Hangar
+   keeps writing and adopts the scope lock and the version check instead), serves `sessions`, `send` and the event stream, routes the daily
    review, the capture and the launcher search to Hangar Note.
 3. **Shared notes:** solo and team vaults in Hangar Note, `team/*` routes in Hangar, sealed color
    sidecar.
@@ -195,6 +202,9 @@ lock), `meta.rs`, `service.rs`, `channel/`, `cli.rs`, `requests.rs`, `install.rs
 `src/NotesArea.tsx` (the notes area that replaced "All notes"), `src/NoteWindow.tsx`. Format and
 channel details: [[hangar-notes-format]], [[local-channel]]. Deviations and choices, with reasons:
 
+- > [!note] Superseded by [[0005-shared-notes-folder]]: there is no marker any more; read only
+  > remains only for another Hangar Note holding `.writer.lock` or a folder that cannot be locked,
+  > and the two bullets below now describe that state.
 - **Read only means nothing written into Hangar's folder at all.** Without the marker the store
   syncs in memory only (no `folder.json` rewrite, no set-aside, no legacy migration); a file
   without an entry gets an ID derived from scope and file name, so it keeps its ID between calls.

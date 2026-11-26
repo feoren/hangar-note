@@ -47,7 +47,7 @@ Windows is limited to 32 767 characters).
 | 0 | delivered and confirmed |
 | 1 | failed: refused for another reason (`too-large`, `invalid`, ...) or the channel broke before the text went out |
 | 2 | wrong command line, or more than 1 MiB or no UTF-8 on stdin |
-| 3 | read only: the running app answered `read-only`, or no app runs and Hangar has not handed the folder over (the app is then not started) |
+| 3 | read only: the running app answered `read-only` (another Hangar Note holds the writer lock), or no app runs and no notes root resolves (the app is then not started); since [[0005-shared-notes-folder]] there is no handover to wait for |
 | 4 | not delivered: the text went out but no proven answer came back, or an app runs whose channel did not answer (the capture guard) |
 
 Without a running app (no endpoint, nobody listening, or no valid proof) the capturing process

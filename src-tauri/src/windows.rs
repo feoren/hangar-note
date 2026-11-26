@@ -72,6 +72,10 @@ pub const DELETE_REQUESTED_EVENT: &str = "note-delete-requested";
 pub const FLUSH_REQUESTED_EVENT: &str = "note-flush-requested";
 /// To a sticky note, with its new color: the notes area changed it.
 pub const LOOK_CHANGED_EVENT: &str = "note-look-changed";
+/// To a sticky note, without payload: another program (Hangar) changed a file of its scope
+/// (ADR 0005). It reads its note again (`get_sticky`) and, without unsaved typing, shows the new
+/// text when the version differs; with unsaved typing its next save gets `changed`.
+pub const NOTE_CHANGED_OUTSIDE_EVENT: &str = "note-changed-outside";
 /// What the frontend receives for [`AppError::NotSaved`].
 pub const NOT_SAVED_CODE: &str = "not-saved";
 pub use crate::service::{NOT_OPEN_CODE, ON_DESKTOP_CODE};
@@ -500,6 +504,29 @@ fn show_later<R: Runtime>(window: WebviewWindow<R>) {
 pub fn notify_hub<R: Runtime>(app: &AppHandle<R>) {
     if app.get_webview_window(HUB_LABEL).is_some() {
         let _ = app.emit_to(HUB_LABEL, NOTES_CHANGED_EVENT, ());
+    }
+}
+
+/// Tells the windows what another program changed (the poll in `lib.rs`, ADR 0005): the notes
+/// area reloads ([`NOTES_CHANGED_EVENT`]); each sticky note of a changed scope gets
+/// [`NOTE_CHANGED_OUTSIDE_EVENT`] and its window title follows a rename.
+pub fn notify_outside<R: Runtime>(
+    app: &AppHandle<R>,
+    service: &NotesService,
+    scopes: &std::collections::BTreeSet<String>,
+) {
+    if scopes.is_empty() {
+        return;
+    }
+    notify_hub(app);
+    for label in app.webview_windows().keys() {
+        let Some(key) = sticky_of(label) else {
+            continue;
+        };
+        if scopes.contains(&key.scope) {
+            retitle_sticky(app, service, &key);
+            let _ = app.emit_to(label.as_str(), NOTE_CHANGED_OUTSIDE_EVENT, ());
+        }
     }
 }
 
