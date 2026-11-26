@@ -3,9 +3,10 @@
 Catalog of all wiki pages. Updated on every ingest.
 
 ## Overview
-- [[overview]]: state of knowledge, open risks and questions (sources: 1, updated: 2026-11-25)
+- [[overview]]: state of knowledge, open risks and questions (sources: 2, updated: 2026-11-26)
 
 ## Decisions
+- [[0003-version-scheme]]: accepted: Hangar's scheme `X.Y.Z-B`; internally `X.Y.Z+B` (Windows file version `X.Y.Z.B`), shown and in file names `X.Y.Z-B`; B = commit count of the built state, set only when building, no base; the code carries the upcoming version, the topmost entry of `src/changelog.json` (12 languages, `date: null` until the release); `src/versionSync.test.ts`; release script rules for the first release (sources: 1, updated: 2026-11-26)
 - [[0002-hangar-notes-takeover]]: accepted: Hangar Note takes over Hangar's notes area, private and team; Hangar Note is the only writer and uses Hangar's folders and formats in place, Hangar keeps the team key ring and hands it over a token-protected loopback channel; detection through `install.json`, start through `hangar-note open|quick|capture`; color categories; four phases; section "Phase 1 as built" (sources: 0, updated: 2026-11-26)
 - [[0001-foundation]]: accepted: sticky notes on the desktop: one frameless window per note plus an "All notes" window and a tray icon; one `.md` per note plus `notes.json` in the app data folder, atomic writes, trash with restore; CodeMirror 6 Markdown with live styling; eight note colors; no access to Hangar's data; non-goals sync, sharing, images (sources: 0, updated: 2026-11-26)
 
@@ -21,4 +22,5 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[local-channel]]: contract version 1 of the command line, `install.json`, `endpoint.json` and the loopback routes on Hangar Note's side, with the server proof, the checks, the connection slots, the capture exit codes and the error codes (sources: 0, updated: 2026-11-26)
 
 ## Sources
+- [[version-number-wikipedia]]: German Wikipedia "Versionsnummer" (revision 267798157): major, minor, revision and build number, the build number from version control and never reset, major version 0 as an exception (sources: 0, updated: 2026-11-26)
 - [[llm-wiki-pattern]]: Karpathy's LLM Wiki pattern: raw sources, LLM-written pages and a schema; ingest, query and lint; `index.md` as catalog and `log.md` as chronicle (sources: 0, updated: 2026-11-25)

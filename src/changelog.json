@@ -1,0 +1,106 @@
+[
+  {
+    "version": "0.1.0",
+    "date": null,
+    "items": [
+      {
+        "de": "Deine Hangar-Notizen sind gleich da, ohne Umzug. Bis Hangar sie an Hangar Note übergibt, kannst du sie lesen, aber nicht ändern.",
+        "en": "Your Hangar notes are right there, nothing to move. Until Hangar hands them over to Hangar Note, you can read them but not change them.",
+        "el": "Οι σημειώσεις σου από το Hangar είναι αμέσως εδώ, χωρίς μεταφορά. Μέχρι να τις παραδώσει το Hangar στο Hangar Note, τις διαβάζεις αλλά δεν τις αλλάζεις.",
+        "es": "Tus notas de Hangar están ahí al momento, sin mudanza. Hasta que Hangar se las pase a Hangar Note, puedes leerlas pero no cambiarlas.",
+        "fr": "Tes notes Hangar sont là tout de suite, sans déménagement. Tant que Hangar ne les a pas confiées à Hangar Note, tu peux les lire mais pas les modifier.",
+        "it": "Le tue note di Hangar sono subito qui, senza trasferimenti. Finché Hangar non le passa a Hangar Note, puoi leggerle ma non modificarle.",
+        "ja": "Hangar のメモは移行なしですぐに表示されます。Hangar が Hangar Note に引き渡すまでは、読むことはできますが変更はできません。",
+        "pl": "Twoje notatki z Hangara są od razu na miejscu, bez przenoszenia. Dopóki Hangar nie przekaże ich do Hangar Note, możesz je czytać, ale nie zmieniać.",
+        "pt": "Suas notas do Hangar já estão aqui, sem mudança. Até o Hangar passá-las para o Hangar Note, você pode lê-las, mas não alterá-las.",
+        "ru": "Твои заметки из Hangar сразу на месте, без переноса. Пока Hangar не передаст их в Hangar Note, ты можешь их читать, но не менять.",
+        "tr": "Hangar notların taşımadan hemen burada. Hangar onları Hangar Note'a devredene kadar okuyabilirsin ama değiştiremezsin.",
+        "zh": "你的 Hangar 笔记无需迁移即可直接使用。在 Hangar 将其交给 Hangar Note 之前，只能阅读，不能修改。"
+      },
+      {
+        "de": "Leg jede Notiz als Haftnotiz auf deinen Desktop, in einem eigenen kleinen Fenster.",
+        "en": "Put any note on your desktop as a sticky note, in its own small window.",
+        "el": "Βάλε οποιαδήποτε σημείωση στην επιφάνεια εργασίας ως αυτοκόλλητο σημείωμα, στο δικό της μικρό παράθυρο.",
+        "es": "Pon cualquier nota en tu escritorio como nota adhesiva, en su propia ventana pequeña.",
+        "fr": "Pose n'importe quelle note sur ton bureau comme pense-bête, dans sa propre petite fenêtre.",
+        "it": "Metti qualsiasi nota sul desktop come post-it, in una sua piccola finestra.",
+        "ja": "どのメモも付箋としてデスクトップに置けます。メモごとに小さなウィンドウが開きます。",
+        "pl": "Połóż dowolną notatkę na pulpicie jako karteczkę, we własnym małym oknie.",
+        "pt": "Coloque qualquer nota na sua área de trabalho como nota adesiva, em uma janela pequena só dela.",
+        "ru": "Положи любую заметку на рабочий стол как стикер, в собственном маленьком окне.",
+        "tr": "Herhangi bir notu kendi küçük penceresinde yapışkan not olarak masaüstüne koy.",
+        "zh": "任何笔记都可以作为便笺放到桌面上，各自占一个小窗口。"
+      },
+      {
+        "de": "Zeig die Notizen dieses Projekts, aller Projekte oder die allgemeinen, und durchsuch alle Notizen auf einmal.",
+        "en": "Show the notes of this project, of all projects or the general ones, and search all notes at once.",
+        "el": "Δες τις σημειώσεις αυτού του έργου, όλων των έργων ή τις γενικές, και κάνε αναζήτηση σε όλες μαζί.",
+        "es": "Muestra las notas de este proyecto, de todos los proyectos o las generales, y busca en todas a la vez.",
+        "fr": "Affiche les notes de ce projet, de tous les projets ou les générales, et cherche dans toutes à la fois.",
+        "it": "Mostra le note di questo progetto, di tutti i progetti o quelle generali, e cerca in tutte insieme.",
+        "ja": "このプロジェクト、すべてのプロジェクト、または一般のメモを表示し、すべてのメモをまとめて検索できます。",
+        "pl": "Pokaż notatki tego projektu, wszystkich projektów albo ogólne i przeszukaj wszystkie naraz.",
+        "pt": "Mostre as notas deste projeto, de todos os projetos ou as gerais, e pesquise em todas de uma vez.",
+        "ru": "Показывай заметки этого проекта, всех проектов или общие и ищи сразу по всем.",
+        "tr": "Bu projenin, tüm projelerin ya da genel notları göster ve hepsinde aynı anda ara.",
+        "zh": "可显示此项目、所有项目或通用的笔记，并一次搜索全部笔记。"
+      },
+      {
+        "de": "Mit Strg+Umschalt+N entsteht eine schnelle Notiz, ihren Titel nimmt sie aus der ersten Zeile. F2 benennt um.",
+        "en": "Ctrl+Shift+N starts a quick note that takes its title from the first line. F2 renames.",
+        "el": "Με Ctrl+Shift+N φτιάχνεις γρήγορη σημείωση, που παίρνει τον τίτλο από την πρώτη γραμμή. Το F2 μετονομάζει.",
+        "es": "Con Ctrl+Mayús+N creas una nota rápida que toma el título de la primera línea. F2 cambia el nombre.",
+        "fr": "Ctrl+Maj+N crée une note rapide qui prend son titre de la première ligne. F2 la renomme.",
+        "it": "Con Ctrl+Maiusc+N crei una nota veloce che prende il titolo dalla prima riga. F2 la rinomina.",
+        "ja": "Ctrl+Shift+N でクイックメモを作成でき、タイトルは1行目から付きます。F2 で名前を変更できます。",
+        "pl": "Ctrl+Shift+N tworzy szybką notatkę, która bierze tytuł z pierwszego wiersza. F2 zmienia nazwę.",
+        "pt": "Ctrl+Shift+N cria uma nota rápida que pega o título da primeira linha. F2 renomeia.",
+        "ru": "Ctrl+Shift+N создаёт быструю заметку, заголовок берётся из первой строки. F2 переименовывает.",
+        "tr": "Ctrl+Shift+N, başlığını ilk satırdan alan hızlı bir not açar. F2 yeniden adlandırır.",
+        "zh": "按 Ctrl+Shift+N 新建快速笔记，标题取自第一行。按 F2 重命名。"
+      },
+      {
+        "de": "Schreib in Markdown mit Checklisten und Vorschau. Du siehst, wie viel erledigt ist und wie viele Wörter es sind.",
+        "en": "Write in Markdown with checklists and a preview. You see how much is done and how many words there are.",
+        "el": "Γράψε σε Markdown με λίστες ελέγχου και προεπισκόπηση. Βλέπεις πόσα έχουν γίνει και πόσες λέξεις έχει.",
+        "es": "Escribe en Markdown con listas de tareas y vista previa. Ves cuánto está hecho y cuántas palabras hay.",
+        "fr": "Écris en Markdown avec des listes de tâches et un aperçu. Tu vois ce qui est fait et combien de mots il y a.",
+        "it": "Scrivi in Markdown con checklist e anteprima. Vedi quanto è fatto e quante parole ci sono.",
+        "ja": "チェックリストとプレビュー付きの Markdown で書けます。完了した項目の数と単語数も表示されます。",
+        "pl": "Pisz w Markdown z listami zadań i podglądem. Widzisz, ile jest zrobione i ile jest słów.",
+        "pt": "Escreva em Markdown com listas de tarefas e pré-visualização. Você vê quanto já foi feito e quantas palavras há.",
+        "ru": "Пиши в Markdown со списками дел и предпросмотром. Видно, сколько сделано и сколько слов.",
+        "tr": "Kontrol listeleri ve önizlemeyle Markdown yaz. Ne kadarının bittiğini ve kaç kelime olduğunu görürsün.",
+        "zh": "用 Markdown 书写，支持清单和预览，并显示完成进度和字数。"
+      },
+      {
+        "de": "Acht Farben ordnen deine Notizen. Filtere nach einer oder mehreren Farben und gib jeder Farbe einen eigenen Namen.",
+        "en": "Eight colors sort your notes. Filter by one or more colors and give each color a name of your own.",
+        "el": "Οκτώ χρώματα οργανώνουν τις σημειώσεις σου. Φίλτραρε κατά ένα ή περισσότερα χρώματα και δώσε σε κάθε χρώμα δικό σου όνομα.",
+        "es": "Ocho colores ordenan tus notas. Filtra por uno o varios colores y ponle a cada color tu propio nombre.",
+        "fr": "Huit couleurs rangent tes notes. Filtre par une ou plusieurs couleurs et donne à chaque couleur ton propre nom.",
+        "it": "Otto colori ordinano le tue note. Filtra per uno o più colori e dai a ogni colore un nome tuo.",
+        "ja": "8 色でメモを整理できます。1 色または複数の色で絞り込み、色ごとに名前を付けられます。",
+        "pl": "Osiem kolorów porządkuje twoje notatki. Filtruj według jednego lub kilku kolorów i nadaj każdemu własną nazwę.",
+        "pt": "Oito cores organizam suas notas. Filtre por uma ou mais cores e dê a cada cor um nome seu.",
+        "ru": "Восемь цветов упорядочивают твои заметки. Фильтруй по одному или нескольким цветам и дай каждому цвету своё имя.",
+        "tr": "Sekiz renk notlarını düzenler. Bir ya da birkaç renge göre filtrele ve her renge kendi adını ver.",
+        "zh": "八种颜色帮你整理笔记。可按一种或多种颜色筛选，并为每种颜色起自己的名字。"
+      },
+      {
+        "de": "Gelöschtes holst du mit Rückgängig oder über „Zuletzt gelöscht“ zurück. Notizen kannst du exportieren und als Markdown kopieren.",
+        "en": "Bring deleted notes back with Undo or from “Recently deleted”. You can export notes and copy them as Markdown.",
+        "el": "Φέρε πίσω ό,τι διέγραψες με Αναίρεση ή από τις «Πρόσφατα διαγραμμένες». Μπορείς να εξάγεις σημειώσεις και να τις αντιγράφεις ως Markdown.",
+        "es": "Recupera lo borrado con Deshacer o desde «Eliminadas recientemente». Puedes exportar notas y copiarlas como Markdown.",
+        "fr": "Récupère ce que tu as supprimé avec Annuler ou dans « Supprimées récemment ». Tu peux exporter tes notes et les copier en Markdown.",
+        "it": "Recupera ciò che hai eliminato con Annulla o da «Eliminate di recente». Puoi esportare le note e copiarle come Markdown.",
+        "ja": "削除したメモは「元に戻す」か「最近削除したメモ」から復元できます。メモのエクスポートや Markdown としてのコピーもできます。",
+        "pl": "Usunięte notatki przywrócisz przez Cofnij albo z „Ostatnio usunięte”. Notatki możesz eksportować i kopiować jako Markdown.",
+        "pt": "Recupere o que excluiu com Desfazer ou em “Excluídas recentemente”. Você pode exportar notas e copiá-las como Markdown.",
+        "ru": "Удалённое вернёшь через «Отменить» или из «Недавно удалённые». Заметки можно экспортировать и копировать как Markdown.",
+        "tr": "Sildiklerini Geri al ile ya da “Son silinenler” bölümünden geri getir. Notları dışa aktarabilir ve Markdown olarak kopyalayabilirsin.",
+        "zh": "删除的笔记可通过“撤销”或“最近删除”找回。笔记可以导出，也可以复制为 Markdown。"
+      }
+    ]
+  }
+]

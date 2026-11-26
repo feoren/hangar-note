@@ -63,3 +63,11 @@ integrity label, one connection per exchange, the slot release before answering,
 and the storage codes (now with `not-found`) were built. Updated pages/syntheses/local-channel.md:
 `teamToken`, scopes, keep-alive after the hello, grace and linger times, a table of the storage
 codes per platform, new verified tests and the manual `icacls` check.
+
+## [2026-11-26] ingest | Wikipedia: Versionsnummer
+Saved the German Wikipedia article "Versionsnummer" (revision 267798157) as
+raw/2026-11-26-versionsnummer-wikipedia.md and created pages/sources/version-number-wikipedia.md.
+Created pages/decisions/0003-version-scheme.md (accepted): Hangar's scheme `X.Y.Z-B`, internal
+`X.Y.Z+B`, build number set only when building, no `buildNumberBase`, the code carries the
+upcoming version, `src/changelog.json` in 12 languages, `src/versionSync.test.ts`, the rules for
+the release script. Updated index.md and pages/overview.md.

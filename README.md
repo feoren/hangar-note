@@ -21,7 +21,9 @@ note.
   loopback channel, through which Hangar will start and use Hangar Note.
 
 Shared (encrypted) project notes and the integration on Hangar's side follow in later phases. The
-design decisions are in [`docs/wiki`](docs/wiki/index.md).
+design decisions are in [`docs/wiki`](docs/wiki/index.md). Versions read `X.Y.Z-B` (major, minor,
+revision, build number) as in Hangar; the upcoming one and its changes are in
+[`src/changelog.json`](src/changelog.json).
 
 ## Platforms
 

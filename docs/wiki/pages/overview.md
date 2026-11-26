@@ -2,7 +2,7 @@
 title: Overview
 type: overview
 tags: [overview]
-sources: ["[[llm-wiki-pattern]]"]
+sources: ["[[llm-wiki-pattern]]", "[[version-number-wikipedia]]"]
 created: 2026-11-25
 updated: 2026-11-26
 ---
@@ -16,8 +16,14 @@ updated: 2026-11-26
   a contract between both apps. Phase 1 is built: Hangar's private notes in place
   ([[hangar-notes-format]]), read only until Hangar hands them over, and the local channel
   ([[local-channel]]).
+- [[0003-version-scheme]] takes over Hangar's version scheme `X.Y.Z-B` ([[version-number-wikipedia]]):
+  the code carries the upcoming version 0.1.0, which heads `src/changelog.json`, and
+  `src/versionSync.test.ts` keeps both in step. The release script follows with the first release.
 
 ## Open questions
+- Whether the updater and the NSIS bundler treat `X.Y.Z+B` in Hangar Note's own build as in
+  Hangar's (comparison by `X.Y.Z`, Windows file version `X.Y.Z.B`), unmeasured until the first
+  release build.
 - Memory use with many open note windows (one WebView each), unmeasured.
 - Frameless windows on Linux compositors, unmeasured.
 - macOS keychain access to `hangar-notes` entries from a second app, unmeasured.
