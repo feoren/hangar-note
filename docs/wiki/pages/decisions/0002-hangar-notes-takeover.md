@@ -318,7 +318,10 @@ channel details: [[hangar-notes-format]], [[local-channel]]. Deviations and choi
   - **B5:** heads are read through a reader that wipes its buffer (`channel::http::WipingReader`);
     JSON with a token or a captured text is built in a buffer of its final size.
   - **B6:** `set_tray_labels` takes the notes area's texts; a sticky note may set them only while
-    no notes area exists and the texts are still the defaults (`tray::may_set_labels`).
+    no notes area exists and the texts are still the defaults (`tray::may_set_labels`). A sticky
+    note refused this way gets `not-allowed` without a log line (`AppError::LabelsKept`), since
+    every sticky note sends its texts on each settings change; any other window's refusal is
+    logged as `not-allowed`.
   - **B7:** a sticky window's title drops every invisible character (`export::is_invisible`).
   - **B8:** `read_note` and `get_sticky` carry `version` (modification time in ns and length,
     opaque); `write_note` and `write_sticky` take `expected` and answer `changed` without writing

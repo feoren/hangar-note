@@ -510,8 +510,10 @@ pub async fn set_tray_labels(
     labels: TrayLabels,
 ) -> Result<(), AppError> {
     let hub_exists = app.get_webview_window(HUB_LABEL).is_some();
-    if !tray::may_set_labels(window.label(), hub_exists, &tray::current_labels(&app)) {
-        return Err(AppError::NotAllowed);
+    match tray::may_set_labels(window.label(), hub_exists, &tray::current_labels(&app)) {
+        tray::LabelsCall::Set => {}
+        tray::LabelsCall::Kept => return Err(AppError::LabelsKept),
+        tray::LabelsCall::Refused => return Err(AppError::NotAllowed),
     }
     tray::set_labels(&app, &labels)?;
     // An untitled sticky window is named in the language these texts come in.

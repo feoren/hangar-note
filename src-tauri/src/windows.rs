@@ -87,6 +87,11 @@ pub const NOT_A_PATH_CODE: &str = "not-a-path";
 pub enum AppError {
     #[error("This window may not change that note")]
     NotAllowed,
+    /// A sticky note's menu texts while the notes area's stand (`tray::LabelsCall::Kept`): the
+    /// window gets `not-allowed`, the log nothing, since every sticky note sends its texts on each
+    /// settings change.
+    #[error("The menu texts stay as the notes area set them")]
+    LabelsKept,
     #[error("The open note could not save its text")]
     NotSaved,
     #[error(transparent)]
@@ -133,7 +138,7 @@ impl AppError {
     /// The fixed code of every error (security review B4): the window never gets a text.
     pub fn code(&self) -> &'static str {
         match self {
-            Self::NotAllowed => NOT_ALLOWED_CODE,
+            Self::NotAllowed | Self::LabelsKept => NOT_ALLOWED_CODE,
             Self::NotSaved => NOT_SAVED_CODE,
             Self::Service(error) => error.code(),
             Self::Settings(error) => error.code(),
@@ -149,9 +154,9 @@ impl AppError {
     }
 
     /// The log line of an error, `None` for the answers that are part of normal work (read only,
-    /// another editor, a change from outside). Its text holds no path below the notes root and no
-    /// title: storage errors describe themselves by scope key, kind of file and OS error number
-    /// (`fsio::storage_log`, B3).
+    /// another editor, a change from outside, a sticky note's menu texts). Its text holds no path
+    /// below the notes root and no title: storage errors describe themselves by scope key, kind of
+    /// file and OS error number (`fsio::storage_log`, B3).
     pub fn log_line(&self) -> Option<String> {
         let code = self.code();
         let expected = [
@@ -161,7 +166,8 @@ impl AppError {
             NOT_SAVED_CODE,
             crate::notes::CHANGED_CODE,
         ];
-        (!expected.contains(&code)).then(|| format!("hangar-note: {code}: {self}"))
+        let quiet = matches!(self, Self::LabelsKept) || expected.contains(&code);
+        (!quiet).then(|| format!("hangar-note: {code}: {self}"))
     }
 }
 
@@ -669,12 +675,14 @@ pub fn create_sticky<R: Runtime>(
         .and_then(|label| app.get_webview_window(label))
         .and_then(|window| window_bounds(&window.as_ref().window()));
     let (all, _) = monitors(app);
-    let note = service.create_untitled(&folder, base, settings.get().new_note_color)?;
-    let key = NotesService::key(&folder, &note.id)?;
     // On the desktop under the editor lock (B2), as `open_sticky` does it.
-    let look = service.set_open_with(&key, true, |look| {
-        look.bounds = near.map(|b| bounds::cascade(b, &all));
-    })?;
+    let (note, look) = service.create_untitled_on_desktop(
+        &folder,
+        base,
+        settings.get().new_note_color,
+        |look| look.bounds = near.map(|b| bounds::cascade(b, &all)),
+    )?;
+    let key = NotesService::key(&folder, &note.id)?;
     build_sticky(app, &look, &sticky_label(&key), &note.title)?;
     notify_hub(app);
     Ok(note)
@@ -1127,6 +1135,19 @@ mod tests {
         assert_eq!(code(AppError::NotAllowed), serde_json::json!("not-allowed"));
     }
 
+    /// A sticky note's refused menu texts answer `not-allowed` like any refusal, but only a
+    /// refusal outside normal work reaches the log.
+    #[test]
+    fn a_sticky_notes_kept_menu_texts_are_refused_without_a_log_line() {
+        assert_eq!(
+            serde_json::to_value(AppError::LabelsKept).unwrap(),
+            serde_json::json!(NOT_ALLOWED_CODE)
+        );
+        assert_eq!(AppError::LabelsKept.log_line(), None);
+        let line = AppError::NotAllowed.log_line().unwrap();
+        assert!(line.starts_with("hangar-note: not-allowed: "), "{line}");
+    }
+
     const INNER: &str = "marker-inner-8d2";
 
     /// One error of every variant, each with the marker and a path in its inner text where it has
@@ -1143,6 +1164,7 @@ mod tests {
         let notes = |error: NotesError| AppError::Service(ServiceError::Notes(error));
         vec![
             AppError::NotAllowed,
+            AppError::LabelsKept,
             AppError::NotSaved,
             notes(NotesError::InvalidTitle("must not be empty")),
             notes(NotesError::InvalidId),
@@ -1187,6 +1209,7 @@ mod tests {
     fn every_variant_is_listed(error: &AppError) {
         match error {
             AppError::NotAllowed
+            | AppError::LabelsKept
             | AppError::NotSaved
             | AppError::Settings(
                 SettingsError::UnknownLanguage
@@ -1225,6 +1248,7 @@ mod tests {
     #[test]
     fn every_error_reaches_the_window_as_a_fixed_code() {
         let codes = [
+            "not-allowed",
             "not-allowed",
             "not-saved",
             "invalid-title",

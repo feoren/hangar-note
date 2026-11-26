@@ -99,15 +99,32 @@ pub fn current_labels<R: Runtime>(app: &AppHandle<R>) -> TrayLabels {
         .unwrap_or_default()
 }
 
+/// What a window's call to set the menu texts gets (security review B6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelsCall {
+    /// The texts are set.
+    Set,
+    /// A sticky note, while the notes area exists or after texts were set: refused, as part of
+    /// normal work (every sticky note sends its texts on each settings change), so not logged.
+    Kept,
+    /// Any other window: refused and logged.
+    Refused,
+}
+
 /// Whether the window `caller` may set the menu texts (security review B6): the notes area
 /// always; a sticky note only while there is no notes area and the texts are still the English
 /// defaults, so a start with sticky notes alone gets its language, but a sticky view can never
 /// overwrite what the notes area set.
-pub fn may_set_labels(caller: &str, hub_exists: bool, current: &TrayLabels) -> bool {
-    caller == windows::HUB_LABEL
-        || (windows::sticky_of(caller).is_some()
-            && !hub_exists
-            && *current == TrayLabels::default())
+pub fn may_set_labels(caller: &str, hub_exists: bool, current: &TrayLabels) -> LabelsCall {
+    if caller == windows::HUB_LABEL {
+        LabelsCall::Set
+    } else if windows::sticky_of(caller).is_none() {
+        LabelsCall::Refused
+    } else if !hub_exists && *current == TrayLabels::default() {
+        LabelsCall::Set
+    } else {
+        LabelsCall::Kept
+    }
 }
 
 pub fn present<R: Runtime>(app: &AppHandle<R>) -> bool {
@@ -224,15 +241,28 @@ mod tests {
             all_notes: "Alle Notizen".into(),
             ..TrayLabels::default()
         };
-        assert!(may_set_labels(windows::HUB_LABEL, true, &german));
-        assert!(may_set_labels(windows::HUB_LABEL, false, &defaults));
+        assert_eq!(
+            may_set_labels(windows::HUB_LABEL, true, &german),
+            LabelsCall::Set
+        );
+        assert_eq!(
+            may_set_labels(windows::HUB_LABEL, false, &defaults),
+            LabelsCall::Set
+        );
         // A sticky note alone, before anyone set the texts.
-        assert!(may_set_labels(sticky, false, &defaults));
-        // Not once the notes area exists, nor once texts were set.
-        assert!(!may_set_labels(sticky, true, &defaults));
-        assert!(!may_set_labels(sticky, false, &german));
+        assert_eq!(may_set_labels(sticky, false, &defaults), LabelsCall::Set);
+        // Not once the notes area exists, nor once texts were set; that refusal is normal work.
+        assert_eq!(may_set_labels(sticky, true, &defaults), LabelsCall::Kept);
+        assert_eq!(may_set_labels(sticky, false, &german), LabelsCall::Kept);
+        assert_eq!(may_set_labels(sticky, true, &german), LabelsCall::Kept);
         for other in ["main", "note-", ""] {
-            assert!(!may_set_labels(other, false, &defaults), "{other}");
+            for hub in [false, true] {
+                assert_eq!(
+                    may_set_labels(other, hub, &defaults),
+                    LabelsCall::Refused,
+                    "{other}"
+                );
+            }
         }
     }
 

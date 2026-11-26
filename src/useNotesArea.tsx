@@ -434,6 +434,8 @@ export function useNotesArea(app: AppSettings) {
       if (isChanged(e)) {
         conflict.current = key;
         report(changedNotice.current());
+        // The row still shows the last save, which the change outside replaced on disk.
+        void reloadRef.current();
         return false;
       }
       const message = errorMessage(e, "save");
@@ -566,6 +568,8 @@ export function useNotesArea(app: AppSettings) {
       saveTimer.current = null;
     }
     pending.current = null;
+    // Left without the text after a change outside: the row shows the note as its file is now.
+    if (conflict.current !== null) void reloadRef.current();
     conflict.current = null;
     setUnsaved(false);
     setDirty(false);
@@ -1320,6 +1324,7 @@ export function useNotesArea(app: AppSettings) {
       leaveAnyway.current.reset();
       setNotices((slots) => clearNotice(clearNotice(slots, "unsaved"), "error"));
       show(current(fresh), fresh.text, true);
+      void reloadRef.current();
     } catch (e) {
       fail(e);
     }

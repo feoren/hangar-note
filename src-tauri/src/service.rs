@@ -356,6 +356,24 @@ impl NotesService {
         self.open_note(folder, &id)
     }
 
+    /// [`Self::create_untitled`] put straight onto the desktop, with `place` changing its look in
+    /// the same step ([`Self::set_open_with`]). The note answers as it is afterwards, so its
+    /// sticky note and the notes area see it on the desktop. Returns the note and its look.
+    pub fn create_untitled_on_desktop(
+        &self,
+        folder: &NoteFolder,
+        base: &str,
+        color: NoteColor,
+        place: impl FnOnce(&mut NoteLook),
+    ) -> Result<(OpenedNote, NoteLook), ServiceError> {
+        let mut note = self.create_untitled(folder, base, color)?;
+        let key = Self::key(folder, &note.id)?;
+        let look = self.set_open_with(&key, true, place)?;
+        note.on_desktop = look.open;
+        note.on_top = look.on_top;
+        Ok((note, look))
+    }
+
     /// A note with a title and text of its own (the daily review over the local channel).
     pub fn create_with_text(
         &self,
@@ -863,6 +881,36 @@ mod tests {
         assert_eq!(service.meta().get(&key.scope, &key.id), look);
         assert!(matches!(
             service.write(Editor::Hub, &folder, &id, "from the list", None),
+            Err(ServiceError::OnDesktop)
+        ));
+    }
+
+    /// A new sticky note answers as being on the desktop: the note is read before it goes there.
+    #[test]
+    fn a_new_sticky_note_answers_as_on_the_desktop() {
+        let dir = TempDir::new("service-new-sticky");
+        let service = service(&dir);
+        let folder = NoteFolder::general();
+        let place = crate::meta::Bounds {
+            x: 40.0,
+            y: 60.0,
+            width: 320.0,
+            height: 280.0,
+        };
+        let (note, look) = service
+            .create_untitled_on_desktop(&folder, "Notiz", NoteColor::Mint, |look| {
+                look.bounds = Some(place);
+            })
+            .unwrap();
+        assert!(note.on_desktop);
+        assert!(look.open);
+        assert_eq!(look.bounds, Some(place));
+        assert_eq!(note.title, "Notiz 1");
+        assert!(note.auto_titled);
+        assert_eq!(note.color, NoteColor::Mint);
+        assert_eq!(service.open_note(&folder, &note.id).unwrap(), note);
+        assert!(matches!(
+            service.write(Editor::Hub, &folder, &note.id, "from the list", None),
             Err(ServiceError::OnDesktop)
         ));
     }

@@ -1374,6 +1374,54 @@ describe("notes area: a note changed outside", () => {
   });
 });
 
+describe.each(ALL_LOOKS)("notes area, a row after a change outside in the look %s", (look) => {
+  /** The text of a note's row, or its card in the paper look. */
+  const rowText = (title: string) =>
+    rowButton(title).closest("li, .card")?.textContent ?? rowButton(title).textContent;
+
+  /** Saves one version of Einkaufen, then has the next save refused as changed outside. */
+  async function changeOutside() {
+    await render(look);
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nmeine Fassung eins");
+    await flushHub();
+    api.listNotes.mockResolvedValue([
+      row(A, "Einkaufen", "mint", { preview: "Einkaufen\nVon der Platte" }),
+      row(B, "Projekt", "sky"),
+    ]);
+    api.writeNote.mockRejectedValue("changed");
+    await type("Einkaufen\nmeine Fassung zwei");
+    await flushHub();
+    expect(alertText()).toContain(t("error.changed"));
+  }
+
+  it("shows the text on disk once the save is refused and after the second switch", async () => {
+    await changeOutside();
+    expect(rowText("Einkaufen")).toContain("Von der Platte");
+    const now = vi.spyOn(Date, "now").mockReturnValue(9_000_000);
+    await leaveNote(look);
+    now.mockReturnValue(9_004_000);
+    await leaveNote(look);
+    now.mockRestore();
+    expect(container.querySelector(".notes-stuck")).toBeNull();
+    expect(rowText("Einkaufen")).toContain("Von der Platte");
+    expect(rowText("Einkaufen")).not.toContain("meine Fassung");
+  });
+
+  it("shows the text on disk after Reload", async () => {
+    await changeOutside();
+    api.listNotes.mockResolvedValue([
+      row(A, "Einkaufen", "mint", { preview: "Einkaufen\nNeu geladen" }),
+      row(B, "Projekt", "sky"),
+    ]);
+    api.readNote.mockResolvedValue(opened(A, "Einkaufen", { text: "Einkaufen\nNeu geladen" }));
+    await click(button(t("notes.reloadNote")));
+    await click(button(t("notes.reloadConfirm")));
+    expect(editor.text).toBe("Einkaufen\nNeu geladen");
+    expect(rowText("Einkaufen")).toContain("Neu geladen");
+  });
+});
+
 describe("notes area: small fixes", () => {
   it("marks only the trash in the hangar sidebar while the trash is shown", async () => {
     await render("hangar");

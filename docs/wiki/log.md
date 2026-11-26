@@ -124,3 +124,8 @@ finding F1, why CodeMirror's style elements carry Tauri's per-load style nonce i
 `'unsafe-inline'`, with the places in Tauri 2.12.7 (`src/manager/mod.rs`, `set_csp`,
 `replace_csp_nonce`, `get_asset`) and style-mod 4.1.5 that show it, and why the dev server shows
 no policy.
+
+## [2026-11-26] query | Quiet refusal of a sticky note's menu texts
+Added to B6 in the "Phase 1 as built" section of pages/decisions/0002-hangar-notes-takeover.md: a
+sticky note whose menu texts are refused gets `not-allowed` without a log line
+(`AppError::LabelsKept`); refusals of other windows are still logged.
