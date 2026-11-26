@@ -139,3 +139,7 @@ only a proven answer with `"ok": true` (L1); notes, export and sticky titles sha
 in `naming.rs`, which drops invisible characters but keeps joiners and variation selectors inside
 emoji sequences and Persian or Indic spelling (L2); renames, deletes and restores never replace a file (`fsio::rename_no_replace`, L3); request
 and answer bodies land in one wiped buffer of their exact length (L4).
+
+## [2026-11-26] update | B3 log scope confirmed by Hangar
+Hangar writes no log file and will start Hangar Note with null stdio, so no Hangar path keeps
+Hangar Note's log lines; noted under B3 in pages/decisions/0002-hangar-notes-takeover.md.

@@ -314,6 +314,9 @@ channel details: [[hangar-notes-format]], [[local-channel]]. Deviations and choi
     (`fsio::storage_log`); the `Io` variants of every store display themselves that way, so no
     log line carries a title or a path below the root. This replaces "the path and the OS text
     go to the log" above.
+    Hangar keeps none of it either: it writes no log file, shows agent CLI output only in the
+    terminal, keeps child stderr in memory or discards it, and will start Hangar Note detached
+    with stdin, stdout and stderr set to null (Hangar lead, 2026-11-26).
   - **B4:** every command error reaches the window as a fixed code, never as text. Added:
     `not-allowed`, `invalid`, `invalid-title`, `invalid-id`, `changed`, `not-open`, `not-a-path`,
     `autostart`, `clipboard`, `window`, `task`; the earlier codes stay.
