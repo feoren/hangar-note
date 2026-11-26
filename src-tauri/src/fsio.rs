@@ -34,6 +34,28 @@ pub fn millis(time: SystemTime) -> Option<u64> {
 /// `rename` replaces the target on all platforms and within one folder is a single operation, so
 /// readers see either the old or the new file, never half of one.
 pub fn write_atomic(path: &Path, data: &[u8]) -> io::Result<()> {
+    write_atomic_with(path, data, create_private_file)
+}
+
+/// Like [`write_atomic`] for a file only its owner may open on every platform: 0600 on Unix, an
+/// explicit protected DACL for the user and SYSTEM on Windows (`winsec.rs`), which a profile
+/// folder's inherited ACL never widens. For files that hold a secret (`endpoint.json`).
+pub fn write_atomic_owner_only(path: &Path, data: &[u8]) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        write_atomic_with(path, data, crate::winsec::create_owner_only)
+    }
+    #[cfg(not(windows))]
+    {
+        write_atomic_with(path, data, create_private_file)
+    }
+}
+
+fn write_atomic_with(
+    path: &Path,
+    data: &[u8],
+    create: fn(&Path) -> io::Result<File>,
+) -> io::Result<()> {
     let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -48,7 +70,7 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> io::Result<()> {
         TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
     let result = (|| {
-        let mut file = create_private_file(&temp)?;
+        let mut file = create(&temp)?;
         file.write_all(data)?;
         file.sync_all()?;
         drop(file);

@@ -27,11 +27,13 @@ const COMMANDS: &[&str] = &[
     "reveal_note",
     "reveal_notes_folder",
     "copy_note",
+    "copy_text",
     "open_hub",
     "get_settings",
     "set_settings",
     "set_autostart",
     "set_tray_labels",
+    "set_hub_on_top",
     "window_ready",
 ];
 

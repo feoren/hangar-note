@@ -1,6 +1,7 @@
 //! `settings.json` in Hangar Note's data folder (ADR 0001): language, theme, the color of new
-//! notes and the personal names of the colors (ADR 0002, "Color categories"). "Start with the
-//! system" is not stored here: it is the OS state itself (autostart plugin).
+//! notes, the personal names of the colors (ADR 0002, "Color categories") and "Always on top" of
+//! the notes area. "Start with the system" is not stored here: it is the OS state itself
+//! (autostart plugin).
 
 use std::collections::BTreeMap;
 use std::io;
@@ -44,6 +45,11 @@ pub struct Settings {
     /// The person's names of the colors ("Work", "Ideas"); a color without one shows its own name.
     #[serde(default)]
     pub color_names: BTreeMap<NoteColor, String>,
+    /// The notes area stays above other windows ("Always on top"). Changed only through its own
+    /// command (`set_hub_on_top`); [`SettingsStore::set`] keeps the stored value, so a window
+    /// that sends its settings without this field never switches it off.
+    #[serde(default)]
+    pub hub_on_top: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,9 +170,23 @@ impl SettingsStore {
         lock(&self.current).clone()
     }
 
+    /// Everything but [`Settings::hub_on_top`], which keeps its stored value.
     pub fn set(&self, settings: Settings) -> Result<Settings, SettingsError> {
-        let settings = tidy(settings);
+        let mut settings = tidy(settings);
         let mut current = lock(&self.current);
+        settings.hub_on_top = current.hub_on_top;
+        save(&self.path, &settings)?;
+        *current = settings.clone();
+        Ok(settings)
+    }
+
+    /// Switches "Always on top" of the notes area and stores it.
+    pub fn set_hub_on_top(&self, on_top: bool) -> Result<Settings, SettingsError> {
+        let mut current = lock(&self.current);
+        let settings = Settings {
+            hub_on_top: on_top,
+            ..current.clone()
+        };
         save(&self.path, &settings)?;
         *current = settings.clone();
         Ok(settings)
@@ -193,6 +213,7 @@ mod tests {
             theme: Theme::Dark,
             new_note_color: NoteColor::Mint,
             color_names: BTreeMap::from([(NoteColor::Sky, "Arbeit".to_owned())]),
+            hub_on_top: false,
         };
         store.set(changed.clone()).unwrap();
         assert_eq!(SettingsStore::open(dir.path()).get(), changed);
@@ -202,9 +223,32 @@ mod tests {
             json,
             serde_json::json!({
                 "version": 1, "language": "pl", "theme": "dark", "newNoteColor": "mint",
-                "colorNames": { "sky": "Arbeit" }
+                "colorNames": { "sky": "Arbeit" }, "hubOnTop": false
             })
         );
+    }
+
+    #[test]
+    fn always_on_top_of_the_notes_area_has_its_own_switch() {
+        let dir = TempDir::new("settings-on-top");
+        let store = SettingsStore::open(dir.path());
+        assert!(!store.get().hub_on_top);
+        let saved = store.set_hub_on_top(true).unwrap();
+        assert!(saved.hub_on_top);
+        assert!(SettingsStore::open(dir.path()).get().hub_on_top);
+        // The other settings, sent without it or with another value, keep it.
+        let other = Settings {
+            theme: Theme::Light,
+            hub_on_top: false,
+            ..Settings::default()
+        };
+        let saved = store.set(other).unwrap();
+        assert!(saved.hub_on_top);
+        assert_eq!(saved.theme, Theme::Light);
+        let sent: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(store.set(sent).unwrap().hub_on_top);
+        assert!(!store.set_hub_on_top(false).unwrap().hub_on_top);
+        assert_eq!(load(store.path()).theme, Theme::Dark);
     }
 
     #[test]

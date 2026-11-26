@@ -3,8 +3,7 @@
 
 use std::process::ExitCode;
 
-use hangar_note_lib::channel::ClientError;
-use hangar_note_lib::cli::{self, CliCommand};
+use hangar_note_lib::cli::{self, CaptureStep, CliCommand};
 
 fn main() -> ExitCode {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
@@ -12,7 +11,7 @@ fn main() -> ExitCode {
         Ok(command) => command,
         Err(error) => {
             eprintln!("hangar-note: {error}");
-            return ExitCode::from(2);
+            return ExitCode::from(cli::EXIT_USAGE);
         }
     };
     let mut capture_text = None;
@@ -21,21 +20,27 @@ fn main() -> ExitCode {
             Ok(Some(text)) => text,
             Ok(None) => {
                 eprintln!("hangar-note: capture takes at most 1 MiB of UTF-8 text on stdin");
-                return ExitCode::from(2);
+                return ExitCode::from(cli::EXIT_USAGE);
             }
             Err(error) => {
                 eprintln!("hangar-note: stdin not read: {error}");
-                return ExitCode::from(1);
+                return ExitCode::from(cli::EXIT_FAILED);
             }
         };
-        match hangar_note_lib::send_capture(folder, &text) {
-            Ok(()) => return ExitCode::SUCCESS,
-            // No running app: this process becomes it and keeps the text.
-            Err(ClientError::NotRunning) => capture_text = Some(text),
-            Err(error) => {
-                eprintln!("hangar-note: {error}");
-                return ExitCode::from(1);
+        match cli::capture_step(&hangar_note_lib::send_capture(folder, &text)) {
+            CaptureStep::Delivered => return ExitCode::SUCCESS,
+            CaptureStep::Fail { code, message } => {
+                eprintln!("hangar-note: {message}");
+                return ExitCode::from(code);
             }
+            // No running app proved itself: this process becomes it and keeps the text, unless
+            // nothing could be saved anyway. Should another Hangar Note hold the single instance
+            // after all, the capture guard in `run` exits with EXIT_NOT_DELIVERED instead of 0.
+            CaptureStep::StartApp if !hangar_note_lib::notes_writable_at_start() => {
+                eprintln!("hangar-note: {}", cli::READ_ONLY_MESSAGE);
+                return ExitCode::from(cli::EXIT_READ_ONLY);
+            }
+            CaptureStep::StartApp => capture_text = Some(text),
         }
     }
     if matches!(command, CliCommand::Open { shared: true, .. }) {
@@ -45,7 +50,7 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("Hangar Note could not start: {error}");
-            ExitCode::from(1)
+            ExitCode::from(cli::EXIT_FAILED)
         }
     }
 }

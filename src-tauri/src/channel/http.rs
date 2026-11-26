@@ -7,6 +7,10 @@
 
 use std::io::{self, BufRead};
 
+use zeroize::Zeroizing;
+
+use super::proof::{NONCE_HEADER, PROOF_HEADER};
+
 /// Request line plus headers, in bytes.
 pub const MAX_HEAD_BYTES: usize = 16 * 1024;
 pub const MAX_HEADERS: usize = 64;
@@ -22,6 +26,7 @@ pub enum Status {
     Conflict,
     LengthRequired,
     PayloadTooLarge,
+    UnsupportedMediaType,
     HeadersTooLarge,
     Internal,
     NotImplemented,
@@ -40,6 +45,7 @@ impl Status {
             Status::Conflict => 409,
             Status::LengthRequired => 411,
             Status::PayloadTooLarge => 413,
+            Status::UnsupportedMediaType => 415,
             Status::HeadersTooLarge => 431,
             Status::Internal => 500,
             Status::NotImplemented => 501,
@@ -58,6 +64,7 @@ impl Status {
             Status::Conflict => "Conflict",
             Status::LengthRequired => "Length Required",
             Status::PayloadTooLarge => "Payload Too Large",
+            Status::UnsupportedMediaType => "Unsupported Media Type",
             Status::HeadersTooLarge => "Request Header Fields Too Large",
             Status::Internal => "Internal Server Error",
             Status::NotImplemented => "Not Implemented",
@@ -98,17 +105,36 @@ impl HeadError {
 }
 
 /// The parts of a request head the channel uses.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Head {
     /// The path, without a query.
     pub path: String,
-    /// The bearer token of `Authorization`, if any.
-    pub token: Option<String>,
+    /// The bearer token of `Authorization`, if any; wiped when dropped.
+    pub token: Option<Zeroizing<String>>,
     pub content_length: u64,
     /// `Host` as sent; the channel wants exactly its own `127.0.0.1:<port>`.
     pub host: Option<String>,
     /// `Origin` or a `Sec-Fetch-*` header: a browser sent it (a web page trying the local port).
     pub from_browser: bool,
+    /// `Content-Type` names `application/json` (parameters such as `charset` aside).
+    pub json: bool,
+    /// [`NONCE_HEADER`] as sent; the channel checks its form.
+    pub nonce: Option<String>,
+}
+
+impl std::fmt::Debug for Head {
+    // The token stays out of every debug print.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Head")
+            .field("path", &self.path)
+            .field("token", &self.token.as_ref().map(|_| "<redacted>"))
+            .field("content_length", &self.content_length)
+            .field("host", &self.host)
+            .field("from_browser", &self.from_browser)
+            .field("json", &self.json)
+            .field("nonce", &self.nonce)
+            .finish()
+    }
 }
 
 /// Reads one line ending in LF (CR before it is dropped) into `line`, counting against `budget`.
@@ -173,7 +199,9 @@ pub fn read_head(reader: &mut impl BufRead) -> Result<Head, HeadError> {
     }
     let method_ok = method == "POST";
 
-    let mut token = None;
+    let mut token: Option<Zeroizing<String>> = None;
+    let mut content_type: Option<String> = None;
+    let mut nonce: Option<String> = None;
     let mut host: Option<String> = None;
     let mut from_browser = false;
     let mut length: Option<u64> = None;
@@ -191,7 +219,9 @@ pub fn read_head(reader: &mut impl BufRead) -> Result<Head, HeadError> {
         if line[0] == b' ' || line[0] == b'\t' || !visible_ascii(&line) {
             return Err(HeadError::Malformed);
         }
-        let header = String::from_utf8_lossy(&line);
+        // The line may hold the token: wiped once the header is read.
+        let header = Zeroizing::new(String::from_utf8_lossy(&line).into_owned());
+        line.iter_mut().for_each(|b| *b = 0);
         let Some((name, value)) = header.split_once(':') else {
             return Err(HeadError::Malformed);
         };
@@ -225,7 +255,17 @@ pub fn read_head(reader: &mut impl BufRead) -> Result<Head, HeadError> {
                 .split_once(' ')
                 .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("bearer"))
                 .map(|(_, rest)| rest.trim().to_owned());
-            token = Some(bearer.unwrap_or_default());
+            token = Some(Zeroizing::new(bearer.unwrap_or_default()));
+        } else if name.eq_ignore_ascii_case("content-type") {
+            if content_type.is_some() {
+                return Err(HeadError::Malformed);
+            }
+            content_type = Some(value.to_owned());
+        } else if name.eq_ignore_ascii_case(NONCE_HEADER) {
+            if nonce.is_some() {
+                return Err(HeadError::Malformed);
+            }
+            nonce = Some(value.to_owned());
         }
     }
     if !method_ok {
@@ -233,20 +273,32 @@ pub fn read_head(reader: &mut impl BufRead) -> Result<Head, HeadError> {
     }
     let content_length = length.ok_or(HeadError::NoLength)?;
     let path = target.split_once('?').map_or(target, |(path, _)| path);
+    let json = content_type.is_some_and(|value| {
+        value
+            .split(';')
+            .next()
+            .is_some_and(|media| media.trim().eq_ignore_ascii_case("application/json"))
+    });
     Ok(Head {
         path: path.to_owned(),
         token: token.filter(|t| !t.is_empty()),
         content_length,
         host,
         from_browser,
+        json,
+        nonce,
     })
 }
 
-/// A complete response with a JSON body that closes the connection.
-pub fn response(status: Status, body: &str) -> Vec<u8> {
+/// A complete response with a JSON body that closes the connection; `proof` goes into
+/// [`PROOF_HEADER`].
+pub fn response(status: Status, body: &str, proof: Option<&str>) -> Vec<u8> {
+    let proof = proof
+        .map(|proof| format!("{PROOF_HEADER}: {proof}\r\n"))
+        .unwrap_or_default();
     let mut out = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
-         Cache-Control: no-store\r\nConnection: close\r\n\r\n",
+         Cache-Control: no-store\r\n{proof}Connection: close\r\n\r\n",
         status.code(),
         status.reason(),
         body.len()
@@ -272,10 +324,39 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed.path, "/capture");
-        assert_eq!(parsed.token.as_deref(), Some("abc"));
+        assert_eq!(parsed.token.as_deref().map(String::as_str), Some("abc"));
         assert_eq!(parsed.content_length, 12);
         assert_eq!(parsed.host.as_deref(), Some("127.0.0.1:4711"));
         assert!(!parsed.from_browser);
+        assert!(!parsed.json);
+        assert_eq!(parsed.nonce, None);
+        assert!(!format!("{parsed:?}").contains("abc"));
+    }
+
+    #[test]
+    fn content_type_and_nonce_are_read_once() {
+        for (value, json) in [
+            ("application/json", true),
+            ("Application/JSON; charset=utf-8", true),
+            ("text/plain", false),
+            ("application/json-patch+json", false),
+            ("", false),
+        ] {
+            let raw = format!(
+                "POST / HTTP/1.1\r\nContent-Type: {value}\r\nX-Channel-Nonce: n\r\n\
+                 Content-Length: 0\r\n\r\n"
+            );
+            let parsed = head(raw.as_bytes()).unwrap();
+            assert_eq!(parsed.json, json, "{value}");
+            assert_eq!(parsed.nonce.as_deref(), Some("n"));
+        }
+        for twice in [
+            "Content-Type: application/json\r\nContent-Type: application/json",
+            "X-Channel-Nonce: a\r\nx-channel-nonce: b",
+        ] {
+            let raw = format!("POST / HTTP/1.1\r\n{twice}\r\nContent-Length: 0\r\n\r\n");
+            assert!(matches!(head(raw.as_bytes()), Err(HeadError::Malformed)));
+        }
     }
 
     #[test]
@@ -327,8 +408,11 @@ mod tests {
 
     #[test]
     fn responses_close_the_connection() {
-        let text = String::from_utf8(response(Status::Conflict, "{}")).unwrap();
+        let text = String::from_utf8(response(Status::Conflict, "{}", None)).unwrap();
         assert!(text.starts_with("HTTP/1.1 409 Conflict\r\n"));
+        assert!(!text.contains(PROOF_HEADER));
+        let proven = String::from_utf8(response(Status::Ok, "{}", Some("ab"))).unwrap();
+        assert!(proven.contains("X-Channel-Proof: ab\r\n"));
         assert!(text.contains("Content-Length: 2\r\n"));
         assert!(text.contains("Connection: close\r\n"));
         assert!(text.ends_with("\r\n\r\n{}"));

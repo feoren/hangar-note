@@ -26,7 +26,9 @@ use tauri::{
 use crate::bounds::{self, Area};
 use crate::export::ExportError;
 use crate::meta::{Bounds, MetaError, NoteLook};
-use crate::notes::{check_id, is_folder_key, NoteFolder, NotesError, GENERAL_KEY, READ_ONLY_CODE};
+use crate::notes::{
+    check_id, is_folder_key, NoteFolder, NotesError, GENERAL_KEY, MAX_NOTE_BYTES, READ_ONLY_CODE,
+};
 use crate::replies::{self, Asked, DeleteStep, NoteReply, QuitMemory, QuitStep, Replies};
 use crate::requests::{HubRequest, Requests};
 use crate::service::{NoteKey, NotesService, OpenedNote, ServiceError};
@@ -135,6 +137,46 @@ fn current_theme<R: Runtime>(app: &AppHandle<R>) -> Option<tauri::Theme> {
         .and_then(|settings| native_theme(settings.get().theme))
 }
 
+/// Whether a WebView may go to `url` (security review H5): only the app's own pages, and in a
+/// debug build the dev server's. Tauri serves the app as `tauri://localhost` on macOS and Linux
+/// and as `http://tauri.localhost` (or `https://` with `useHttpsScheme`) on Windows. A link in a
+/// note, a script or a redirect never turns a window with the app's commands into a web page.
+pub fn navigation_allowed(url: &tauri::Url, windows: bool, dev: Option<&tauri::Url>) -> bool {
+    let own = match url.scheme() {
+        "tauri" => url.host_str() == Some("localhost") && url.port().is_none(),
+        "http" | "https" if windows => {
+            url.host_str() == Some("tauri.localhost") && url.port().is_none()
+        }
+        _ => false,
+    };
+    own || dev.is_some_and(|dev| url.origin() == dev.origin())
+}
+
+/// Every window this app builds gets the filter; the dev server only in debug builds.
+fn with_navigation_filter<'a, R: Runtime, M: tauri::Manager<R>>(
+    app: &AppHandle<R>,
+    builder: WebviewWindowBuilder<'a, R, M>,
+) -> WebviewWindowBuilder<'a, R, M> {
+    let dev = if cfg!(debug_assertions) {
+        app.config().build.dev_url.clone()
+    } else {
+        None
+    };
+    builder.on_navigation(move |url| {
+        let allowed = navigation_allowed(url, cfg!(windows), dev.as_ref());
+        if !allowed {
+            // The scheme only: a URL can carry a note's text.
+            eprintln!("hangar-note: navigation to a {} URL refused", url.scheme());
+        }
+        allowed
+    })
+}
+
+fn hub_on_top<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.try_state::<SettingsStore>()
+        .is_some_and(|settings| settings.get().hub_on_top)
+}
+
 /// Applies the theme setting to every open window. On Linux and macOS the theme is app-wide.
 pub fn apply_theme<R: Runtime>(app: &AppHandle<R>, theme: Theme) {
     for window in app.webview_windows().values() {
@@ -183,6 +225,23 @@ pub fn checked_key(label: &str, folder: &NoteFolder, id: &str) -> Result<NoteKey
     } else {
         Err(AppError::NotAllowed)
     }
+}
+
+/// Whether the window `label` may put `text` on the clipboard (`copy_text`): the notes area and a
+/// sticky note, each for text of at most one note ([`MAX_NOTE_BYTES`]). Only the length is looked
+/// at; the text itself never reaches an error or a log.
+pub fn check_copy(label: &str, text: &str) -> Result<(), AppError> {
+    if label != HUB_LABEL && sticky_of(label).is_none() {
+        return Err(AppError::NotAllowed);
+    }
+    if text.len() > MAX_NOTE_BYTES {
+        return Err(NotesError::TooLarge {
+            size: text.len(),
+            max: MAX_NOTE_BYTES,
+        }
+        .into());
+    }
+    Ok(())
 }
 
 /// Collects values per key and hands each out once it has been quiet for `delay`. Pure, so the
@@ -414,7 +473,8 @@ fn build_sticky<R: Runtime>(
 ) -> Result<(), AppError> {
     let (all, primary) = monitors(app);
     let placement = bounds::place(look.bounds, &all, primary);
-    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(APP_URL.into()))
+    let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(APP_URL.into()));
+    let mut builder = with_navigation_filter(app, builder)
         .title(TITLE)
         .decorations(false)
         .resizable(true)
@@ -649,10 +709,12 @@ pub fn open_hub<R: Runtime>(app: &AppHandle<R>) -> Result<(), AppError> {
         show_and_focus(&window);
         return Ok(());
     }
-    let built = WebviewWindowBuilder::new(app, HUB_LABEL, WebviewUrl::App(APP_URL.into()))
+    let builder = WebviewWindowBuilder::new(app, HUB_LABEL, WebviewUrl::App(APP_URL.into()));
+    let built = with_navigation_filter(app, builder)
         .title(TITLE)
         .inner_size(HUB_WIDTH, HUB_HEIGHT)
         .min_inner_size(HUB_MIN_WIDTH, HUB_MIN_HEIGHT)
+        .always_on_top(hub_on_top(app))
         .theme(current_theme(app))
         .visible(false)
         .build();
@@ -811,6 +873,72 @@ mod tests {
         assert!(matches!(
             checked_key(&own, &NoteFolder::general(), OTHER),
             Err(AppError::NotAllowed)
+        ));
+    }
+
+    #[test]
+    fn only_the_notes_area_and_sticky_notes_copy_text_of_at_most_one_note() {
+        let own = sticky_label(&key(GENERAL_KEY, ID));
+        assert!(check_copy(HUB_LABEL, "Text").is_ok());
+        assert!(check_copy(&own, "").is_ok());
+        assert!(check_copy(HUB_LABEL, &"x".repeat(MAX_NOTE_BYTES)).is_ok());
+        for label in ["main", "note-", "note-general-x", ""] {
+            assert!(matches!(
+                check_copy(label, "Text"),
+                Err(AppError::NotAllowed)
+            ));
+        }
+        let large = "x".repeat(MAX_NOTE_BYTES + 1);
+        let error = check_copy(&own, &large).unwrap_err();
+        assert!(matches!(
+            error,
+            AppError::Service(ServiceError::Notes(NotesError::TooLarge { .. }))
+        ));
+        // The message names the size, never the text.
+        assert!(!error.to_string().contains("xxxx"));
+    }
+
+    #[test]
+    fn windows_go_nowhere_but_the_apps_own_pages() {
+        let url = |text: &str| tauri::Url::parse(text).unwrap();
+        let dev = url("http://localhost:1430");
+        for (text, windows, allowed) in [
+            ("tauri://localhost/index.html", false, true),
+            ("tauri://localhost/", true, true),
+            ("http://tauri.localhost/index.html", true, true),
+            ("https://tauri.localhost/index.html", true, true),
+            // Served by Tauri only on Windows; elsewhere a name that may reach any local server.
+            ("http://tauri.localhost/index.html", false, false),
+            ("http://tauri.localhost:8080/", true, false),
+            ("tauri://elsewhere/", false, false),
+            ("https://example.invalid/", true, false),
+            ("http://localhost:1430/index.html", true, false),
+            ("file:///C:/x.html", true, false),
+            ("data:text/html,x", true, false),
+            ("javascript:void(0)", true, false),
+            ("about:blank", true, false),
+        ] {
+            assert_eq!(
+                navigation_allowed(&url(text), windows, None),
+                allowed,
+                "{text} windows={windows}"
+            );
+        }
+        // The dev server, in debug builds only, and only its own origin.
+        assert!(navigation_allowed(
+            &url("http://localhost:1430/src/main.tsx"),
+            true,
+            Some(&dev)
+        ));
+        assert!(!navigation_allowed(
+            &url("http://localhost:1431/"),
+            true,
+            Some(&dev)
+        ));
+        assert!(!navigation_allowed(
+            &url("https://localhost:1430/"),
+            true,
+            Some(&dev)
         ));
     }
 

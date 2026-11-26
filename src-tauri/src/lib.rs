@@ -18,20 +18,24 @@ pub mod service;
 pub mod settings;
 pub mod tray;
 pub mod windows;
+#[cfg(windows)]
+pub mod winsec;
 
 #[cfg(test)]
 mod test_support;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use tauri::{AppHandle, Manager as _, RunEvent};
+use tauri::plugin::TauriPlugin;
+use tauri::{AppHandle, Manager as _, RunEvent, Runtime};
 
-use crate::access::{AccessGate, RootKind};
+use crate::access::{Access, AccessGate, RootKind};
 use crate::channel::{Actions, Channel, ClientError};
 use crate::cli::CliCommand;
 use crate::meta::MetaStore;
-use crate::notes::{NoteFolder, NotesStore};
+use crate::notes::{NoteFolder, NotesError, NotesStore};
 use crate::replies::{QuitMemory, Replies};
 use crate::requests::Requests;
 use crate::service::{Excerpt, HitRow, NotesService, ServiceError};
@@ -50,9 +54,27 @@ pub fn data_dir() -> Option<PathBuf> {
     dirs::data_local_dir().map(|dir| dir.join(IDENTIFIER))
 }
 
+/// The notes root a start would use, without Tauri: what `setup` resolves, from the same values
+/// (`app.path().local_data_dir()` is `dirs::data_local_dir()`).
+fn start_root() -> Result<access::NotesRoot, access::RootError> {
+    access::resolve_root(
+        std::env::var_os(access::ROOT_ENV),
+        cfg!(debug_assertions),
+        dirs::data_local_dir(),
+    )
+}
+
+/// Whether a start could save a captured text: the development root, or a folder Hangar handed
+/// over. Checked before a `capture` becomes the app, so a text that would only be shown and then
+/// lost ends with [`cli::EXIT_READ_ONLY`] instead.
+pub fn notes_writable_at_start() -> bool {
+    start_root()
+        .is_ok_and(|root| root.kind == RootKind::Development || access::handed_over(&root.path))
+}
+
 /// `hangar-note capture`: hands the text to the running app over the local channel (never in
-/// argv, which Windows limits to 32 767 characters). [`ClientError::NotRunning`] means the app
-/// has to start itself with the text.
+/// argv, which Windows limits to 32 767 characters). [`ClientError::NotRunning`] and
+/// [`ClientError::NotProven`] mean the app has to start itself with the text.
 pub fn send_capture(folder: &Path, text: &str) -> Result<(), ClientError> {
     let dir = data_dir().ok_or(ClientError::NotRunning)?;
     let endpoint = channel::read_endpoint(&dir).map_err(|_| ClientError::NotRunning)?;
@@ -108,6 +130,11 @@ impl Actions for AppActions {
     }
 
     fn capture(&self, folder: PathBuf, text: String) -> Result<(), ServiceError> {
+        // The notes area would get a text it cannot save: refused here, so the caller knows.
+        // Read only turns writable at most once and never back while the app runs.
+        if self.app.state::<AccessGate>().refresh() != Access::Writable {
+            return Err(NotesError::ReadOnly.into());
+        }
         self.deliver(CliCommand::Capture { folder }, Some(text));
         Ok(())
     }
@@ -156,14 +183,56 @@ fn remove_endpoint(state: &ChannelState) {
     }
 }
 
+/// Armed while a `capture` that found no proven app starts the app with its text (security
+/// review N4). Should another Hangar Note hold the single instance after all (its channel is
+/// missing or broken), the single-instance plugin hands over the arguments only, without the
+/// text, runs `cleanup_before_exit` and exits with 0. That cleanup clears the resource table and
+/// so drops this guard, which ends the process with [`cli::EXIT_NOT_DELIVERED`] first. The app's
+/// own setup disarms it: from there this process is the app and keeps the text.
+///
+/// Verified in the code of tauri 2.12.7 (`cleanup_before_exit` clears the resource table) and
+/// tauri-plugin-single-instance 2.5.5 on Windows and Linux. On macOS the plugin exits without
+/// that cleanup, so there a capture in this rare case still exits 0 [UNVERIFIED on macOS].
+struct CaptureGuard(Arc<AtomicBool>);
+
+impl tauri::Resource for CaptureGuard {}
+
+impl Drop for CaptureGuard {
+    fn drop(&mut self) {
+        if self.0.load(Ordering::SeqCst) {
+            eprintln!("hangar-note: {}", cli::NOT_DELIVERED_MESSAGE);
+            std::process::exit(i32::from(cli::EXIT_NOT_DELIVERED));
+        }
+    }
+}
+
+/// The switch of the [`CaptureGuard`], for the app's setup.
+struct CaptureArmed(Arc<AtomicBool>);
+
+/// Registered before the single-instance plugin, so the guard is in place when it decides.
+fn capture_guard<R: Runtime>() -> TauriPlugin<R> {
+    tauri::plugin::Builder::new("capture-guard")
+        .setup(|app, _api| {
+            let armed = Arc::new(AtomicBool::new(true));
+            app.resources_table().add(CaptureGuard(armed.clone()));
+            app.manage(CaptureArmed(armed));
+            Ok(())
+        })
+        .build()
+}
+
 /// Starts the app with the command it was launched with; `capture_text` is the text of a
 /// `capture` that found no running app.
 pub fn run(command: CliCommand, capture_text: Option<String>) -> tauri::Result<()> {
-    let app = tauri::Builder::default()
-        // First of all plugins, so a second start hands over and exits before anything else
-        // runs. Unlike Hangar, debug builds are not exempt: a dev build and an installed one share
-        // Hangar's notes folder, and two writers would lose changes (the writer lock refuses the
-        // second one anyway).
+    let mut builder = tauri::Builder::default();
+    if capture_text.is_some() {
+        builder = builder.plugin(capture_guard());
+    }
+    let app = builder
+        // First of all plugins (after the capture guard), so a second start hands over and exits
+        // before anything else runs. Unlike Hangar, debug builds are not exempt: a dev build and
+        // an installed one share Hangar's notes folder, and two writers would lose changes (the
+        // writer lock refuses the second one anyway).
         .plugin(tauri_plugin_single_instance::init(
             |app, args, _cwd| match cli::parse_forwarded(&args) {
                 Ok(command) => {
@@ -183,6 +252,10 @@ pub fn run(command: CliCommand, capture_text: Option<String>) -> tauri::Result<(
         .plugin(tauri_plugin_clipboard_manager::init())
         .on_window_event(windows::on_window_event)
         .setup(move |app| {
+            // This process is the single instance: whatever comes, it keeps the captured text.
+            if let Some(armed) = app.try_state::<CaptureArmed>() {
+                armed.0.store(false, Ordering::SeqCst);
+            }
             let data_dir = app.path().app_local_data_dir()?;
             fsio::create_private_dir(&data_dir)?;
             let root = access::resolve_root(
@@ -268,11 +341,13 @@ pub fn run(command: CliCommand, capture_text: Option<String>) -> tauri::Result<(
             commands::reveal_note,
             commands::reveal_notes_folder,
             commands::copy_note,
+            commands::copy_text,
             commands::open_hub,
             commands::get_settings,
             commands::set_settings,
             commands::set_autostart,
             commands::set_tray_labels,
+            commands::set_hub_on_top,
             commands::window_ready,
         ])
         .build(tauri::generate_context!())?;

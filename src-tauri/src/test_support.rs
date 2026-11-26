@@ -44,6 +44,24 @@ impl Drop for TempDir {
     }
 }
 
+/// A link to a folder that needs no rights to create: a junction on Windows (`mklink /J`), a
+/// symbolic link on Unix. `false` where the platform refused.
+pub fn make_dir_link(target: &Path, link: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .is_ok_and(|output| output.status.success())
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

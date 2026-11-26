@@ -409,6 +409,21 @@ pub async fn copy_note(
         .map_err(|error| AppError::Clipboard(error.to_string()))
 }
 
+/// "Copy as Markdown" of text that exists only in a window: a capture that could not become a
+/// note, or a note whose save keeps failing. The notes area and sticky notes only, at most one
+/// note's size; the text is never logged and never part of an error.
+#[tauri::command]
+pub async fn copy_text(
+    app: AppHandle,
+    window: WebviewWindow,
+    text: String,
+) -> Result<(), AppError> {
+    windows::check_copy(window.label(), &text)?;
+    app.clipboard()
+        .write_text(text)
+        .map_err(|error| AppError::Clipboard(error.to_string()))
+}
+
 #[tauri::command]
 pub async fn open_hub(app: AppHandle) -> Result<(), AppError> {
     windows::open_hub(&app)
@@ -439,6 +454,22 @@ pub async fn set_settings(
     windows::apply_theme(&app, saved.theme);
     let _ = app.emit(windows::SETTINGS_CHANGED_EVENT, &saved);
     Ok(saved)
+}
+
+/// "Always on top" of the notes area: stored in `settings.json`, applied now and on every start.
+/// Returns the stored value; every window gets the new settings.
+#[tauri::command]
+pub async fn set_hub_on_top(
+    app: AppHandle,
+    window: WebviewWindow,
+    settings: State<'_, SettingsStore>,
+    on_top: bool,
+) -> Result<bool, AppError> {
+    hub_only(&window)?;
+    let saved = settings.set_hub_on_top(on_top)?;
+    window.set_always_on_top(saved.hub_on_top)?;
+    let _ = app.emit(windows::SETTINGS_CHANGED_EVENT, &saved);
+    Ok(saved.hub_on_top)
 }
 
 #[tauri::command]

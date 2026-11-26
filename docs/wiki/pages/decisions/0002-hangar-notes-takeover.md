@@ -202,6 +202,48 @@ channel details: [[hangar-notes-format]], [[local-channel]]. Deviations and choi
 - **Dependencies added:** `sha2`, `getrandom`, `dirs` (all already in the tree), the official
   dialog and clipboard plugins (backend only, no frontend permission) and `markdown-it` (the
   preview, as in Hangar).
+- **ADR 0001's own store was given up without a migration.** Phase 1 replaced it with Hangar's
+  folders in place before any release, so no person has notes in it; a migration would have
+  been code for data that does not exist.
+- **CRLF becomes LF on saving**, as in Hangar's editor: the editor hands over LF only, so a note
+  written in Explorer with CRLF is stored with LF after its first edit in Hangar Note.
+- **A debug start rewrites `install.json` with the debug executable** (and `endpoint.json` with
+  the debug run's port); the next release start writes both back. Hangar may thus start a debug
+  build after a development session.
+- **Hardening after the security review** (findings M1, M2, N1 to N4, H2 to H5) and the
+  acceptance review, all with tests:
+  - The channel's server proof (`channel/proof.rs`), HMAC-SHA256 written on `sha2` (no `hmac`
+    crate: it would add `hmac` and `subtle` for fifteen lines; RFC 4231 vectors pin it). The token
+    in the key derivation is its 64 ASCII hex digits as in `endpoint.json`. `/v1/hello` takes no
+    token, because a program on a stale port that learned the token could prove itself to the
+    next client. Every request needs `Content-Type: application/json` (415) and a nonce (400).
+    Details in [[local-channel]].
+  - Connection slots as in Hangar's gate (`channel/slots.rs`): 16 head slots, 32 head threads,
+    1 s grace, 2 s for the head, 16 authenticated requests (`busy`, 503, beyond).
+  - `zeroize` for the token and the proof key (and the token in `Debug` redacted everywhere);
+    `windows-sys` 0.61 and `socket2` 0.6 (both already in the tree) for the protected DACL of
+    `endpoint.json` (`winsec.rs`) and `SO_EXCLUSIVEADDRUSE`.
+  - `capture` exits 0 only on a proven answer. Exit codes: 1 failed, 2 wrong command line or
+    stdin, 3 read only (the route answers `read-only` 409, and a capture that would start the app
+    on a folder Hangar has not handed over exits 3 without starting it), 4 not delivered. For a
+    running app whose channel is missing, a capture guard (a Tauri resource registered before the
+    single-instance plugin, dropped by that plugin's `cleanup_before_exit`) turns the plugin's
+    exit 0 into 4. A hand-off file was rejected: it would be a second way in for content, and the
+    running app could still not report back whether it saved the text. [UNVERIFIED on macOS]:
+    the plugin exits there without that cleanup.
+  - Adopted files (no entry in `folder.json` or `trash.json`) always get `stable_id`, also while
+    writable, so a note keeps its ID when Hangar hands the folder over; a taken ID moves to the
+    next one of a fixed sequence. `stable_id` is a UUID v4 in form (version 4, RFC 4122 variant).
+  - Entries whose file name holds a character Windows refuses (`:` included, the NTFS stream
+    separator) or a control character are not trusted. The notes tree and the legacy migration
+    never follow a symbolic link or junction (`symlink_metadata`); links are skipped and logged by
+    path.
+  - `HANGAR_NOTE_NOTES_ROOT` naming Hangar's real folder, or a folder inside it, after
+    normalization, `..` and link resolution, counts as not given.
+  - Every WebView may only navigate to the app's own URL (`tauri://localhost`, on Windows
+    `http(s)://tauri.localhost`) and, in debug builds, the dev server's origin.
+  - "Always on top" of the notes area: `set_hub_on_top`, allowed for `hub` only, stored as
+    `hubOnTop` in `settings.json` and applied when the notes area is built.
 
 ## Consequences
 - Two apps must agree on one versioned contract; changes go through both sessions.

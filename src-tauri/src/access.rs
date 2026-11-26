@@ -14,13 +14,14 @@
 
 use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
 use crate::fsio::{create_private_dir, lock, read_capped};
+use crate::notes::normalize_path;
 
 /// The environment variable of the development root; read only in debug builds.
 pub const ROOT_ENV: &str = "HANGAR_NOTE_NOTES_ROOT";
@@ -58,28 +59,86 @@ pub enum RootError {
 
 /// The notes root. `env` is the value of [`ROOT_ENV`], honored only when `debug` is true, so a
 /// release build always uses Hangar's folder. `data_local` is the user's local data folder.
+///
+/// A development root that is Hangar's own folder or lies inside it (spelled differently, through
+/// `..`, or through a link or junction) is not one: it would skip the handover marker for the
+/// person's real notes. It is then treated as if none was given, with a note in the log.
 pub fn resolve_root(
     env: Option<OsString>,
     debug: bool,
     data_local: Option<PathBuf>,
 ) -> Result<NotesRoot, RootError> {
+    let hangar = data_local.map(|base| base.join(HANGAR_IDENTIFIER).join(NOTES_DIR));
     if debug {
         if let Some(value) = env.filter(|value| !value.is_empty()) {
             let path = PathBuf::from(value);
             if !path.is_absolute() {
                 return Err(RootError::RelativeRoot);
             }
-            return Ok(NotesRoot {
-                path,
-                kind: RootKind::Development,
-            });
+            if hangar
+                .as_deref()
+                .is_some_and(|real| within_folder(&path, real))
+            {
+                eprintln!("hangar-note: {ROOT_ENV} names Hangar's own notes folder; ignoring it");
+            } else {
+                return Ok(NotesRoot {
+                    path,
+                    kind: RootKind::Development,
+                });
+            }
         }
     }
-    let base = data_local.ok_or(RootError::NoDataFolder)?;
     Ok(NotesRoot {
-        path: base.join(HANGAR_IDENTIFIER).join(NOTES_DIR),
+        path: hangar.ok_or(RootError::NoDataFolder)?,
         kind: RootKind::Hangar,
     })
+}
+
+/// The path with `.` and `..` resolved lexically, and its longest existing ancestor resolved
+/// through the file system (links, junctions, short names, case on Windows).
+fn comparable(path: &Path) -> String {
+    let mut lexical = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                lexical.pop();
+            }
+            other => lexical.push(other),
+        }
+    }
+    let mut rest = Vec::new();
+    let mut current = lexical.as_path();
+    let resolved = loop {
+        if let Ok(resolved) = std::fs::canonicalize(current) {
+            break rest
+                .iter()
+                .rev()
+                .fold(resolved, |acc: PathBuf, part| acc.join(part));
+        }
+        match (current.file_name(), current.parent()) {
+            (Some(name), Some(parent)) => {
+                rest.push(name.to_owned());
+                current = parent;
+            }
+            _ => break lexical.clone(),
+        }
+    };
+    normalize_path(&resolved)
+}
+
+/// Whether `path` is `folder` or lies inside it, after normalization (as the scope key compares
+/// paths) and after resolving links where the folders exist.
+pub fn within_folder(path: &Path, folder: &Path) -> bool {
+    let separator = if cfg!(windows) { '\\' } else { '/' };
+    let inside = |path: String, folder: String| {
+        path == folder
+            || path
+                .strip_prefix(folder.trim_end_matches(separator))
+                .is_some_and(|rest| rest.starts_with(separator))
+    };
+    inside(normalize_path(path), normalize_path(folder))
+        || inside(comparable(path), comparable(folder))
 }
 
 /// Whether Hangar handed the folder over: `.handover.json` is a small regular file with a
@@ -250,6 +309,49 @@ mod tests {
             RootKind::Hangar
         );
         assert_eq!(resolve_root(None, true, None), Err(RootError::NoDataFolder));
+    }
+
+    #[test]
+    fn a_development_root_that_is_hangars_folder_is_not_one() {
+        let dir = TempDir::new("access-dev-real");
+        let data = dir.path().to_path_buf();
+        let real = data.join(HANGAR_IDENTIFIER).join(NOTES_DIR);
+        fs::create_dir_all(&real).unwrap();
+        let mut spellings = vec![
+            real.clone(),
+            real.join("."),
+            real.join("general").join(".."),
+            data.join("other")
+                .join("..")
+                .join(HANGAR_IDENTIFIER)
+                .join(NOTES_DIR),
+        ];
+        if cfg!(windows) {
+            spellings.push(PathBuf::from(real.to_string_lossy().to_uppercase()));
+            spellings.push(PathBuf::from(real.to_string_lossy().replace('\\', "/")));
+        }
+        // A junction (Windows) or a symbolic link (Unix) to Hangar's folder.
+        let link = data.join("link to notes");
+        if crate::test_support::make_dir_link(&real, &link) {
+            spellings.push(link.clone());
+        }
+        for spelling in spellings {
+            let root =
+                resolve_root(Some(spelling.clone().into()), true, Some(data.clone())).unwrap();
+            assert_eq!(root.kind, RootKind::Hangar, "{}", spelling.display());
+            assert_eq!(root.path, real);
+        }
+        // Inside it is refused as well.
+        let inside = resolve_root(Some(real.join("general").into()), true, Some(data.clone()));
+        assert_eq!(inside.unwrap().kind, RootKind::Hangar);
+        // Any other folder stays a development root, also one next to Hangar's.
+        for other in [
+            data.join(HANGAR_IDENTIFIER).join("notes-dev"),
+            data.join(HANGAR_IDENTIFIER),
+        ] {
+            let root = resolve_root(Some(other.clone().into()), true, Some(data.clone())).unwrap();
+            assert_eq!(root.kind, RootKind::Development, "{}", other.display());
+        }
     }
 
     #[test]

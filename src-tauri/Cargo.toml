@@ -57,3 +57,29 @@ tauri-plugin-dialog = "2.8"
 # (MIT/Apache-2.0, plugins-workspace; adds arboard, on Windows clipboard-win). Only the Rust side
 # is used, so the frontend gets no clipboard permission.
 tauri-plugin-clipboard-manager = "2.5"
+# The channel's token and the key derived from it are wiped from memory once dropped
+# (`Zeroizing`, ADR 0002 "Local channel", security review H2). RustCrypto, MIT/Apache-2.0, no
+# dependencies of its own with the default features; the crate Hangar uses for the same purpose.
+# The alternative, a hand-written volatile wipe, is the code this crate already maintains.
+zeroize = "1"
+
+[target.'cfg(windows)'.dependencies]
+# `endpoint.json` is created with an explicit protected DACL for the user and SYSTEM only
+# (`CreateFileW` with `SECURITY_ATTRIBUTES`, security review N1), and the channel's socket gets
+# `SO_EXCLUSIVEADDRUSE` before it is bound (H3). Bindings only; already in the tree at this version
+# through tauri, socket2, the single-instance plugin and others (MIT/Apache-2.0, Microsoft). The one
+# feature not enabled elsewhere is `Win32_Security_Authorization` (SDDL conversion), again bindings
+# only.
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Networking_WinSock",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Threading",
+] }
+# Creates the channel's socket so `SO_EXCLUSIVEADDRUSE` can be set before `bind`, which std's
+# `TcpListener::bind` does in one step (H3). Already in the tree at this version through tokio, so it
+# adds no code; MIT/Apache-2.0, rust-lang, maintained. Unix needs neither: a port another user holds
+# cannot be bound twice there without `SO_REUSEPORT` on both sockets.
+socket2 = "0.6"

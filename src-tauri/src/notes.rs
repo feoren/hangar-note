@@ -13,7 +13,10 @@
 //! ```
 //!
 //! A note's ID is stored only in `folder.json`, so the file name can follow the title. If a file
-//! is missing, its entry is dropped; a `.md` file added from outside is adopted with a new ID.
+//! is missing, its entry is dropped; a `.md` file added from outside is adopted with an ID derived
+//! from its scope and name (`stable_id`), the same whether the store may write or not.
+//! The store never follows a symbolic link or junction in the notes tree: a linked scope folder
+//! or trash counts as missing, and the migration leaves links where they are.
 //! Hangar Note never adds a field to `folder.json` or `trash.json` (both parsed with
 //! `deny_unknown_fields`, as in Hangar). Contents are never logged.
 //!
@@ -334,16 +337,51 @@ pub fn untitled_title(base: &str, existing: &[String]) -> String {
         .unwrap_or_else(|| base.to_owned())
 }
 
-/// A plain `.md` file name: a single path component, no folder, no `..`. Metadata on disk
-/// (`folder.json`, `trash.json`) is a file like any other; an entry naming anything else must
-/// never make the store read, rename or write outside its folder.
+/// A plain `.md` file name: a single path component, no folder, no `..`, none of the characters
+/// Windows refuses in a name and no control character. Metadata on disk (`folder.json`,
+/// `trash.json`) is a file like any other; an entry naming anything else must never make the
+/// store read, rename or write outside its folder, and `:` would name an NTFS alternate data
+/// stream (`x.md:hidden`) of a file instead of the file.
 fn plain_markdown_name(name: &str) -> bool {
     let mut parts = Path::new(name).components();
     let single = matches!(
         (parts.next(), parts.next()),
         (Some(Component::Normal(part)), None) if part == name
     );
-    single && !name.contains(['/', '\\']) && is_markdown(name)
+    let clean = !name
+        .chars()
+        .any(|c| c.is_control() || FORBIDDEN_CHARS.contains(c));
+    single && clean && is_markdown(name)
+}
+
+/// Whether `path` is a symbolic link, a junction or another name surrogate (`symlink_metadata`
+/// does not follow it). Logged by path only: the notes tree never follows one, so a link placed
+/// in it cannot make the store read or move files elsewhere.
+fn is_link(path: &Path) -> bool {
+    let link = fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink());
+    if link {
+        log_link(path);
+    }
+    link
+}
+
+fn log_link(path: &Path) {
+    eprintln!(
+        "hangar-note: skipping {}: a link, not a folder",
+        path.display()
+    );
+}
+
+/// A folder of the notes tree itself, not a link or junction to one.
+fn is_plain_dir(path: &Path) -> bool {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            log_link(path);
+            false
+        }
+        Ok(meta) => meta.is_dir(),
+        Err(_) => false,
+    }
 }
 
 fn is_markdown(name: &str) -> bool {
@@ -364,8 +402,9 @@ fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-/// An ID for a file adopted while the store may not write: the same for the same scope and file
-/// name, shaped like a UUID v4 so every ID check accepts it.
+/// The ID of an adopted file (one without an entry): the same for the same scope and file name,
+/// whether the store may write or not, so a note keeps its ID when Hangar hands the folder over.
+/// A UUID v4 in form (version nibble 4, RFC 4122 variant), which is all Hangar checks.
 fn stable_id(scope: &str, file: &str) -> String {
     let digest = Sha256::digest(format!("{scope}\n{}", file.to_lowercase()).as_bytes());
     let mut bytes = [0u8; 16];
@@ -373,6 +412,20 @@ fn stable_id(scope: &str, file: &str) -> String {
     uuid::Builder::from_random_bytes(bytes)
         .into_uuid()
         .to_string()
+}
+
+/// [`stable_id`], unless an entry already holds it (a note adopted under this name was renamed
+/// and a new file took the name): then the first free one of a fixed sequence, so the result
+/// still depends on the folder's contents only.
+fn free_stable_id(scope: &str, file: &str, taken: &HashSet<String>) -> String {
+    let first = stable_id(scope, file);
+    if !taken.contains(&first) {
+        return first;
+    }
+    (1u32..)
+        .map(|n| stable_id(scope, &format!("{file}\n{n}")))
+        .find(|id| !taken.contains(id))
+        .unwrap_or_else(new_id)
 }
 
 /// Canonical UUID (8-4-4-4-12 hex digits), upper or lower case, returned in lowercase because
@@ -473,9 +526,9 @@ impl Folder {
         write_atomic(&path, &json).map_err(io_error(&path))
     }
 
-    /// Sync with the folder: missing files are dropped, foreign `.md` files are added. `stable`:
-    /// adopted files get [`stable_id`]s, because nothing will be written.
-    fn sync(&mut self, stable: bool) -> Result<bool, NotesError> {
+    /// Sync with the folder: missing files are dropped, foreign `.md` files are added under their
+    /// [`stable_id`], read only or not.
+    fn sync(&mut self) -> Result<bool, NotesError> {
         let before = self.meta.notes.len();
         let dir = self.dir.clone();
         self.meta.notes.retain(|n| dir.join(&n.file).is_file());
@@ -498,6 +551,7 @@ impl Folder {
             }
         }
         found.sort();
+        let mut ids: HashSet<String> = self.meta.notes.iter().map(|n| n.id.clone()).collect();
         for name in found {
             let stem = Path::new(&name)
                 .file_stem()
@@ -505,11 +559,8 @@ impl Folder {
                 .unwrap_or_default();
             let title = validate_title(&stem).unwrap_or_else(|_| FALLBACK_STEM.to_owned());
             let order = self.next_order();
-            let id = if stable {
-                stable_id(&self.key, &name)
-            } else {
-                new_id()
-            };
+            let id = free_stable_id(&self.key, &name, &ids);
+            ids.insert(id.clone());
             self.meta.notes.push(NoteEntry {
                 id,
                 title,
@@ -561,8 +612,13 @@ fn merge_dir(old: &Path, new: &Path, skip: &[&str]) -> io::Result<Vec<(String, S
     let mut moved = Vec::new();
     for name in names {
         let from = old.join(&name);
-        // Without following links: a linked folder moves as the link, never with its target.
-        if fs::symlink_metadata(&from)?.is_dir() {
+        // Without following links: a link stays where it is, its target is never touched.
+        let kind = fs::symlink_metadata(&from)?.file_type();
+        if kind.is_symlink() {
+            log_link(&from);
+            continue;
+        }
+        if kind.is_dir() {
             move_dir(&from, &new.join(&name))?;
             continue;
         }
@@ -573,13 +629,24 @@ fn merge_dir(old: &Path, new: &Path, skip: &[&str]) -> io::Result<Vec<(String, S
     Ok(moved)
 }
 
+/// Whether `old` may be moved to `new` at all: `old` is a plain folder and `new` is not a link.
+/// A link on either side is skipped (and logged), so the migration never follows one.
+fn movable(old: &Path, new: &Path) -> bool {
+    is_plain_dir(old) && !is_link(new)
+}
+
+/// Whether `path` exists, without following a link.
+fn present(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok()
+}
+
 /// Renames `old` to `new`, or merges it into `new` if that already exists. Missing `old` is not
 /// an error. `old` is removed only once it is empty; `remove_dir` never deletes contents.
 fn move_dir(old: &Path, new: &Path) -> io::Result<()> {
-    if !old.is_dir() {
+    if !movable(old, new) {
         return Ok(());
     }
-    if !new.exists() {
+    if !present(new) {
         return fs::rename(old, new);
     }
     merge_dir(old, new, &[])?;
@@ -592,10 +659,10 @@ fn move_dir(old: &Path, new: &Path) -> io::Result<()> {
 /// unreadable one in `new`, stays untouched; the moved `.md` files are then adopted with a new ID
 /// on the next sync, as for files added from outside.
 fn migrate_general(old: &Path, new: &Path) -> io::Result<()> {
-    if !old.is_dir() {
+    if !movable(old, new) {
         return Ok(());
     }
-    if !new.exists() {
+    if !present(new) {
         return fs::rename(old, new);
     }
     let moved = merge_dir(old, new, &[META_FILE])?;
@@ -805,6 +872,13 @@ impl NotesStore {
         let key = folder_key(folder)?;
         let dir = self.root.join(&key);
         let writable = self.writable();
+        if is_link(&dir) {
+            return if create {
+                Err(NotesError::InvalidFolder("a link, not a folder"))
+            } else {
+                Ok(None)
+            };
+        }
         if !dir.is_dir() {
             if !create || !writable {
                 return Ok(None);
@@ -831,7 +905,7 @@ impl NotesStore {
             }
         };
         let mut opened = Folder { key, dir, meta };
-        changed |= opened.sync(!writable)?;
+        changed |= opened.sync()?;
         if changed && writable {
             opened.save()?;
         }
@@ -852,7 +926,11 @@ impl NotesStore {
             return None;
         }
         let _guard = lock(&self.guard);
-        let path = Self::read_meta(&self.root.join(key))?.path?;
+        let dir = self.root.join(key);
+        if !is_plain_dir(&dir) {
+            return None;
+        }
+        let path = Self::read_meta(&dir)?.path?;
         let folder = NoteFolder { path: Some(path) };
         (folder_key(&folder).ok()? == key).then_some(folder)
     }
@@ -877,7 +955,7 @@ impl NotesStore {
                 continue;
             };
             let dir = entry.path();
-            if !is_folder_key(&key) || !dir.is_dir() {
+            if !is_folder_key(&key) || !is_plain_dir(&dir) {
                 continue;
             }
             // Read only: an overview must not rewrite anything. Without a readable folder.json the
@@ -1069,6 +1147,11 @@ impl NotesStore {
         let mut opened = self.opened(folder)?;
         let entry = opened.entry(id)?.clone();
         let trash = opened.dir.join(TRASH_DIR);
+        if is_link(&trash) {
+            return Err(NotesError::InvalidFolder(
+                "the trash is a link, not a folder",
+            ));
+        }
         create_private_dir(&trash).map_err(io_error(&trash))?;
         let stamp = millis(SystemTime::now()).unwrap_or(0);
         let from = opened.file(&entry);
@@ -1133,8 +1216,8 @@ impl NotesStore {
     }
 
     /// The trash records matched with the files: records without a file are dropped, `.md` files
-    /// without a record (deleted before records existed) are adopted with a new ID. Saved only
-    /// while the store may write.
+    /// without a record (deleted before records existed) are adopted under their [`stable_id`].
+    /// Saved only while the store may write.
     fn synced_trash(&self, key: &str, trash: &Path) -> Result<Vec<TrashEntry>, NotesError> {
         let writable = self.writable();
         let mut items = Self::read_trash(trash);
@@ -1149,14 +1232,13 @@ impl NotesStore {
             .filter(|name| is_markdown(name) && !known.contains(&name.to_lowercase()))
             .collect();
         found.sort();
+        let scope = format!("{key}/{TRASH_DIR}");
+        let mut ids: HashSet<String> = items.iter().map(|item| item.id.clone()).collect();
         for file in found {
             let (title, stamp) = trash_title(&file);
             let deleted_at = stamp.or_else(|| modified(&trash.join(&file)));
-            let id = if writable {
-                new_id()
-            } else {
-                stable_id(&format!("{key}/{TRASH_DIR}"), &file)
-            };
+            let id = free_stable_id(&scope, &file, &ids);
+            ids.insert(id.clone());
             items.push(TrashEntry {
                 id,
                 title,
@@ -1173,9 +1255,10 @@ impl NotesStore {
     /// Deleted notes of the scope, the most recently deleted first; `[]` without a trash.
     pub fn list_trash(&self, folder: &NoteFolder) -> Result<Vec<TrashInfo>, NotesError> {
         let key = folder_key(folder)?;
-        let trash = self.root.join(&key).join(TRASH_DIR);
+        let dir = self.root.join(&key);
+        let trash = dir.join(TRASH_DIR);
         let _guard = lock(&self.guard);
-        if !trash.is_dir() {
+        if !is_plain_dir(&dir) || !is_plain_dir(&trash) {
             return Ok(Vec::new());
         }
         let mut list: Vec<TrashInfo> = self
@@ -1199,7 +1282,7 @@ impl NotesStore {
         let _guard = lock(&self.guard);
         let mut opened = self.opened(folder)?;
         let trash = opened.dir.join(TRASH_DIR);
-        if !trash.is_dir() {
+        if !is_plain_dir(&trash) {
             return Err(NotesError::UnknownNote);
         }
         let mut items = self.synced_trash(&opened.key, &trash)?;
@@ -1271,6 +1354,9 @@ impl NotesStore {
             keys.into_iter()
                 .filter_map(|key| {
                     let dir = self.root.join(&key);
+                    if !is_plain_dir(&dir) {
+                        return None;
+                    }
                     let meta = Self::read_meta(&dir)?;
                     let path = if key == GENERAL_KEY { None } else { meta.path };
                     Some((key, dir, path, meta.notes))
@@ -1329,7 +1415,11 @@ impl NotesStore {
         let _guard = lock(&self.guard);
         if !self.writable() {
             let dir = self.root.join(folder_key(folder)?);
-            return Ok(if dir.is_dir() { dir } else { self.root.clone() });
+            return Ok(if is_plain_dir(&dir) {
+                dir
+            } else {
+                self.root.clone()
+            });
         }
         let opened = self
             .open(folder, true)?
@@ -1357,7 +1447,7 @@ impl NotesStore {
                     .is_some_and(|n| is_folder_key(n) || n == LEGACY_GENERAL_KEY)
             })
             .map(|e| e.path())
-            .filter(|p| p.is_dir())
+            .filter(|p| is_plain_dir(p))
             .collect();
         // Trash first, so that merging the General area below already finds `.trash` on both sides.
         for dir in dirs {
@@ -1956,6 +2046,188 @@ mod tests {
         assert!(!plain_markdown_name(".."));
         assert!(!plain_markdown_name("a/b.md"));
         assert!(!plain_markdown_name("a\\b.md"));
+    }
+
+    /// `:` names an NTFS alternate data stream of a file, and Windows refuses the other
+    /// characters in names: an entry with any of them is not trusted (security review N2).
+    #[test]
+    fn entries_with_forbidden_or_control_characters_are_not_trusted() {
+        for name in [
+            "note.md:hidden.md",
+            "a:b.md",
+            "a<b.md",
+            "a>b.md",
+            "a\"b.md",
+            "a|b.md",
+            "a?b.md",
+            "a*b.md",
+            "a\tb.md",
+            "a\nb.md",
+            "a\u{7f}b.md",
+        ] {
+            assert!(!plain_markdown_name(name), "{name:?}");
+        }
+        assert!(plain_markdown_name("Café äöü (2).md"));
+        let t = TempNotes::new("forbidden-names");
+        let folder = general();
+        let id = t.0.create_note(&folder, "own").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        let mut meta: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join(META_FILE)).unwrap()).unwrap();
+        meta["notes"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": "00000000-0000-4000-8000-000000000009",
+                "title": "stream",
+                "file": "own.md:marker",
+                "order": 9
+            }));
+        fs::write(dir.join(META_FILE), meta.to_string()).unwrap();
+        let listed = t.0.list_notes(&folder).unwrap();
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert_eq!(listed[0].id, id);
+        assert!(matches!(
+            t.0.read_note(&folder, "00000000-0000-4000-8000-000000000009"),
+            Err(NotesError::UnknownNote)
+        ));
+    }
+
+    /// Abnahme: a file Hangar wrote without an entry keeps its ID when the folder turns writable.
+    #[test]
+    fn an_adopted_note_keeps_its_id_from_read_only_to_writable() {
+        let t = TempNotes::new("stable-handover");
+        let folder = project();
+        t.0.create_note(&folder, "own").unwrap();
+        let dir = t.0.root().join(folder_key(&folder).unwrap());
+        fs::write(dir.join("From Hangar.md"), "fresh").unwrap();
+        let trash = t.0.root().join(GENERAL_KEY).join(TRASH_DIR);
+        fs::create_dir_all(&trash).unwrap();
+        fs::write(trash.join("1-Old.md"), "old").unwrap();
+
+        let ro = t.read_only();
+        let seen = ro.list_notes(&folder).unwrap();
+        let read_only_id = seen
+            .iter()
+            .find(|n| n.title == "From Hangar")
+            .unwrap()
+            .id
+            .clone();
+        let read_only_trash = ro.list_trash(&general()).unwrap()[0].id.clone();
+
+        let listed = t.0.list_notes(&folder).unwrap();
+        let writable_id = &listed.iter().find(|n| n.title == "From Hangar").unwrap().id;
+        assert_eq!(*writable_id, read_only_id);
+        assert_eq!(t.0.list_trash(&general()).unwrap()[0].id, read_only_trash);
+        // Written down now, and still the same on the next look.
+        assert!(fs::read_to_string(dir.join(META_FILE))
+            .unwrap()
+            .contains(&read_only_id));
+        assert_eq!(
+            t.0.list_notes(&folder).unwrap(),
+            listed,
+            "the ID stays once written"
+        );
+        // A UUID v4 in form, which is what Hangar assumes of every ID.
+        for id in [&read_only_id, &read_only_trash] {
+            let parsed = uuid::Uuid::parse_str(id).unwrap();
+            assert_eq!(parsed.get_version_num(), 4, "{id}");
+            assert_eq!(parsed.get_variant(), uuid::Variant::RFC4122, "{id}");
+            assert_eq!(check_id(id).unwrap(), *id);
+        }
+    }
+
+    #[test]
+    fn a_new_file_under_an_adopted_name_gets_its_own_id() {
+        let t = TempNotes::new("stable-collision");
+        let folder = general();
+        t.0.create_note(&folder, "keep").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        fs::write(dir.join("Adopted.md"), "first").unwrap();
+        let first = t.0.list_notes(&folder).unwrap();
+        let adopted = first
+            .iter()
+            .find(|n| n.title == "Adopted")
+            .unwrap()
+            .id
+            .clone();
+        t.0.rename_note(&folder, &adopted, "Renamed").unwrap();
+        fs::write(dir.join("Adopted.md"), "second").unwrap();
+        let ro = t.read_only();
+        let ro_ids: Vec<String> = ro
+            .list_notes(&folder)
+            .unwrap()
+            .into_iter()
+            .map(|n| n.id)
+            .collect();
+        let notes = t.0.list_notes(&folder).unwrap();
+        let ids: HashSet<&str> = notes.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(ids.len(), 3, "{notes:?}");
+        let newcomer = notes.iter().find(|n| n.title == "Adopted").unwrap();
+        assert_ne!(newcomer.id, adopted);
+        assert!(
+            ro_ids.contains(&newcomer.id),
+            "read only and writable agree"
+        );
+        assert_eq!(t.0.read_note(&folder, &newcomer.id).unwrap(), "second");
+        assert_eq!(t.0.read_note(&folder, &adopted).unwrap(), "first");
+    }
+
+    /// Security review N3: neither the scopes nor the migration follow a link or junction.
+    #[test]
+    fn links_in_the_notes_tree_are_never_followed() {
+        use crate::test_support::make_dir_link;
+        let t = TempNotes::new("links");
+        // Hangar Note's notes, and a folder elsewhere with notes of its own.
+        t.0.create_note(&general(), "own").unwrap();
+        let elsewhere = t.1.path().join("elsewhere");
+        fs::create_dir_all(elsewhere.join(LEGACY_TRASH_DIR)).unwrap();
+        fs::write(elsewhere.join("Foreign.md"), "marker-foreign-2b8").unwrap();
+        fs::write(elsewhere.join(LEGACY_TRASH_DIR).join("1-x.md"), "x").unwrap();
+        let before = snapshot(&elsewhere);
+
+        // A scope folder that is a link, a legacy General area that is a link, and a legacy
+        // trash inside a real scope that is a link.
+        let linked_key = folder_key(&project()).unwrap();
+        if !make_dir_link(&elsewhere, &t.0.root().join(&linked_key)) {
+            eprintln!("no links on this system; skipped");
+            return;
+        }
+        assert!(make_dir_link(
+            &elsewhere,
+            &t.0.root().join(LEGACY_GENERAL_KEY)
+        ));
+        assert!(make_dir_link(
+            &elsewhere.join(LEGACY_TRASH_DIR),
+            &t.0.root().join(GENERAL_KEY).join(LEGACY_TRASH_DIR)
+        ));
+
+        t.0.migrate_legacy_layout();
+        assert!(t.0.list_notes(&project()).unwrap().is_empty());
+        assert!(matches!(
+            t.0.create_note(&project(), "x"),
+            Err(NotesError::InvalidFolder(_))
+        ));
+        assert!(t.0.list_trash(&project()).unwrap().is_empty());
+        assert!(t.0.search("marker-foreign").unwrap().is_empty());
+        let keys: Vec<String> =
+            t.0.list_folders()
+                .unwrap()
+                .into_iter()
+                .map(|f| f.folder_key)
+                .collect();
+        assert_eq!(keys, [GENERAL_KEY]);
+        assert_eq!(t.0.folder_for_key(&linked_key), None);
+        // The General area kept its own note only; the links are still there, untouched.
+        let general_notes = t.0.list_notes(&general()).unwrap();
+        assert_eq!(general_notes.len(), 1);
+        assert_eq!(general_notes[0].title, "own");
+        assert!(!t.0.root().join(GENERAL_KEY).join(TRASH_DIR).exists());
+        assert!(fs::symlink_metadata(t.0.root().join(LEGACY_GENERAL_KEY))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(snapshot(&elsewhere), before);
     }
 
     #[test]
