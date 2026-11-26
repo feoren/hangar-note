@@ -29,3 +29,8 @@ Added the section "Phase 1 as built" to pages/decisions/0002-hangar-notes-takeov
 with reasons). Created pages/concepts/hangar-notes-format.md and pages/syntheses/local-channel.md.
 Noted in pages/decisions/0001-foundation.md that its own storage is replaced. Updated index.md and
 pages/overview.md.
+
+## [2026-11-26] schema | ADR 0002 channel proof and hardening
+Added the server proof (`/v1/hello`, HMAC over nonce, status and body) and the shared hardening
+rules to the local channel section of pages/decisions/0002-hangar-notes-takeover.md, after the
+security review of phase 1.

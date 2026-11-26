@@ -117,6 +117,19 @@ writes Hangar's existing notes folders and formats unchanged; nothing is migrate
   actions `team/enable`, `team/link`, `team/to-team`, and an event stream (`team-changed`,
   `sessions-changed`) as server-sent events.
 - Every message has a version; an unknown version gets a clear error, never a guess.
+- **The server proves itself before any content flows** (security review of phase 1, finding M1:
+  an `endpoint.json` left behind by a crash names a port another local user may bind). A client
+  first sends `POST /v1/hello` with an empty body and `X-Channel-Nonce: <64 hex>`; the server
+  answers with `X-Channel-Proof: hex(HMAC-SHA256(key = SHA-256("hangar-channel-server" || token),
+  nonce || status as 3 ASCII digits || body))`. The client compares in constant time and sends the
+  real request only after a valid proof; without one it treats the app as not running. Real
+  responses carry the same proof over their own nonce. `endpoint.json` also carries `pid`.
+  Both apps implement both sides: Hangar Note's server and client now, Hangar's in phase 2.
+- **Hardening that both endpoints follow:** separate connection slots before and after
+  authentication with eviction of the oldest silent unauthenticated connection, a header deadline
+  of 2 s; `Content-Type: application/json` required (else 415); tokens and key material in
+  `Zeroizing` and never in `Debug`; `SO_EXCLUSIVEADDRUSE` on Windows; on Windows `endpoint.json`
+  gets an explicit protected DACL for the user and SYSTEM only.
 
 ### Team notes
 - The ring is held in memory only; Hangar Note may read the keychain cache `team/<team key>` and
