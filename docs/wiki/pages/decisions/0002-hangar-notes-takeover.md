@@ -113,9 +113,13 @@ writes Hangar's existing notes folders and formats unchanged; nothing is migrate
   (quick launcher), `excerpts` (handover), `flush` (before Hangar quits).
 - **Hangar Note to Hangar:** `sessions` (working folders and labels of running sessions, for "This
   project" and "Send to session"), `send` (paste into a session, never with Enter), `team/status`
-  and `team/ring` for a folder (the `NotesKeysView`: ring, freshness, renewing, manager), team
-  actions `team/enable`, `team/link`, `team/to-team`, and an event stream (`team-changed`,
-  `sessions-changed`) as server-sent events.
+  for a folder (freshness, renewing, manager, mode; never key material), the operations
+  `team/open` (vault, note id, `.note` bytes in; plaintext and meta out) and `team/seal`
+  (plaintext and meta in; `.note` bytes out, refused with `renewing` or `stale` under Hangar's save
+  rule), team actions `team/enable`, `team/link`, `team/to-team`, and an event stream
+  (`team-changed`, `sessions-changed`) as server-sent events. There is no `team/ring`: the notes
+  key ring never leaves Hangar's process (second security review, 2026-11-26), because whoever holds
+  it reads every team note of every epoch.
 - Every message has a version; an unknown version gets a clear error, never a guess.
 - **The server proves itself before any content flows** (security review of phase 1, finding M1:
   an `endpoint.json` left behind by a crash names a port another local user may bind). A client
@@ -129,16 +133,25 @@ writes Hangar's existing notes folders and formats unchanged; nothing is migrate
   authentication with eviction of the oldest silent unauthenticated connection, a header deadline
   of 2 s; `Content-Type: application/json` required (else 415); tokens and key material in
   `Zeroizing` and never in `Debug`; `SO_EXCLUSIVEADDRUSE` on Windows; on Windows `endpoint.json`
-  gets an explicit protected DACL for the user and SYSTEM only.
+  gets an explicit protected DACL for the user and SYSTEM only, plus the mandatory label
+  `S:(ML;;NWNRNX;;;ME)` so that low integrity processes cannot read the token.
+- **One exchange, one connection:** hello and the real request travel over the same connection
+  (keep-alive for exactly these two requests), so no window remains in which content goes to a
+  port whose holder has not proven itself.
+- **Team routes get their own token** (`teamToken` in `endpoint.json`, separate scope); the token
+  that serves `search` and `create` never opens or seals team notes.
+- **Errors for people:** storage failures come back as fixed codes (`denied`, `disk-full`,
+  `too-large`, `io`), never as raw OS text or paths; the interface turns each code into one plain
+  sentence in all languages.
 
 ### Team notes
-- The ring is held in memory only; Hangar Note may read the keychain cache `team/<team key>` and
-  must honor its `stale` flag (read only when stale). Saving follows Hangar's save rule unchanged:
-  no write while the key is renewed or the ring is not fresh.
+- Hangar Note never holds the team ring and never reads the keychain entry `team/<team key>`;
+  it asks Hangar to open and seal each team note. Saving follows Hangar's save rule unchanged: no
+  seal while the key is renewed or the ring is not fresh.
 - Solo vaults (recovery code) work without Hangar: Hangar Note reads and writes the solo ring in the
   keychain entry `hangar-notes/notes/<vault>`.
-- Team mode needs a running Hangar for fresh keys; without it, team notes are read only with a calm
-  hint ("Start Hangar to edit team notes").
+- Team notes need a running Hangar, even to read them; without it, the team area shows one calm
+  line ("Start Hangar to open your team notes") instead of the notes.
 
 ### Features in Hangar Note
 Everything listed under "What exists", plus:

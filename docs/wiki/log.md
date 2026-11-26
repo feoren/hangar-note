@@ -51,3 +51,8 @@ pages/syntheses/local-channel.md for the new contract (proof, exit codes, checks
 Added "Leaving an unsaved note" to pages/decisions/0001-foundation.md (refused first with "Copy as
 Markdown", a second try within 10 s leaves, as "Quit" does) and the backend command `copy_text`.
 Moved both open items of pages/syntheses/usability-pass.md to "Resolved after the pass".
+
+## [2026-11-26] schema | ADR 0002 team operations instead of the ring
+Replaced `team/ring` by the operations `team/open` and `team/seal`, so the notes key ring never
+leaves Hangar; added the integrity label, one connection per exchange, a separate team token and
+fixed storage error codes, after the second security review.
