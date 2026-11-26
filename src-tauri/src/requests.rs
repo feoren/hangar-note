@@ -13,7 +13,9 @@ use serde::Serialize;
 use crate::cli::CliCommand;
 use crate::fsio::lock;
 
-/// Requests waiting beyond this are dropped from the front: nobody reads a hundred of them.
+/// Requests waiting beyond this are dropped from the front: nobody reads a hundred of them. Only
+/// requests without content go (`open`, `quick`, `openNote`, all of whose notes are on disk); a
+/// capture's text is never dropped (security review B1).
 const MAX_PENDING: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -25,7 +27,9 @@ pub enum HubRequest {
     OpenNote { folder: Option<PathBuf>, id: String },
     /// Start a quick note in "This project".
     Quick,
-    /// A new note with this captured text in `folder`.
+    /// A captured text that could not become a note in the backend (a capture that started the
+    /// app while the notes stayed read only): the notes area holds it in a draft to copy. A
+    /// capture over the local channel is on disk first and arrives as [`HubRequest::OpenNote`].
     Capture { folder: PathBuf, text: String },
     /// `--shared` was asked for; shared notes come in a later phase.
     SharedUnavailable,
@@ -94,7 +98,13 @@ impl Requests {
         let mut pending = lock(&self.pending);
         pending.push_back(request);
         while pending.len() > MAX_PENDING {
-            pending.pop_front();
+            let Some(oldest) = pending
+                .iter()
+                .position(|request| !matches!(request, HubRequest::Capture { .. }))
+            else {
+                break;
+            };
+            pending.remove(oldest);
         }
     }
 
@@ -186,5 +196,30 @@ mod tests {
         };
         assert!(!capture.to_string().contains("marker"));
         assert_eq!(serde_json::to_value(&capture).unwrap()["kind"], "capture");
+        let open = HubRequest::OpenNote {
+            folder: Some(abs()),
+            id: "x".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&open).unwrap(),
+            serde_json::json!({ "kind": "openNote", "folder": abs(), "id": "x" })
+        );
+    }
+
+    /// Security review B1: a held capture text survives any number of requests without content.
+    #[test]
+    fn a_capture_is_never_dropped_for_requests_without_content() {
+        let requests = Requests::default();
+        let capture = HubRequest::Capture {
+            folder: abs(),
+            text: "marker-held-3a7".into(),
+        };
+        requests.push(capture.clone());
+        for _ in 0..3 * MAX_PENDING {
+            requests.push(HubRequest::Quick);
+        }
+        let taken = requests.take();
+        assert_eq!(taken.len(), MAX_PENDING);
+        assert_eq!(taken[0], capture);
     }
 }

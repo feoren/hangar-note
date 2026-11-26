@@ -3,6 +3,7 @@
 
 pub mod access;
 pub mod bounds;
+pub mod capture;
 pub mod channel;
 pub mod cli;
 pub mod commands;
@@ -90,6 +91,29 @@ pub fn send_capture(folder: &Path, text: &str) -> Result<(), ClientError> {
     .map(drop)
 }
 
+/// A captured text as a note on disk (security review B1), and the request that shows it: the note
+/// exists before anyone answers `ok`, so no full request queue and no notes area that never loads
+/// can lose it. Without the windows, so the route is tested against a real store.
+pub fn capture_note(
+    service: &NotesService,
+    folder: &Path,
+    text: &str,
+    language: Option<&str>,
+    color: meta::NoteColor,
+    time: capture::LocalTime,
+) -> Result<(String, requests::HubRequest), ServiceError> {
+    let captured = capture::captured_note(folder, text, time, language);
+    let scope = NoteFolder {
+        path: Some(folder.to_path_buf()),
+    };
+    let id = service.capture(&scope, &captured, color)?;
+    let request = requests::HubRequest::OpenNote {
+        folder: scope.path,
+        id: id.clone(),
+    };
+    Ok((id, request))
+}
+
 /// What the local channel's routes do in the running app.
 struct AppActions {
     app: AppHandle,
@@ -129,14 +153,28 @@ impl Actions for AppActions {
         Ok(())
     }
 
-    fn capture(&self, folder: PathBuf, text: String) -> Result<(), ServiceError> {
-        // The notes area would get a text it cannot save: refused here, so the caller knows.
-        // Read only turns writable at most once and never back while the app runs.
+    fn capture(&self, folder: PathBuf, text: String) -> Result<String, ServiceError> {
+        // Hangar may have handed the folder over since the last look; still read only, the
+        // store refuses and the caller knows the text was not taken.
         if self.app.state::<AccessGate>().refresh() != Access::Writable {
             return Err(NotesError::ReadOnly.into());
         }
-        self.deliver(CliCommand::Capture { folder }, Some(text));
-        Ok(())
+        let settings = self.app.state::<SettingsStore>().get();
+        let (id, request) = capture_note(
+            &self.service(),
+            &folder,
+            &text,
+            settings.language.as_deref(),
+            settings.new_note_color,
+            capture::local_now(),
+        )?;
+        windows::deliver(
+            &self.app,
+            &self.app.state::<Requests>(),
+            Some(folder),
+            vec![request],
+        );
+        Ok(id)
     }
 
     fn create(
@@ -310,7 +348,29 @@ pub fn run(command: CliCommand, capture_text: Option<String>) -> tauri::Result<(
             let with_command = command != CliCommand::Start;
             windows::restore(app.handle(), &service, with_command)?;
             if with_command {
-                let (project, list) = requests::plan(command.clone(), capture_text.clone());
+                let (project, list) = match (&command, capture_text.clone()) {
+                    // This process became the app for its own capture: the note goes to disk
+                    // here too. Should that fail (still read only, a full disk), the notes area
+                    // keeps the text in a draft to copy, as before.
+                    (CliCommand::Capture { folder }, Some(text)) => {
+                        let settings = app.state::<SettingsStore>().get();
+                        match capture_note(
+                            &service,
+                            folder,
+                            &text,
+                            settings.language.as_deref(),
+                            settings.new_note_color,
+                            capture::local_now(),
+                        ) {
+                            Ok((_, request)) => (Some(folder.clone()), vec![request]),
+                            Err(error) => {
+                                eprintln!("hangar-note: capture held in the window: {error}");
+                                requests::plan(command.clone(), Some(text))
+                            }
+                        }
+                    }
+                    _ => requests::plan(command.clone(), capture_text.clone()),
+                };
                 windows::deliver(app.handle(), &app.state::<Requests>(), project, list);
             }
             Ok(())
@@ -366,4 +426,189 @@ pub fn run(command: CliCommand, capture_text: Option<String>) -> tauri::Result<(
         _ => {}
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    //! Security review B1: a capture over the channel is on disk once the route answers `ok`,
+    //! with a real store under `tests/.tmp/`, and nothing takes the notes area's requests.
+    use super::*;
+    use crate::channel::{route, MESSAGE_VERSION};
+    use crate::requests::HubRequest;
+    use crate::test_support::TempDir;
+
+    /// The app's `capture` without its windows: the note through [`capture_note`], its request
+    /// into a queue nobody takes.
+    struct StoreActions {
+        service: NotesService,
+        requests: Requests,
+    }
+
+    impl StoreActions {
+        fn new(dir: &TempDir, writable: bool) -> Self {
+            let store = NotesStore::new(
+                &dir.path().join("notes"),
+                Arc::new(AtomicBool::new(writable)),
+            );
+            let meta = MetaStore::open(&dir.path().join("meta.json"));
+            Self {
+                service: NotesService::new(store, meta),
+                requests: Requests::default(),
+            }
+        }
+    }
+
+    impl Actions for StoreActions {
+        fn open(
+            &self,
+            _folder: Option<PathBuf>,
+            _shared: bool,
+            _note: Option<String>,
+        ) -> Result<(), ServiceError> {
+            Ok(())
+        }
+        fn quick(&self, _folder: Option<PathBuf>) -> Result<(), ServiceError> {
+            Ok(())
+        }
+        fn capture(&self, folder: PathBuf, text: String) -> Result<String, ServiceError> {
+            let time = capture::LocalTime {
+                month: 11,
+                day: 26,
+                hour: 14,
+                minute: 32,
+            };
+            let (id, request) = capture_note(
+                &self.service,
+                &folder,
+                &text,
+                Some("de"),
+                meta::NoteColor::Mint,
+                time,
+            )?;
+            self.requests.push(request);
+            Ok(id)
+        }
+        fn create(
+            &self,
+            _folder: Option<PathBuf>,
+            _title: String,
+            _text: String,
+        ) -> Result<String, ServiceError> {
+            Ok(String::new())
+        }
+        fn search(&self, _query: &str) -> Result<Vec<HitRow>, ServiceError> {
+            Ok(Vec::new())
+        }
+        fn excerpts(
+            &self,
+            _folder: Option<PathBuf>,
+            _limit: usize,
+        ) -> Result<Vec<Excerpt>, ServiceError> {
+            Ok(Vec::new())
+        }
+        fn flush(&self) -> bool {
+            true
+        }
+    }
+
+    fn folder() -> PathBuf {
+        PathBuf::from(if cfg!(windows) {
+            r"C:\Projects\Demo Projekt"
+        } else {
+            "/projects/Demo Projekt"
+        })
+    }
+
+    fn capture_body(text: &str) -> Vec<u8> {
+        serde_json::json!({ "version": MESSAGE_VERSION, "folder": folder(), "text": text })
+            .to_string()
+            .into_bytes()
+    }
+
+    /// The `.md` files of the scope's folder with their text.
+    fn notes_on_disk(dir: &TempDir) -> Vec<String> {
+        let key = notes::folder_key(&NoteFolder::at(folder())).unwrap();
+        let scope = dir.path().join("notes").join(key);
+        let Ok(entries) = std::fs::read_dir(scope) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
+            .map(|entry| std::fs::read_to_string(entry.path()).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn a_capture_is_on_disk_when_the_route_answers_ok() {
+        let dir = TempDir::new("lib-capture");
+        let actions = StoreActions::new(&dir, true);
+        let (status, answer) = route(&actions, "/capture", &capture_body("marker-capture-2f6"));
+        assert_eq!(status, channel::http::Status::Ok, "{answer}");
+        let answer: serde_json::Value = serde_json::from_str(&answer).unwrap();
+        assert_eq!(answer["ok"], true);
+        let id = answer["id"].as_str().unwrap().to_owned();
+        // Nobody took the requests: the note is on disk anyway.
+        let on_disk = notes_on_disk(&dir);
+        assert_eq!(on_disk.len(), 1);
+        assert_eq!(
+            on_disk[0],
+            "_Aus Demo Projekt, 26. Nov., 14:32_\n\n```\nmarker-capture-2f6\n```\n"
+        );
+        let scope = NoteFolder::at(folder());
+        let note = actions.service.open_note(&scope, &id).unwrap();
+        assert_eq!(note.title, "Aus Demo Projekt, 26. Nov., 14:32");
+        assert!(note.auto_titled);
+        assert_eq!(note.color, meta::NoteColor::Mint);
+        // The notes area is asked to open it, without the text.
+        assert_eq!(
+            actions.requests.take(),
+            [HubRequest::OpenNote {
+                folder: Some(folder()),
+                id
+            }]
+        );
+    }
+
+    #[test]
+    fn thirty_three_captures_are_thirty_three_notes() {
+        let dir = TempDir::new("lib-capture-many");
+        let actions = StoreActions::new(&dir, true);
+        for n in 0..33 {
+            let (status, answer) =
+                route(&actions, "/capture", &capture_body(&format!("marker-{n}")));
+            assert_eq!(status, channel::http::Status::Ok, "{answer}");
+        }
+        let on_disk = notes_on_disk(&dir);
+        assert_eq!(on_disk.len(), 33);
+        for n in 0..33 {
+            let marker = format!("\nmarker-{n}\n");
+            assert!(on_disk.iter().any(|text| text.contains(&marker)), "{n}");
+        }
+        // Requests without content may go; the notes stay.
+        assert_eq!(actions.requests.take().len(), 32);
+    }
+
+    #[test]
+    fn a_read_only_capture_is_refused_and_writes_nothing() {
+        let dir = TempDir::new("lib-capture-read-only");
+        let actions = StoreActions::new(&dir, false);
+        let (status, answer) = route(&actions, "/capture", &capture_body("marker-ro-8b1"));
+        assert_eq!(status, channel::http::Status::Conflict);
+        let answer: serde_json::Value = serde_json::from_str(&answer).unwrap();
+        assert_eq!(answer["error"], "read-only");
+        assert!(actions.requests.take().is_empty());
+        let mut files = Vec::new();
+        let mut stack = vec![dir.path().to_path_buf()];
+        while let Some(next) = stack.pop() {
+            for entry in std::fs::read_dir(&next).unwrap().flatten() {
+                if entry.path().is_dir() {
+                    stack.push(entry.path());
+                } else {
+                    files.push(entry.path());
+                }
+            }
+        }
+        assert!(files.is_empty(), "{files:?}");
+    }
 }

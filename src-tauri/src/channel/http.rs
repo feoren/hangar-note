@@ -6,9 +6,80 @@
 //! general keep-alive handling for no gain. Anything unusual is refused rather than interpreted: chunked bodies, a second
 //! `Content-Length`, folded headers, control characters, oversized heads.
 
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Read};
 
-use zeroize::Zeroizing;
+use zeroize::{Zeroize as _, Zeroizing};
+
+/// The buffer of a [`WipingReader`]: a request head fits several times.
+const READER_BUFFER_BYTES: usize = 8 * 1024;
+
+/// A buffered reader whose buffer never keeps what it handed out (security review B5): consumed
+/// bytes are overwritten with zeros at once, the rest when it is dropped. `std::io::BufReader`
+/// keeps a request head, the bearer token included, in its buffer until the buffer is reused or
+/// freed without being wiped. Used for every head the channel reads, on both sides.
+pub struct WipingReader<R> {
+    inner: R,
+    buffer: Zeroizing<Vec<u8>>,
+    position: usize,
+    filled: usize,
+}
+
+impl<R: Read> WipingReader<R> {
+    pub fn new(inner: R) -> Self {
+        Self {
+            inner,
+            buffer: Zeroizing::new(vec![0; READER_BUFFER_BYTES]),
+            position: 0,
+            filled: 0,
+        }
+    }
+
+    pub fn get_mut(&mut self) -> &mut R {
+        &mut self.inner
+    }
+
+    /// What was read from the source but not consumed yet.
+    pub fn buffer(&self) -> &[u8] {
+        &self.buffer[self.position..self.filled]
+    }
+
+    /// The whole buffer, consumed part included, for the test that it holds nothing old.
+    #[cfg(test)]
+    pub fn raw_buffer(&self) -> &[u8] {
+        &self.buffer
+    }
+}
+
+impl<R: Read> Read for WipingReader<R> {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        // Nothing buffered and a large read (a body): straight into the caller's buffer.
+        if self.position == self.filled && out.len() >= self.buffer.len() {
+            return self.inner.read(out);
+        }
+        let available = self.fill_buf()?;
+        let n = available.len().min(out.len());
+        out[..n].copy_from_slice(&available[..n]);
+        self.consume(n);
+        Ok(n)
+    }
+}
+
+impl<R: Read> BufRead for WipingReader<R> {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        if self.position >= self.filled {
+            // Everything before was consumed, and so already wiped.
+            self.position = 0;
+            self.filled = self.inner.read(&mut self.buffer)?;
+        }
+        Ok(&self.buffer[self.position..self.filled])
+    }
+
+    fn consume(&mut self, amount: usize) {
+        let end = self.position.saturating_add(amount).min(self.filled);
+        self.buffer[self.position..end].zeroize();
+        self.position = end;
+    }
+}
 
 use super::proof::{NONCE_HEADER, PROOF_HEADER};
 
@@ -184,7 +255,9 @@ fn visible_ascii(bytes: &[u8]) -> bool {
 /// Reads and checks a request head. The body is left in `reader`.
 pub fn read_head(reader: &mut impl BufRead) -> Result<Head, HeadError> {
     let mut budget = MAX_HEAD_BYTES;
-    let mut line = Vec::new();
+    // Room for the whole head up front, so a line holding the token is never copied by a
+    // growing buffer and left behind unwiped (B5); wiped when dropped.
+    let mut line = Zeroizing::new(Vec::with_capacity(MAX_HEAD_BYTES));
     read_line(reader, &mut line, &mut budget)?;
     if !visible_ascii(&line) {
         return Err(HeadError::Malformed);
@@ -345,6 +418,28 @@ mod tests {
         assert!(!parsed.json);
         assert_eq!(parsed.nonce, None);
         assert!(!format!("{parsed:?}").contains("abc"));
+    }
+
+    /// Security review B5: once the head is read, the reader's buffer no longer holds the token,
+    /// while the body after it is still there to read.
+    #[test]
+    fn the_reader_keeps_no_token_once_the_head_is_read() {
+        let token = "marker-token-5e1c";
+        let raw = format!(
+            "POST /flush HTTP/1.1\r\nHost: 127.0.0.1:1\r\nAuthorization: Bearer {token}\r\n\
+             Content-Length: 13\r\n\r\n{{\"version\":1}}"
+        );
+        let mut reader = WipingReader::new(raw.as_bytes());
+        let parsed = read_head(&mut reader).unwrap();
+        assert_eq!(parsed.token.as_deref().map(String::as_str), Some(token));
+        let held = String::from_utf8_lossy(reader.raw_buffer()).into_owned();
+        assert!(!held.contains(token), "{held}");
+        assert!(!held.contains("Bearer"), "{held}");
+        let mut body = Vec::new();
+        reader.read_to_end(&mut body).unwrap();
+        assert_eq!(body, br#"{"version":1}"#);
+        // Read whole, nothing is left in it either.
+        assert!(reader.raw_buffer().iter().all(|b| *b == 0));
     }
 
     #[test]

@@ -105,7 +105,8 @@ impl Default for MetaFile {
 pub enum MetaError {
     #[error("Invalid window bounds")]
     InvalidBounds,
-    #[error("File {path} cannot be written: {source}")]
+    /// Shown and logged without the path (security review B3).
+    #[error("{}", crate::fsio::storage_log_io(path, source))]
     Io {
         path: PathBuf,
         #[source]
@@ -121,14 +122,19 @@ impl MetaError {
             Self::InvalidBounds => None,
         }
     }
+
+    /// The fixed code of every variant (security review B4).
+    pub fn code(&self) -> &'static str {
+        match self.storage_code() {
+            Some(code) => code.as_str(),
+            None => crate::notes::INVALID_CODE,
+        }
+    }
 }
 
 impl Serialize for MetaError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self.storage_code() {
-            Some(code) => serializer.serialize_str(code.as_str()),
-            None => serializer.serialize_str(&self.to_string()),
-        }
+        serializer.serialize_str(self.code())
     }
 }
 
@@ -167,7 +173,10 @@ impl MetaStore {
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => MetaFile::default(),
             Err(error) => {
-                eprintln!("hangar-note: {} not read: {error}", path.display());
+                eprintln!(
+                    "hangar-note: not read: {}",
+                    crate::fsio::storage_log_io(path, &error)
+                );
                 MetaFile::default()
             }
         };

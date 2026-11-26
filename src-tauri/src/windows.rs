@@ -74,8 +74,14 @@ pub const FLUSH_REQUESTED_EVENT: &str = "note-flush-requested";
 pub const LOOK_CHANGED_EVENT: &str = "note-look-changed";
 /// What the frontend receives for [`AppError::NotSaved`].
 pub const NOT_SAVED_CODE: &str = "not-saved";
-/// What the notes area receives when it tries to write a note that sits on the desktop.
-pub const ON_DESKTOP_CODE: &str = "on-desktop";
+pub use crate::service::{NOT_OPEN_CODE, ON_DESKTOP_CODE};
+/// A window asked for something only another window may do.
+pub const NOT_ALLOWED_CODE: &str = "not-allowed";
+pub const AUTOSTART_CODE: &str = "autostart";
+pub const CLIPBOARD_CODE: &str = "clipboard";
+pub const WINDOW_CODE: &str = "window";
+pub const TASK_CODE: &str = "task";
+pub const NOT_A_PATH_CODE: &str = "not-a-path";
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
@@ -83,8 +89,6 @@ pub enum AppError {
     NotAllowed,
     #[error("The open note could not save its text")]
     NotSaved,
-    #[error("The note sits on the desktop; its sticky note is its editor")]
-    OnDesktop,
     #[error(transparent)]
     Service(#[from] ServiceError),
     #[error(transparent)]
@@ -126,31 +130,49 @@ impl AppError {
         }
     }
 
-    /// The fixed code the window acts on, `None` for the errors that keep their text.
-    pub fn code(&self) -> Option<&'static str> {
+    /// The fixed code of every error (security review B4): the window never gets a text.
+    pub fn code(&self) -> &'static str {
         match self {
-            Self::NotSaved => Some(NOT_SAVED_CODE),
-            Self::OnDesktop => Some(ON_DESKTOP_CODE),
-            Self::Service(ServiceError::Notes(NotesError::ReadOnly)) => Some(READ_ONLY_CODE),
-            other => other.storage_code().map(StorageCode::as_str),
+            Self::NotAllowed => NOT_ALLOWED_CODE,
+            Self::NotSaved => NOT_SAVED_CODE,
+            Self::Service(error) => error.code(),
+            Self::Settings(error) => error.code(),
+            Self::Export(ExportError::NotAPath) => NOT_A_PATH_CODE,
+            Self::Export(error) => error
+                .storage_code()
+                .map_or(crate::notes::INVALID_CODE, StorageCode::as_str),
+            Self::Autostart(_) => AUTOSTART_CODE,
+            Self::Clipboard(_) => CLIPBOARD_CODE,
+            Self::Task(_) => TASK_CODE,
+            Self::Tauri(_) => WINDOW_CODE,
         }
+    }
+
+    /// The log line of an error, `None` for the answers that are part of normal work (read only,
+    /// another editor, a change from outside). Its text holds no path below the notes root and no
+    /// title: storage errors describe themselves by scope key, kind of file and OS error number
+    /// (`fsio::storage_log`, B3).
+    pub fn log_line(&self) -> Option<String> {
+        let code = self.code();
+        let expected = [
+            READ_ONLY_CODE,
+            ON_DESKTOP_CODE,
+            NOT_OPEN_CODE,
+            NOT_SAVED_CODE,
+            crate::notes::CHANGED_CODE,
+        ];
+        (!expected.contains(&code)).then(|| format!("hangar-note: {code}: {self}"))
     }
 }
 
-/// Every command error reaches the window through here, once. A storage failure arrives as its
-/// code only; its full text (the path and the OS error, never a note's content) goes to the log
-/// at this one place, so no command can forget it.
+/// Every command error reaches the window through here, once, as its code only; its text goes to
+/// the log at this one place, so no command can forget it.
 impl Serialize for AppError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self.code() {
-            Some(code) => {
-                if self.storage_code().is_some() {
-                    eprintln!("hangar-note: {code}: {self}");
-                }
-                serializer.serialize_str(code)
-            }
-            None => serializer.serialize_str(&self.to_string()),
+        if let Some(line) = self.log_line() {
+            eprintln!("{line}");
         }
+        serializer.serialize_str(self.code())
     }
 }
 
@@ -484,7 +506,7 @@ pub fn notify_sticky<R: Runtime>(app: &AppHandle<R>, key: &NoteKey, look: &NoteL
 }
 
 /// The folder of a sticky note's scope.
-fn folder_of(service: &NotesService, key: &NoteKey) -> Result<NoteFolder, AppError> {
+pub fn folder_of(service: &NotesService, key: &NoteKey) -> Result<NoteFolder, AppError> {
     service
         .store()
         .folder_for_key(&key.scope)
@@ -500,15 +522,16 @@ pub fn sticky_note(service: &NotesService, label: &str) -> Result<OpenedNote, Ap
 
 /// The title of a sticky window, for the taskbar and Alt+Tab: "<title> · Hangar Note", or
 /// "`untitled` · Hangar Note" without a title. Only the note's title, never its text, so the
-/// taskbar or a shared screen shows no more than the notes area's list does. Direction
-/// characters are dropped (they could reorder what the taskbar shows), control characters and
-/// runs of white space become one space, and a title longer than [`MAX_TITLE_CHARS`] characters
-/// is cut to that length, its last one an ellipsis.
+/// taskbar or a shared screen shows no more than the notes area's list does. Invisible characters
+/// are dropped (`export::is_invisible`: zero-width and format characters, the direction marks
+/// among them, which could reorder or hide what the taskbar shows; security review B7), control
+/// characters and runs of white space become one space, and a title longer than
+/// [`MAX_TITLE_CHARS`] characters is cut to that length, its last one an ellipsis.
 pub fn sticky_title(title: &str, untitled: &str) -> String {
     let clean = |text: &str| -> String {
         let kept: String = text
             .chars()
-            .filter(|c| !is_bidi_control(*c))
+            .filter(|c| !crate::export::is_invisible(*c))
             .map(|c| if c.is_control() { ' ' } else { c })
             .collect();
         kept.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -526,14 +549,6 @@ pub fn sticky_title(title: &str, untitled: &str) -> String {
     } else {
         format!("{name} · {TITLE}")
     }
-}
-
-/// The invisible characters that change the direction of the text around them (Bidi_Control).
-fn is_bidi_control(c: char) -> bool {
-    matches!(
-        c,
-        '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
-    )
 }
 
 /// Sets the title of the sticky window of `key`, if it is open, from the note's current title.
@@ -609,16 +624,27 @@ pub fn open_sticky<R: Runtime>(
     // Only a note that exists goes onto the desktop.
     let title = service.store().title(folder, &key.id)?;
     let label = sticky_label(&key);
-    let look = service.meta().get(&key.scope, &key.id);
     if let Some(window) = app.get_webview_window(&label) {
         show_and_focus(&window);
-    } else {
-        build_sticky(app, &look, &label, &title)?;
+        return Ok(());
     }
-    if !look.open {
-        service
-            .meta()
-            .update(&key.scope, &key.id, |look| look.open = true)?;
+    // On the desktop before the window exists (B2): from here on the notes area's writes are
+    // refused, so none lands after the sticky note read the text. Undone if the window fails.
+    let was_open = service.meta().get(&key.scope, &key.id).open;
+    let look = service.set_open(&key, true)?;
+    if let Err(error) = build_sticky(app, &look, &label, &title) {
+        // Only while no window carries the label: a second call may have built it meanwhile,
+        // and that sticky note is then the note's editor. Not covered by a test: it needs a
+        // window that fails to build next to one that exists, which only a real `AppHandle`
+        // gives (the crate has no Tauri mock runtime).
+        if !was_open && app.get_webview_window(&label).is_none() {
+            if let Err(undo) = service.set_open(&key, false) {
+                eprintln!("hangar-note: note left on the desktop: {undo}");
+            }
+        }
+        return Err(error);
+    }
+    if !was_open {
         notify_hub(app);
     }
     Ok(())
@@ -645,8 +671,8 @@ pub fn create_sticky<R: Runtime>(
     let (all, _) = monitors(app);
     let note = service.create_untitled(&folder, base, settings.get().new_note_color)?;
     let key = NotesService::key(&folder, &note.id)?;
-    let look = service.meta().update(&key.scope, &key.id, |look| {
-        look.open = true;
+    // On the desktop under the editor lock (B2), as `open_sticky` does it.
+    let look = service.set_open_with(&key, true, |look| {
         look.bounds = near.map(|b| bounds::cascade(b, &all));
     })?;
     build_sticky(app, &look, &sticky_label(&key), &note.title)?;
@@ -663,9 +689,8 @@ pub fn close_sticky<R: Runtime>(
 ) -> Result<(), AppError> {
     let label = sticky_label(key);
     saver.flush(Some(&label));
-    service
-        .meta()
-        .update(&key.scope, &key.id, |look| look.open = false)?;
+    // Off the desktop first (B2): the sticky note's writes are refused from here on.
+    service.set_open(key, false)?;
     if let Some(window) = app.get_webview_window(&label) {
         window.destroy()?;
     }
@@ -872,9 +897,7 @@ pub fn restore<R: Runtime>(
             .and_then(|folder| service.store().title(&folder, &key.id).ok());
         let Some(title) = title else {
             // Deleted or moved from outside meanwhile: it is no longer on the desktop.
-            let _ = service
-                .meta()
-                .update(&key.scope, &key.id, |look| look.open = false);
+            let _ = service.set_open(&key, false);
             continue;
         };
         match build_sticky(app, &look, &sticky_label(&key), &title) {
@@ -1052,6 +1075,16 @@ mod tests {
             sticky_title("Plan\r\nB\u{7}\u{202E}gnp.txt\u{2069}", "Note"),
             "Plan B gnp.txt · Hangar Note"
         );
+        // Zero-width and other format characters go as well (B7).
+        assert_eq!(sticky_title("a\u{200B}b", "Note"), "ab · Hangar Note");
+        assert_eq!(
+            sticky_title("x\u{2060}y\u{FEFF}z\u{E0041}", "Note"),
+            "xyz · Hangar Note"
+        );
+        assert_eq!(
+            sticky_title("\u{200B}\u{200D}", "Note"),
+            "Note · Hangar Note"
+        );
         // A long title is cut to 60 characters, the last one an ellipsis.
         let long = sticky_title(&"x".repeat(200), "Note");
         let name = long.strip_suffix(" · Hangar Note").unwrap();
@@ -1076,17 +1109,205 @@ mod tests {
         let code = |error: AppError| serde_json::to_value(error).unwrap();
         assert_eq!(code(AppError::NotSaved), serde_json::json!(NOT_SAVED_CODE));
         assert_eq!(
-            code(AppError::OnDesktop),
-            serde_json::json!(ON_DESKTOP_CODE)
+            code(ServiceError::OnDesktop.into()),
+            serde_json::json!("on-desktop")
+        );
+        assert_eq!(
+            code(ServiceError::NotOpen.into()),
+            serde_json::json!("not-open")
         );
         assert_eq!(
             code(NotesError::ReadOnly.into()),
             serde_json::json!("read-only")
         );
         assert_eq!(
-            code(AppError::NotAllowed),
-            serde_json::json!("This window may not change that note")
+            code(NotesError::Changed.into()),
+            serde_json::json!("changed")
         );
+        assert_eq!(code(AppError::NotAllowed), serde_json::json!("not-allowed"));
+    }
+
+    const INNER: &str = "marker-inner-8d2";
+
+    /// One error of every variant, each with the marker and a path in its inner text where it has
+    /// one. [`every_variant_is_listed`] makes the compiler complain when a variant is missing.
+    fn every_error() -> Vec<AppError> {
+        let path = || {
+            std::path::PathBuf::from(if cfg!(windows) {
+                format!(r"C:\Users\someone\notes\general\{INNER}.md")
+            } else {
+                format!("/home/someone/notes/general/{INNER}.md")
+            })
+        };
+        let io = || std::io::Error::other(format!("{INNER} at {}", path().display()));
+        let notes = |error: NotesError| AppError::Service(ServiceError::Notes(error));
+        vec![
+            AppError::NotAllowed,
+            AppError::NotSaved,
+            notes(NotesError::InvalidTitle("must not be empty")),
+            notes(NotesError::InvalidId),
+            notes(NotesError::UnknownNote),
+            notes(NotesError::InvalidFolder("path must be absolute")),
+            notes(NotesError::TooLarge { size: 2, max: 1 }),
+            notes(NotesError::NotText),
+            notes(NotesError::InvalidQuery("too long")),
+            notes(NotesError::ReadOnly),
+            notes(NotesError::Changed),
+            notes(NotesError::Io {
+                path: path(),
+                source: io(),
+            }),
+            AppError::Service(ServiceError::Meta(MetaError::InvalidBounds)),
+            AppError::Service(ServiceError::Meta(MetaError::Io {
+                path: path(),
+                source: io(),
+            })),
+            AppError::Service(ServiceError::OnDesktop),
+            AppError::Service(ServiceError::NotOpen),
+            AppError::Settings(SettingsError::UnknownLanguage),
+            AppError::Settings(SettingsError::InvalidColorName),
+            AppError::Settings(SettingsError::Io {
+                path: path(),
+                source: io(),
+            }),
+            AppError::Export(ExportError::TooLarge { size: 2, max: 1 }),
+            AppError::Export(ExportError::Io {
+                path: path().display().to_string(),
+                source: io(),
+            }),
+            AppError::Export(ExportError::NotAPath),
+            AppError::Autostart(format!("{INNER} {}", path().display())),
+            AppError::Clipboard(format!("{INNER} {}", path().display())),
+            AppError::Task(format!("{INNER} {}", path().display())),
+            AppError::Tauri(tauri::Error::Anyhow(io().into())),
+        ]
+    }
+
+    #[allow(dead_code)]
+    fn every_variant_is_listed(error: &AppError) {
+        match error {
+            AppError::NotAllowed
+            | AppError::NotSaved
+            | AppError::Settings(
+                SettingsError::UnknownLanguage
+                | SettingsError::InvalidColorName
+                | SettingsError::Io { .. },
+            )
+            | AppError::Export(
+                ExportError::TooLarge { .. } | ExportError::Io { .. } | ExportError::NotAPath,
+            )
+            | AppError::Autostart(_)
+            | AppError::Clipboard(_)
+            | AppError::Task(_)
+            | AppError::Tauri(_) => {}
+            AppError::Service(service) => match service {
+                ServiceError::OnDesktop
+                | ServiceError::NotOpen
+                | ServiceError::Meta(MetaError::InvalidBounds | MetaError::Io { .. }) => {}
+                ServiceError::Notes(notes) => match notes {
+                    NotesError::InvalidTitle(_)
+                    | NotesError::InvalidId
+                    | NotesError::UnknownNote
+                    | NotesError::InvalidFolder(_)
+                    | NotesError::TooLarge { .. }
+                    | NotesError::NotText
+                    | NotesError::InvalidQuery(_)
+                    | NotesError::ReadOnly
+                    | NotesError::Changed
+                    | NotesError::Io { .. } => {}
+                },
+            },
+        }
+    }
+
+    /// Security review B4: every error goes over IPC as one fixed code, never as text; no value
+    /// holds a path separator or anything of the inner text.
+    #[test]
+    fn every_error_reaches_the_window_as_a_fixed_code() {
+        let codes = [
+            "not-allowed",
+            "not-saved",
+            "invalid-title",
+            "invalid-id",
+            "not-found",
+            "invalid",
+            "too-large",
+            "invalid",
+            "invalid",
+            "read-only",
+            "changed",
+            "io",
+            "invalid",
+            "io",
+            "on-desktop",
+            "not-open",
+            "invalid",
+            "invalid",
+            "io",
+            "too-large",
+            "io",
+            "not-a-path",
+            "autostart",
+            "clipboard",
+            "task",
+            "window",
+        ];
+        let errors = every_error();
+        assert_eq!(errors.len(), codes.len());
+        for (error, expected) in errors.into_iter().zip(codes) {
+            let shown = format!("{error:?}");
+            let sent = serde_json::to_value(&error).unwrap();
+            let sent = sent.as_str().unwrap_or_else(|| panic!("{shown}"));
+            assert_eq!(sent, expected, "{shown}");
+            for forbidden in ['\\', '/'] {
+                assert!(!sent.contains(forbidden), "{shown}: {sent}");
+            }
+            assert!(!sent.contains(INNER), "{shown}: {sent}");
+        }
+    }
+
+    /// Security review B3: a forced I/O error of a note titled with a marker logs scope key, kind
+    /// of file and OS error number, never the title.
+    #[test]
+    fn a_failed_note_write_logs_no_title() {
+        let dir = crate::test_support::TempDir::new("windows-log");
+        let store = crate::notes::NotesStore::new(
+            &dir.path().join("notes"),
+            Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        );
+        let folder = NoteFolder::general();
+        let id = store.create_note(&folder, "marker-titel-71b").unwrap();
+        let file = store.note_path(&folder, &id).unwrap();
+        assert!(file.to_string_lossy().contains("marker-titel-71b"));
+        // Forced: on Windows a read-only target refuses the rename over it; on Unix a read-only
+        // folder refuses the temporary file next to it.
+        let locked = if cfg!(windows) {
+            file.clone()
+        } else {
+            file.parent().unwrap().to_path_buf()
+        };
+        let mut permissions = std::fs::metadata(&locked).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&locked, permissions.clone()).unwrap();
+        let result = store.write_note(&folder, &id, "new text");
+        #[allow(clippy::permissions_set_readonly_false)]
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&locked, permissions).unwrap();
+        let error = match result {
+            Err(error) => error,
+            #[cfg(windows)]
+            Ok(()) => panic!("the write went through"),
+            // Root on Unix writes anyway; there is nothing to log then.
+            #[cfg(not(windows))]
+            Ok(()) => return,
+        };
+        let error = AppError::from(error);
+        let line = error.log_line().unwrap();
+        assert!(!line.contains("marker-titel-71b"), "{line}");
+        assert!(!line.contains(&*dir.path().to_string_lossy()), "{line}");
+        assert!(line.contains("note in area general"), "{line}");
+        assert!(line.contains("os error"), "{line}");
+        assert_eq!(serde_json::to_value(&error).unwrap(), "denied");
     }
 
     #[test]
@@ -1147,14 +1368,14 @@ mod tests {
             assert_eq!(sent, serde_json::json!(expected), "{text}");
             assert!(!sent.as_str().unwrap().contains("Secret plan"));
         }
-        // The errors meant for the person keep their text.
+        // The errors meant for the person are codes too (B4).
         assert_eq!(
             code(NotesError::InvalidTitle("must not be empty").into()),
-            serde_json::json!("Invalid title: must not be empty")
+            serde_json::json!("invalid-title")
         );
         assert_eq!(
             code(AppError::Export(ExportError::NotAPath)),
-            serde_json::json!("The chosen location is not a file on this computer")
+            serde_json::json!("not-a-path")
         );
     }
 

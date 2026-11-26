@@ -296,6 +296,37 @@ channel details: [[hangar-notes-format]], [[local-channel]]. Deviations and choi
     `too-large` 413 (a note over 1 MiB in `create` included, formerly `invalid`).
   - `HANGAR_NOTE_NOTES_ROOT` naming a share (`\\server\share`, `\\?\UNC\...`) or a device path
     (`\\.\`) is refused at the start.
+- **After the complete security review** (backend findings B1 to B10), all with tests that fail
+  without the fix; details in [[local-channel]]:
+  - **B1:** `capture` writes the note in the backend (`src-tauri/src/capture.rs`, the frontend's
+    capture block ported) before it answers `{ ok: true, id }`; the notes area gets
+    `{ kind: "openNote", folder, id }`. Requests without content may be dropped beyond 32, a
+    held capture never.
+  - **B2:** "one editor per note" is atomic: `NotesService::write` checks the `open` flag and
+    writes under one editor lock, and `set_open` changes the flag under it. The notes area gets
+    `on-desktop`, a sticky note that writes after leaving the desktop `not-open`. `open_sticky`
+    sets `open` before it builds the window and undoes it when that fails; `close_sticky` clears
+    it before the window goes.
+  - **B3:** log lines about storage name the scope key, the kind of file (`note`, `folder.json`,
+    `trash.json`, `meta.json`, `settings.json`, ...) and the OS error number only
+    (`fsio::storage_log`); the `Io` variants of every store display themselves that way, so no
+    log line carries a title or a path below the root. This replaces "the path and the OS text
+    go to the log" above.
+  - **B4:** every command error reaches the window as a fixed code, never as text. Added:
+    `not-allowed`, `invalid`, `invalid-title`, `invalid-id`, `changed`, `not-open`, `not-a-path`,
+    `autostart`, `clipboard`, `window`, `task`; the earlier codes stay.
+  - **B5:** heads are read through a reader that wipes its buffer (`channel::http::WipingReader`);
+    JSON with a token or a captured text is built in a buffer of its final size.
+  - **B6:** `set_tray_labels` takes the notes area's texts; a sticky note may set them only while
+    no notes area exists and the texts are still the defaults (`tray::may_set_labels`).
+  - **B7:** a sticky window's title drops every invisible character (`export::is_invisible`).
+  - **B8:** `read_note` and `get_sticky` carry `version` (modification time in ns and length,
+    opaque); `write_note` and `write_sticky` take `expected` and answer `changed` without writing
+    when the file moved on, and return the new version. Without `expected` as before. The channel
+    is unchanged.
+  - **B9:** `license = "MIT"` in `Cargo.toml`, `src-tauri/deny.toml` with the license allowlist
+    (one exception: `target-lexicon`, `Apache-2.0 WITH LLVM-exception`, build tooling).
+  - **B10:** the updater rules in [[0003-version-scheme]] ("Updater rules for the first release").
 
 ## Consequences
 - Two apps must agree on one versioned contract; changes go through both sessions.

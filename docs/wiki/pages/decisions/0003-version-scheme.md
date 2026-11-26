@@ -112,6 +112,34 @@ What the scheme has to fit, as Hangar found it:
   > The 16-bit limit per part of the Windows version resource, from general knowledge of
   > `VS_FIXEDFILEINFO`; not looked up or measured here.
 
+## Updater rules for the first release
+Recorded after the complete security review (finding B10), before the updater is added. The
+updater ships code onto the person's computer, so these hold from its first build on:
+- **Signed updates only.** Every installer and update archive is signed with the updater key;
+  the app refuses an update without a valid signature (Tauri updater with `pubkey` set, never
+  without one).
+- **The public key lives in `src-tauri/tauri.conf.json` only** (`plugins.updater.pubkey`), not in
+  code, a script or an environment variable the build reads.
+- **The private key is never in the repository and never in a synced folder** (no cloud or
+  file sync folder, no backup that syncs it in plain text). It stays on the release machine, with
+  its password kept apart from it; the release script reads both at build time only.
+- **HTTPS endpoints only.** Every entry of `plugins.updater.endpoints` starts with `https://`;
+  no `http://`, no `dangerousInsecureTransportProtocol`. The download URLs in `latest.json` are
+  HTTPS as well.
+- **The version goes up in X.Y.Z** with every release (see "Decision": the updater ignores the
+  build number, so a release that differs only in B is never offered).
+- **Authenticode on Windows.** The installer and the executable are signed with the code signing
+  certificate in addition to the updater signature, so SmartScreen and the person see the
+  publisher.
+- **No updater rights in the frontend.** The capabilities grant no `updater:*` permission; the
+  backend checks, downloads and installs through its own commands, so a compromised view cannot
+  start or steer an update.
+
+> [!question] Unverified
+> The option names (`plugins.updater.pubkey`, `endpoints`, `dangerousInsecureTransportProtocol`,
+> the `updater:*` permissions) are those of the Tauri 2 updater plugin as known from Hangar; check
+> them against the plugin version added with the first release.
+
 ## Evidence
 - [[version-number-wikipedia]] (parts, build number from version control, never reset, major 0).
 - Hangar's ADR 0002 "Version scheme" and its code (`tools/release.py`, `src/versionSync.test.ts`,

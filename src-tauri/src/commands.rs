@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter as _, State, WebviewWindow};
+use tauri::{AppHandle, Emitter as _, Manager as _, State, WebviewWindow};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 
@@ -17,7 +17,7 @@ use crate::meta::NoteColor;
 use crate::notes::{FolderInfo, NoteFolder};
 use crate::replies::{NoteReply, Replies};
 use crate::requests::{HubRequest, Requests};
-use crate::service::{HitRow, NoteRow, NotesService, OpenedNote, TrashRow};
+use crate::service::{Editor, HitRow, NoteRow, NotesService, OpenedNote, TrashRow};
 use crate::settings::{Settings, SettingsStore};
 use crate::tray::{self, TrayLabels};
 use crate::windows::{self, checked_key, notify_hub, AppError, BoundsSaver, HUB_LABEL};
@@ -122,6 +122,10 @@ pub async fn get_sticky(
     windows::sticky_note(&service, window.label())
 }
 
+/// Saves a note; returns the file's new version. `expected`: the version the editor read (or last
+/// wrote); if the file has another one, nothing is written and the answer is `changed` (B8).
+/// One editor per note (B2): the notes area gets `on-desktop` for a note on the desktop, a sticky
+/// note `not-open` for its note once it left the desktop.
 #[tauri::command]
 pub async fn write_note(
     app: AppHandle,
@@ -130,31 +134,36 @@ pub async fn write_note(
     folder: NoteFolder,
     id: String,
     text: String,
-) -> Result<(), AppError> {
+    expected: Option<String>,
+) -> Result<String, AppError> {
     checked_key(window.label(), &folder, &id)?;
-    // One editor per note: while it sits on the desktop, the notes area does not write it.
-    if window.label() == HUB_LABEL && service.is_on_desktop(&folder, &id) {
-        return Err(AppError::OnDesktop);
-    }
-    service.write(&folder, &id, &text)?;
-    if window.label() != HUB_LABEL {
+    let editor = if window.label() == HUB_LABEL {
+        Editor::Hub
+    } else {
+        Editor::Sticky
+    };
+    let version = service.write(editor, &folder, &id, &text, expected.as_deref())?;
+    if editor == Editor::Sticky {
         notify_hub(&app);
     }
-    Ok(())
+    Ok(version)
 }
 
-/// A sticky note saves its own text; the note is the one its window shows.
+/// A sticky note saves its own text; the note is the one its window shows. Like `write_note`:
+/// `expected`, the new version back, `not-open` once the note left the desktop.
 #[tauri::command]
 pub async fn write_sticky(
     app: AppHandle,
     window: WebviewWindow,
     service: Service<'_>,
     text: String,
-) -> Result<(), AppError> {
-    let note = windows::sticky_note(&service, window.label())?;
-    service.write(&NoteFolder { path: note.path }, &note.id, &text)?;
+    expected: Option<String>,
+) -> Result<String, AppError> {
+    let key = windows::sticky_of(window.label()).ok_or(AppError::NotAllowed)?;
+    let folder = windows::folder_of(&service, &key)?;
+    let version = service.write(Editor::Sticky, &folder, &key.id, &text, expected.as_deref())?;
     notify_hub(&app);
-    Ok(())
+    Ok(version)
 }
 
 /// A new, empty note in `folder` titled "`base` N", for the notes area's quick note.
@@ -496,9 +505,14 @@ pub async fn set_autostart(
 #[tauri::command]
 pub async fn set_tray_labels(
     app: AppHandle,
+    window: WebviewWindow,
     service: Service<'_>,
     labels: TrayLabels,
 ) -> Result<(), AppError> {
+    let hub_exists = app.get_webview_window(HUB_LABEL).is_some();
+    if !tray::may_set_labels(window.label(), hub_exists, &tray::current_labels(&app)) {
+        return Err(AppError::NotAllowed);
+    }
     tray::set_labels(&app, &labels)?;
     // An untitled sticky window is named in the language these texts come in.
     windows::retitle_stickies(&app, &service);

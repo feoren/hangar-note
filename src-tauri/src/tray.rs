@@ -92,6 +92,24 @@ pub fn untitled_label<R: Runtime>(app: &AppHandle<R>) -> String {
         .unwrap_or_else(|| TrayLabels::default().untitled)
 }
 
+/// The texts the menu shows now.
+pub fn current_labels<R: Runtime>(app: &AppHandle<R>) -> TrayLabels {
+    app.try_state::<CurrentLabels>()
+        .map(|labels| lock(&labels.0).clone())
+        .unwrap_or_default()
+}
+
+/// Whether the window `caller` may set the menu texts (security review B6): the notes area
+/// always; a sticky note only while there is no notes area and the texts are still the English
+/// defaults, so a start with sticky notes alone gets its language, but a sticky view can never
+/// overwrite what the notes area set.
+pub fn may_set_labels(caller: &str, hub_exists: bool, current: &TrayLabels) -> bool {
+    caller == windows::HUB_LABEL
+        || (windows::sticky_of(caller).is_some()
+            && !hub_exists
+            && *current == TrayLabels::default())
+}
+
 pub fn present<R: Runtime>(app: &AppHandle<R>) -> bool {
     app.tray_by_id(TRAY_ID).is_some()
 }
@@ -196,6 +214,26 @@ mod tests {
         assert_eq!(labels.show_all.chars().count(), MAX_LABEL_CHARS);
         assert_eq!(labels.quit, "Quit");
         assert_eq!(labels.tooltip, "Hangar Note");
+    }
+
+    #[test]
+    fn only_the_notes_area_sets_the_texts_once_it_exists() {
+        let sticky = "note-general-1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5";
+        let defaults = TrayLabels::default();
+        let german = TrayLabels {
+            all_notes: "Alle Notizen".into(),
+            ..TrayLabels::default()
+        };
+        assert!(may_set_labels(windows::HUB_LABEL, true, &german));
+        assert!(may_set_labels(windows::HUB_LABEL, false, &defaults));
+        // A sticky note alone, before anyone set the texts.
+        assert!(may_set_labels(sticky, false, &defaults));
+        // Not once the notes area exists, nor once texts were set.
+        assert!(!may_set_labels(sticky, true, &defaults));
+        assert!(!may_set_labels(sticky, false, &german));
+        for other in ["main", "note-", ""] {
+            assert!(!may_set_labels(other, false, &defaults), "{other}");
+        }
     }
 
     #[test]

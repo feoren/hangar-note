@@ -37,7 +37,7 @@ pub mod http;
 pub mod proof;
 mod slots;
 
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
@@ -49,7 +49,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-use self::http::{Head, Status};
+use self::http::{Head, Status, WipingReader};
 use self::slots::{
     Deadline, HeadSlot, Heads, Slot, AFTER_HELLO_GRACE, HEAD_GRACE, HEAD_TIME, MAX_AUTHENTICATED,
 };
@@ -195,6 +195,10 @@ impl From<&ServiceError> for ErrorCode {
             ServiceError::Notes(NotesError::TooLarge { .. }) => Self::TooLarge,
             ServiceError::Notes(NotesError::Io { source, .. }) => StorageCode::of(source).into(),
             ServiceError::Meta(error) => error.storage_code().map_or(Self::Internal, Self::from),
+            // Editor rules of the windows; no route writes an open note.
+            ServiceError::Notes(NotesError::Changed)
+            | ServiceError::OnDesktop
+            | ServiceError::NotOpen => Self::Internal,
         }
     }
 }
@@ -210,10 +214,11 @@ pub trait Actions: Send + Sync + 'static {
     ) -> Result<(), ServiceError>;
     /// Starts a quick note in the notes area.
     fn quick(&self, folder: Option<PathBuf>) -> Result<(), ServiceError>;
-    /// A new note with captured text in `folder`, shown in the notes area. Answers
+    /// A new note with captured text in `folder`, written to disk before this returns and then
+    /// shown in the notes area (security review B1); returns its ID. Answers
     /// [`NotesError::ReadOnly`] while the notes are read only, so the text is never taken in
     /// without a place to go.
-    fn capture(&self, folder: PathBuf, text: String) -> Result<(), ServiceError>;
+    fn capture(&self, folder: PathBuf, text: String) -> Result<String, ServiceError>;
     /// A note with a title and text; returns its ID.
     fn create(
         &self,
@@ -321,6 +326,44 @@ pub fn token_eq(a: &[u8], b: &[u8]) -> bool {
     std::hint::black_box(diff) == 0
 }
 
+/// Counts the bytes written to it and keeps none.
+struct ByteCount(usize);
+
+impl Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// `value` as JSON in a buffer of exactly its size, wiped when dropped (security review B5): a
+/// buffer that grows while serializing leaves copies of what it held (a token, a captured text)
+/// in memory it gave back. Measured in a first pass that keeps nothing.
+pub fn to_json_wiped<T: Serialize + ?Sized>(
+    value: &T,
+    pretty: bool,
+) -> io::Result<Zeroizing<Vec<u8>>> {
+    let mut count = ByteCount(0);
+    if pretty {
+        serde_json::to_writer_pretty(&mut count, value)
+    } else {
+        serde_json::to_writer(&mut count, value)
+    }
+    .map_err(io::Error::other)?;
+    let mut bytes = Zeroizing::new(Vec::with_capacity(count.0));
+    if pretty {
+        serde_json::to_writer_pretty(&mut *bytes, value)
+    } else {
+        serde_json::to_writer(&mut *bytes, value)
+    }
+    .map_err(io::Error::other)?;
+    Ok(bytes)
+}
+
 pub fn write_endpoint(dir: &Path, endpoint: &EndpointFile) -> io::Result<()> {
     let out = EndpointOut {
         version: endpoint.version,
@@ -329,7 +372,7 @@ pub fn write_endpoint(dir: &Path, endpoint: &EndpointFile) -> io::Result<()> {
         token: endpoint.token.as_str(),
         team_token: endpoint.team_token.as_str(),
     };
-    let bytes = Zeroizing::new(serde_json::to_vec_pretty(&out).map_err(io::Error::other)?);
+    let bytes = to_json_wiped(&out, true)?;
     write_atomic_owner_only(&dir.join(ENDPOINT_FILE), &bytes)
 }
 
@@ -524,7 +567,7 @@ pub fn route(actions: &dyn Actions, path: &str, bytes: &[u8]) -> (Status, String
                 }
                 done(
                     actions.capture(folder, body.text),
-                    |()| serde_json::json!({ "ok": true }),
+                    |id| serde_json::json!({ "ok": true, "id": id }),
                 )
             }
             "/create" => {
@@ -670,7 +713,7 @@ enum After {
     Closed,
 }
 
-type ConnectionReader<'a> = BufReader<Deadline<'a>>;
+type ConnectionReader<'a> = WipingReader<Deadline<'a>>;
 
 impl Server {
     fn accept(self: &Arc<Self>, listener: &TcpListener) {
@@ -733,7 +776,7 @@ impl Server {
     fn serve(&self, stream: &TcpStream, first: HeadSlot) {
         let _ = stream.set_write_timeout(Some(WRITE_TIME));
         let deadline = Deadline::for_head(stream, HEAD_TIME, Arc::clone(&first.state));
-        let mut reader = BufReader::new(deadline);
+        let mut reader = WipingReader::new(deadline);
         let mut slot = first;
         for turn in 1..=MAX_REQUESTS_PER_CONNECTION {
             let may_continue = turn < MAX_REQUESTS_PER_CONNECTION;
@@ -919,7 +962,8 @@ impl Reply {
 /// connection can carry the next request. Anything unusual is a broken answer.
 fn read_reply(reader: &mut impl BufRead) -> io::Result<Reply> {
     let broken = || io::Error::new(io::ErrorKind::InvalidData, "not an HTTP answer");
-    let mut head = Vec::new();
+    // Room for the longest head up front and wiped when dropped (B5).
+    let mut head = Zeroizing::new(Vec::with_capacity(MAX_ANSWER_HEAD_BYTES));
     while !head.ends_with(b"\r\n\r\n") {
         if head.len() >= MAX_ANSWER_HEAD_BYTES {
             return Err(broken());
@@ -995,20 +1039,39 @@ fn write_request(
     request: &Request<'_>,
     keep_alive: bool,
 ) -> io::Result<()> {
-    let authorization = request
-        .token
-        .map(|token| Zeroizing::new(format!("Authorization: Bearer {token}\r\n")))
-        .unwrap_or_default();
     let connection = if keep_alive { "keep-alive" } else { "close" };
-    let head = Zeroizing::new(format!(
-        "POST {} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{}Content-Type: application/json\r\n\
-         {}: {}\r\nContent-Length: {}\r\nConnection: {connection}\r\n\r\n",
+    let port = port.to_string();
+    let length = request.body.len().to_string();
+    let parts: [&str; 15] = [
+        "POST ",
         request.path,
-        authorization.as_str(),
+        " HTTP/1.1\r\nHost: 127.0.0.1:",
+        &port,
+        "\r\n",
+        if request.token.is_some() {
+            "Authorization: Bearer "
+        } else {
+            ""
+        },
+        request.token.unwrap_or(""),
+        if request.token.is_some() { "\r\n" } else { "" },
+        "Content-Type: application/json\r\n",
         proof::NONCE_HEADER,
+        ": ",
         request.nonce,
-        request.body.len()
-    ));
+        "\r\nContent-Length: ",
+        &length,
+        "\r\nConnection: ",
+    ];
+    // Assembled in a buffer of its final size, so the token is never left behind by a growing
+    // one (B5); wiped when dropped.
+    let size = parts.iter().map(|part| part.len()).sum::<usize>() + connection.len() + 4;
+    let mut head = Zeroizing::new(String::with_capacity(size));
+    for part in parts {
+        head.push_str(part);
+    }
+    head.push_str(connection);
+    head.push_str("\r\n\r\n");
     let mut writer = stream;
     writer.write_all(head.as_bytes())?;
     writer.write_all(request.body)?;
@@ -1055,7 +1118,7 @@ pub fn post(
         }
         Err(error) => return Err(error.into()),
     };
-    let mut reader = BufReader::new(&stream);
+    let mut reader = WipingReader::new(&stream);
 
     let hello_nonce = proof::new_nonce()?;
     let hello = (|| -> io::Result<Reply> {
@@ -1083,7 +1146,7 @@ pub fn post(
     }
 
     let nonce = proof::new_nonce()?;
-    let text = Zeroizing::new(body.to_string());
+    let text = to_json_wiped(body, false).map_err(ClientError::Io)?;
     let token = match route_scope(path) {
         Scope::Notes => endpoint.token.as_str(),
         Scope::Team => endpoint.team_token.as_str(),
@@ -1095,7 +1158,7 @@ pub fn post(
             path,
             nonce: &nonce,
             token: Some(token),
-            body: text.as_bytes(),
+            body: &text,
         };
         write_request(&stream, endpoint.port, &request, false)?;
         read_reply(&mut reader)
@@ -1123,6 +1186,7 @@ mod tests {
     use super::*;
 
     use crate::test_support::TempDir;
+    use std::io::BufReader;
 
     /// Records the calls; the text is kept only to check it arrived whole.
     #[derive(Default)]
@@ -1169,8 +1233,9 @@ mod tests {
         fn quick(&self, folder: Option<PathBuf>) -> Result<(), ServiceError> {
             self.record(format!("quick {folder:?}"))
         }
-        fn capture(&self, folder: PathBuf, text: String) -> Result<(), ServiceError> {
+        fn capture(&self, folder: PathBuf, text: String) -> Result<String, ServiceError> {
             self.record(format!("capture {folder:?} {}", text.len()))
+                .map(|()| "0b7f6a0e-3c1d-4c5e-9a8b-1f2e3d4c5b6a".into())
         }
         fn create(
             &self,

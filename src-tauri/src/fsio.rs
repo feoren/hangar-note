@@ -105,6 +105,109 @@ impl StorageCode {
     }
 }
 
+/// The kinds of file a log line may name (security review B3). Nothing more specific: a note's
+/// file name is its title.
+pub const LOG_FILE_KINDS: [&str; 8] = [
+    "note",
+    "folder.json",
+    "trash.json",
+    "meta.json",
+    "settings.json",
+    "endpoint.json",
+    "folder",
+    "file",
+];
+
+/// The kind of file `path` is, for the log: what the file is named after, never the name itself.
+/// A temporary file of an atomic write (`.<name>.<pid>.<n>.tmp`) counts as the file it replaces;
+/// a set-aside copy (`<name>.broken-<millis>`) as the file it was.
+fn log_file_kind(path: &Path) -> &'static str {
+    let Some(name) = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_lowercase())
+    else {
+        return "folder";
+    };
+    let mut base = name.as_str();
+    if let Some(temp) = base.strip_suffix(&format!(".{TEMP_EXT}")) {
+        // `.<name>.<pid>.<n>`: the name is everything before the last two parts.
+        let temp = temp.strip_prefix('.').unwrap_or(temp);
+        base = temp.rsplitn(3, '.').nth(2).unwrap_or(temp);
+    }
+    if let Some((before, _)) = base.split_once(".broken-") {
+        base = before;
+    }
+    match base {
+        "folder.json" => "folder.json",
+        "trash.json" => "trash.json",
+        "meta.json" | ".hangar-note-meta.json" => "meta.json",
+        "settings.json" => "settings.json",
+        "endpoint.json" => "endpoint.json",
+        _ if Path::new(base)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md")) =>
+        {
+            "note"
+        }
+        _ if path.extension().is_none() => "folder",
+        _ => "file",
+    }
+}
+
+/// Whether `name` is a scope folder of the notes tree: `general`, Hangar's old `allgemein`, or 32
+/// hex digits (the hash of a working folder, which names nothing on its own).
+fn is_area(name: &str) -> bool {
+    matches!(name, "general" | "allgemein")
+        || (name.len() == 32 && name.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// The scope folder `path` belongs to: itself, its folder, or, for the trash, the folder above.
+/// `-` outside the notes tree. Only the scope key ever reaches the log, never a name below it.
+fn log_area(path: &Path) -> String {
+    let name = |p: Option<&Path>| {
+        p.and_then(Path::file_name)
+            .map(|n| n.to_string_lossy().into_owned())
+    };
+    let own = name(Some(path));
+    let parent = name(path.parent());
+    let grandparent = name(path.parent().and_then(Path::parent));
+    let trash = |n: &Option<String>| matches!(n.as_deref(), Some(".trash" | ".papierkorb"));
+    [
+        own.clone().filter(|_| path.extension().is_none()),
+        parent.clone(),
+        grandparent.filter(|_| trash(&parent) || trash(&own)),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|candidate| is_area(candidate))
+    .unwrap_or_else(|| "-".to_owned())
+}
+
+/// What caused an I/O error, for the log: the operating system's error number, else the portable
+/// kind. Never the OS text, which can quote a path.
+pub fn log_cause(error: &io::Error) -> String {
+    match error.raw_os_error() {
+        Some(code) => format!("os error {code}"),
+        None => format!("{:?}", error.kind()),
+    }
+}
+
+/// A storage failure as the log shows it (security review B3): the scope key, the kind of file and
+/// the cause, nothing else. Pure, so it is tested: no file name, no path below the notes root, no
+/// title, no content. `cause` is [`log_cause`] or a fixed reason.
+pub fn storage_log(path: &Path, cause: &str) -> String {
+    format!(
+        "{} in area {} ({cause})",
+        log_file_kind(path),
+        log_area(path)
+    )
+}
+
+/// [`storage_log`] for an I/O error.
+pub fn storage_log_io(path: &Path, error: &io::Error) -> String {
+    storage_log(path, &log_cause(error))
+}
+
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Locks a mutex even if another thread panicked while holding it. Every value guarded here is
@@ -255,7 +358,10 @@ pub fn set_aside(path: &Path) {
             continue;
         }
         if let Err(error) = fs::rename(path, &target) {
-            eprintln!("hangar-note: corrupt {name} not set aside: {error}");
+            eprintln!(
+                "hangar-note: corrupt file not set aside: {}",
+                storage_log_io(path, &error)
+            );
         }
         return;
     }
@@ -326,6 +432,80 @@ mod tests {
             codes,
             ["denied", "disk-full", "too-large", "not-found", "io"]
         );
+    }
+
+    /// Security review B3: a log line names the scope key, the kind of file and the cause, never a
+    /// file name or a path below the notes root.
+    #[test]
+    fn log_lines_name_no_file_below_the_root() {
+        let root = Path::new(if cfg!(windows) {
+            r"C:\Users\someone\AppData\Local\com.feoren.hangar\notes"
+        } else {
+            "/home/someone/.local/share/com.feoren.hangar/notes"
+        });
+        let key = "6e6ef9e1f001ea8d5164e716aaf511bf";
+        let marker = "marker-titel-71b";
+        let denied = io::Error::from_raw_os_error(if cfg!(windows) { 5 } else { 13 });
+        let os = if cfg!(windows) {
+            "os error 5"
+        } else {
+            "os error 13"
+        };
+        for (path, expected) in [
+            (
+                root.join(key).join(format!("{marker}.md")),
+                format!("note in area {key} ({os})"),
+            ),
+            (
+                root.join(key).join(format!(".{marker}.md.4711.3.tmp")),
+                format!("note in area {key} ({os})"),
+            ),
+            (
+                root.join("general")
+                    .join(".trash")
+                    .join(format!("17-{marker}.md")),
+                format!("note in area general ({os})"),
+            ),
+            (
+                root.join(key).join(".trash").join("trash.json"),
+                format!("trash.json in area {key} ({os})"),
+            ),
+            (
+                root.join(key).join("folder.json"),
+                format!("folder.json in area {key} ({os})"),
+            ),
+            (
+                root.join(key).join("folder.json.broken-17"),
+                format!("folder.json in area {key} ({os})"),
+            ),
+            (root.join(key), format!("folder in area {key} ({os})")),
+            (
+                root.join(key).join(".trash"),
+                format!("folder in area {key} ({os})"),
+            ),
+            (
+                root.join(".hangar-note-meta.json"),
+                format!("meta.json in area - ({os})"),
+            ),
+            (
+                root.join("..").join("settings.json"),
+                format!("settings.json in area - ({os})"),
+            ),
+            (
+                root.join(key).join(format!("{marker}.txt")),
+                format!("file in area {key} ({os})"),
+            ),
+        ] {
+            let line = storage_log_io(&path, &denied);
+            assert_eq!(line, expected, "{}", path.display());
+            assert!(!line.contains(marker), "{line}");
+            assert!(!line.contains("someone"), "{line}");
+        }
+        // Without an OS number, the portable kind; never the error's own text.
+        let custom = io::Error::new(io::ErrorKind::InvalidInput, format!("{marker} broke"));
+        let line = storage_log_io(&root.join(key).join(format!("{marker}.md")), &custom);
+        assert_eq!(line, format!("note in area {key} (InvalidInput)"));
+        assert!(LOG_FILE_KINDS.iter().all(|kind| !kind.contains('/')));
     }
 
     /// A real refusal from the file system, not a made-up error number.

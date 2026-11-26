@@ -7,6 +7,7 @@ edition = "2021"
 # current stable.
 rust-version = "1.90"
 publish = false
+license = "MIT"
 
 [lib]
 name = "hangar_note_lib"
@@ -69,13 +70,15 @@ zeroize = "1"
 # `SO_EXCLUSIVEADDRUSE` before it is bound (H3). Bindings only; already in the tree at this version
 # through tauri, socket2, the single-instance plugin and others (MIT/Apache-2.0, Microsoft). The one
 # feature not enabled elsewhere is `Win32_Security_Authorization` (SDDL conversion), again bindings
-# only.
+# only. `Win32_System_SystemInformation` gives `GetLocalTime` for the time of a captured text
+# (`capture.rs`), bindings as well.
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Networking_WinSock",
   "Win32_Security",
   "Win32_Security_Authorization",
   "Win32_Storage_FileSystem",
+  "Win32_System_SystemInformation",
   "Win32_System_Threading",
 ] }
 # Creates the channel's socket so `SO_EXCLUSIVEADDRUSE` can be set before `bind`, which std's

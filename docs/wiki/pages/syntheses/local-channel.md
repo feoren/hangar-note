@@ -98,7 +98,8 @@ tauri 2.12.7 and tauri-plugin-single-instance 2.5.5 for Windows and Linux.
   `headers-too-large`, `not-implemented`, `busy` (503), `read-only` (409), `unknown-note` (404),
   `invalid`, `internal`, and the storage codes `denied` (500), `disk-full` (500), `not-found`
   (404), `io` (500) and `too-large` (413, also for a note over 1 MiB in `create`). A storage code
-  never carries the OS text or a path; those go to Hangar Note's log.
+  never carries the OS text or a path. Hangar Note's log names only the scope key, the kind of
+  file and the OS error number (`fsio::storage_log`, finding B3 of the complete security review).
 
 ## Storage codes
 The same five codes reach the window (`src/api.ts` `storageError`, one sentence each in
@@ -144,7 +145,7 @@ key `501e571e…4eabe0c`; status 200 with body `{"version":1}` gives
 | `v1/hello` | none (token not sent) | `{ version: 1 }` with the proof |
 | `open` | `folder?`, `shared?`, `note?` | `{ ok: true }`, with `shared: "unavailable"` when asked for |
 | `quick` | `folder?` | `{ ok: true }` |
-| `capture` | `folder`, `text` | `{ ok: true }`; a new note in `folder` shows in the notes area; `read-only` (409) while read only |
+| `capture` | `folder`, `text` | `{ ok: true, id }` once the note is on disk; `read-only` (409) while read only, and no file is written |
 | `create` | `folder?`, `title`, `text?` | `{ id }` |
 | `search` | `query` | `{ hits: [{ folderKey, path, id, title, excerpt, updatedAt, color, onDesktop }] }` |
 | `excerpts` | `folder?`, `limit?` | `{ notes: [{ id, title, excerpt, updatedAt }] }`, newest first, at most 200 |
@@ -153,6 +154,37 @@ key `501e571e…4eabe0c`; status 200 with body `{"version":1}` gives
 
 Neither note text nor a token is ever logged; the request kinds log by name only. Both tokens,
 the proof key and the endpoint file's bytes are held in `Zeroizing` and never shown by `Debug`.
+
+### `capture` (complete security review, finding B1)
+- The backend writes the note before it answers: `NotesService::capture` with the capture block
+  that `appendCapture` (`src/noteText.ts`) used to build in the window, ported to
+  `src-tauri/src/capture.rs` with the same test cases. Heading
+  `_<notes.capturedFrom>_` ("From {source}, {time}" and its eleven translations), `{source}` the
+  last part of `folder`, `{time}` as `captureStamp` (`Intl.DateTimeFormat` with `day: numeric,
+  month: short, hour: 2-digit, minute: 2-digit`, the strings of Node 26.13.1 / ICU 78.3 pinned in
+  the tests), then the text in a code fence it does not contain. The language is `language` in
+  `settings.json`, English without one; the time is the computer's local time (`GetLocalTime` on
+  Windows, `localtime_r` elsewhere). The title follows the first line (`titleFromText`), and the
+  note stays auto titled as a quick note does; color: `newNoteColor`.
+- Only then does the route answer `{ ok: true, id }`; the notes area gets
+  `{ kind: "openNote", folder, id }`, never the text. A full request queue or a notes area that
+  never loads loses nothing.
+- Requests waiting for the notes area: beyond 32, the oldest without content (`showProject`,
+  `quick`, `openNote`, `sharedUnavailable`) are dropped, a held `capture` never. That
+  `{ kind: "capture", folder, text }` remains only for a capture that started the app itself and
+  whose note could not be written there (still read only, a storage failure): the notes area then
+  holds the text in a draft to copy, as before.
+- Tests (`src-tauri/src/lib.rs`, real `NotesStore` under `tests/.tmp/`): after `ok` the `.md` with
+  the marker text is on disk without anyone taking the requests; 33 captures are 33 notes; read
+  only answers 409 and leaves the folder empty.
+
+### Memory of tokens (finding B5)
+Every request and answer head is read through `channel::http::WipingReader`, whose buffer is
+overwritten as it is consumed and when dropped (`std::io::BufReader` kept the head with the bearer
+token until reused). Head lines, the client's request head and the JSON of the endpoint file and
+of the client's body are built in buffers of their final size (`to_json_wiped` measures first),
+so no growing buffer leaves a copy behind. Test: after `read_head` the buffer no longer holds the
+marker token.
 
 ## Verified
 - Tests in `src-tauri/src/channel/` (2026-11-26, Windows 11): RFC 4231 vectors and the known

@@ -110,7 +110,8 @@ pub fn note_file_name(title: &str) -> String {
 pub enum ExportError {
     #[error("Too large to export: {size} bytes, at most {max} allowed")]
     TooLarge { size: usize, max: usize },
-    #[error("File {path} cannot be written: {source}")]
+    /// The chosen path stays out of the text and the log (security review B3).
+    #[error("Export not written ({})", crate::fsio::log_cause(source))]
     Io {
         path: String,
         #[source]

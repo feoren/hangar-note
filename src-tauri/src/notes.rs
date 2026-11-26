@@ -37,8 +37,8 @@ use serde::{Deserialize, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 
 use crate::fsio::{
-    create_private_dir, lock, millis, read_capped, read_prefix, utf8_prefix, write_atomic,
-    StorageCode,
+    create_private_dir, lock, log_cause, millis, read_capped, read_prefix, storage_log,
+    storage_log_io, utf8_prefix, write_atomic, StorageCode,
 };
 
 pub const GENERAL_KEY: &str = "general";
@@ -197,7 +197,12 @@ pub enum NotesError {
     /// Hangar still keeps these notes (no handover marker) or another writer holds the lock.
     #[error("{READ_ONLY_CODE}")]
     ReadOnly,
-    #[error("File {path} cannot be read or written: {source}")]
+    /// The file is no longer at the version the editor read (another program changed it).
+    #[error("The note changed on disk since it was read")]
+    Changed,
+    /// Shown and logged as scope key, kind of file and cause only (security review B3): the file
+    /// name of a note is its title.
+    #[error("{}", crate::fsio::storage_log_io(path, source))]
     Io {
         path: PathBuf,
         #[source]
@@ -217,15 +222,69 @@ impl NotesError {
             _ => None,
         }
     }
+
+    /// The fixed code of every variant (security review B4); the text goes to the log only.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidTitle(_) => INVALID_TITLE_CODE,
+            Self::InvalidId => INVALID_ID_CODE,
+            Self::InvalidFolder(_) | Self::InvalidQuery(_) | Self::NotText => INVALID_CODE,
+            Self::ReadOnly => READ_ONLY_CODE,
+            Self::Changed => CHANGED_CODE,
+            Self::UnknownNote | Self::TooLarge { .. } | Self::Io { .. } => self
+                .storage_code()
+                .map_or(INVALID_CODE, StorageCode::as_str),
+        }
+    }
 }
+
+pub const INVALID_TITLE_CODE: &str = "invalid-title";
+pub const INVALID_ID_CODE: &str = "invalid-id";
+/// A folder, a query or a file that is not text: nothing the person can fix by retrying.
+pub const INVALID_CODE: &str = "invalid";
+pub const CHANGED_CODE: &str = "changed";
 
 impl Serialize for NotesError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self.storage_code() {
-            Some(code) => serializer.serialize_str(code.as_str()),
-            None => serializer.serialize_str(&self.to_string()),
-        }
+        serializer.serialize_str(self.code())
     }
+}
+
+/// The version of a note file as an editor holds it (security review B8): modification time in
+/// nanoseconds and length, opaque to the window. A write by another program changes at least one
+/// of them on every file system with sub-second times; on one with whole seconds, a change of the
+/// same length within the same second goes unnoticed.
+pub fn version(meta: &fs::Metadata) -> String {
+    let nanos = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_nanos());
+    format!("{nanos}-{}", meta.len())
+}
+
+/// The metadata of a file through a handle of its own, as [`read_capped_with_meta`] takes it, so
+/// both give the same version of the same file.
+fn handle_meta(path: &Path) -> io::Result<fs::Metadata> {
+    fs::File::open(path)?.metadata()
+}
+
+/// At most `max` bytes of a regular file with the metadata of the same handle; `Ok(None)` when
+/// it holds more.
+fn read_capped_with_meta(path: &Path, max: usize) -> io::Result<Option<(Vec<u8>, fs::Metadata)>> {
+    use std::io::Read as _;
+    if !fs::symlink_metadata(path)?.file_type().is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    let file = fs::File::open(path)?;
+    let meta = file.metadata()?;
+    let mut bytes = Vec::new();
+    let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
+    (&file).take(limit).read_to_end(&mut bytes)?;
+    Ok((bytes.len() <= max).then_some((bytes, meta)))
 }
 
 fn io_error(path: &Path) -> impl FnOnce(io::Error) -> NotesError + '_ {
@@ -385,8 +444,8 @@ fn is_link(path: &Path) -> bool {
 
 fn log_link(path: &Path) {
     eprintln!(
-        "hangar-note: skipping {}: a link, not a folder",
-        path.display()
+        "hangar-note: skipping a link: {}",
+        storage_log(path, "a link, not a folder")
     );
 }
 
@@ -469,7 +528,8 @@ fn read_limited(path: &Path, max: usize) -> Result<Option<Vec<u8>>, String> {
         Ok(Some(bytes)) => Ok(Some(bytes)),
         Ok(None) => Err(format!("larger than {max} bytes")),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.to_string()),
+        // The number, not the OS text (security review B3).
+        Err(error) => Err(log_cause(&error)),
     }
 }
 
@@ -593,8 +653,8 @@ impl Folder {
 
 fn log_migration_error(path: &Path, error: &io::Error) {
     eprintln!(
-        "hangar-note: notes in {} were not moved to the new folder names: {error}",
-        path.display()
+        "hangar-note: notes not moved to the new folder names: {}",
+        storage_log_io(path, error)
     );
 }
 
@@ -854,7 +914,7 @@ impl NotesStore {
             Ok(Some(bytes)) => bytes,
             Ok(None) => return None,
             Err(reason) => {
-                eprintln!("hangar-note: ignoring {}: {reason}", path.display());
+                eprintln!("hangar-note: ignoring {}", storage_log(&path, &reason));
                 return None;
             }
         };
@@ -868,16 +928,15 @@ impl NotesStore {
                 Some(meta)
             }
             Ok(_) => {
-                eprintln!("hangar-note: {} has an unknown version", path.display());
+                eprintln!(
+                    "hangar-note: ignoring {}",
+                    storage_log(&path, "unknown version")
+                );
                 None
             }
             Err(error) => {
-                eprintln!(
-                    "hangar-note: ignoring {}: JSON error ({:?}) on line {}",
-                    path.display(),
-                    error.classify(),
-                    error.line()
-                );
+                let cause = format!("JSON error {:?} on line {}", error.classify(), error.line());
+                eprintln!("hangar-note: ignoring {}", storage_log(&path, &cause));
                 None
             }
         }
@@ -1058,10 +1117,22 @@ impl NotesStore {
     }
 
     pub fn read_note(&self, folder: &NoteFolder, id: &str) -> Result<String, NotesError> {
+        self.read_note_versioned(folder, id).map(|(text, _)| text)
+    }
+
+    /// The text of a note with the [`version`] of the file it came from, so an editor can tell
+    /// later whether something else changed the file meanwhile (security review B8). The version
+    /// is taken from the same handle the text was read through.
+    pub fn read_note_versioned(
+        &self,
+        folder: &NoteFolder,
+        id: &str,
+    ) -> Result<(String, String), NotesError> {
         let _guard = lock(&self.guard);
         let opened = self.opened(folder)?;
         let path = opened.file(opened.entry(id)?);
-        let Some(bytes) = read_capped(&path, MAX_NOTE_BYTES).map_err(io_error(&path))? else {
+        let read = read_capped_with_meta(&path, MAX_NOTE_BYTES).map_err(io_error(&path))?;
+        let Some((bytes, meta)) = read else {
             // The size only names the problem; the content was never read past the limit.
             let size = fs::metadata(&path)
                 .ok()
@@ -1072,7 +1143,8 @@ impl NotesStore {
                 max: MAX_NOTE_BYTES,
             });
         };
-        String::from_utf8(bytes).map_err(|_| NotesError::NotText)
+        let text = String::from_utf8(bytes).map_err(|_| NotesError::NotText)?;
+        Ok((text, version(&meta)))
     }
 
     pub fn write_note(
@@ -1081,6 +1153,20 @@ impl NotesStore {
         id: &str,
         content: &str,
     ) -> Result<(), NotesError> {
+        self.write_note_checked(folder, id, content, None).map(drop)
+    }
+
+    /// Writes a note; with `expected`, only while the file is still at that [`version`]
+    /// ([`NotesError::Changed`] otherwise, and nothing is written). Returns the version of the
+    /// file written. Another program may still write between the check and the rename; the window
+    /// for that is the length of one write, where without the check it was the whole edit.
+    pub fn write_note_checked(
+        &self,
+        folder: &NoteFolder,
+        id: &str,
+        content: &str,
+        expected: Option<&str>,
+    ) -> Result<String, NotesError> {
         if content.len() > MAX_NOTE_BYTES {
             return Err(NotesError::TooLarge {
                 size: content.len(),
@@ -1091,7 +1177,15 @@ impl NotesStore {
         let _guard = lock(&self.guard);
         let opened = self.opened(folder)?;
         let path = opened.file(opened.entry(id)?);
-        write_atomic(&path, content.as_bytes()).map_err(io_error(&path))
+        if let Some(expected) = expected {
+            let current = handle_meta(&path).map_err(io_error(&path))?;
+            if version(&current) != expected {
+                return Err(NotesError::Changed);
+            }
+        }
+        write_atomic(&path, content.as_bytes()).map_err(io_error(&path))?;
+        let written = handle_meta(&path).map_err(io_error(&path))?;
+        Ok(version(&written))
     }
 
     /// Creates an empty note and returns its ID.
@@ -1210,13 +1304,13 @@ impl NotesStore {
                     meta.items.into_iter().filter(Self::trusted_entry).collect()
                 }
                 _ => {
-                    eprintln!("hangar-note: ignoring unreadable {}", path.display());
+                    eprintln!("hangar-note: ignoring {}", storage_log(&path, "unreadable"));
                     Vec::new()
                 }
             },
             Ok(None) => Vec::new(),
             Err(reason) => {
-                eprintln!("hangar-note: ignoring {}: {reason}", path.display());
+                eprintln!("hangar-note: ignoring {}", storage_log(&path, &reason));
                 Vec::new()
             }
         }

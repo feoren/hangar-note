@@ -1,0 +1,31 @@
+# cargo-deny: the licenses every crate of the build may carry (security review B9). Checked with
+# `cargo deny --manifest-path src-tauri/Cargo.toml check licenses`.
+
+[graph]
+all-features = false
+
+[licenses]
+version = 2
+# Permissive licenses compatible with shipping Hangar Note under MIT.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "MPL-2.0",
+  "BSL-1.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "CC0-1.0",
+]
+confidence-threshold = 0.9
+# Kept in the list although no crate uses it today, so a crate that moves to it needs no change.
+unused-allowed-license = "allow"
+# Apache-2.0 with the LLVM exception only widens Apache-2.0; one crate of the build tooling
+# (target-lexicon, through tauri-build) uses it. Allowed for that crate alone, so any other crate
+# under it is a decision of its own.
+exceptions = [
+  { crate = "target-lexicon", allow = ["Apache-2.0 WITH LLVM-exception"] },
+]
