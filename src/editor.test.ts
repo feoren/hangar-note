@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 
-import { createNoteEditor } from "./editor";
+import { createNoteEditor, styleNonce } from "./editor";
 
 const options = {
   text: "",
@@ -37,5 +37,27 @@ describe("createNoteEditor", () => {
     expect(content()?.getAttribute("aria-readonly")).toBe("true");
     editor.destroy();
     parent.remove();
+  });
+
+  it("gives CodeMirror's style elements the nonce Tauri put into the page", () => {
+    const meta = document.createElement("meta");
+    meta.name = "hangar-style-nonce";
+    meta.content = "__TAURI_STYLE_NONCE__";
+    document.head.append(meta);
+    // The dev server leaves the placeholder: no nonce, and no policy to satisfy.
+    expect(styleNonce()).toBeNull();
+    meta.content = "12345678901234567890";
+    expect(styleNonce()).toBe("12345678901234567890");
+    const parent = document.createElement("div");
+    document.body.append(parent);
+    const editor = createNoteEditor(parent, options);
+    const styles = Array.from(document.querySelectorAll("style"));
+    expect(styles.length).toBeGreaterThan(0);
+    expect(styles.map((style) => style.getAttribute("nonce"))).toEqual(
+      styles.map(() => "12345678901234567890"),
+    );
+    editor.destroy();
+    parent.remove();
+    meta.remove();
   });
 });

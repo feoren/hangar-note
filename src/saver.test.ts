@@ -87,4 +87,17 @@ describe("createSaver", () => {
     await saver.flush();
     expect(save).not.toHaveBeenCalled();
   });
+
+  it("forgets a pending text on discard and saves what is typed after it", async () => {
+    const save = vi.fn(() => Promise.resolve());
+    const saver = createSaver({ save });
+    saver.change("refused");
+    saver.discard();
+    await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS * 2);
+    expect(await saver.flush()).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+    saver.change("after reload");
+    await saver.flush();
+    expect(save).toHaveBeenCalledWith("after reload");
+  });
 });

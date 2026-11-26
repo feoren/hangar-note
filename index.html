@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hangar Note</title>
+    <!--
+      Tauri replaces this placeholder with a fresh nonce on every load and allows that nonce in
+      style-src. The editor hands it to CodeMirror's own style elements (src/editor.ts), so the
+      policy needs no unsafe-inline for styles.
+    -->
+    <meta name="hangar-style-nonce" content="__TAURI_STYLE_NONCE__" />
   </head>
   <body>
     <div id="root"></div>

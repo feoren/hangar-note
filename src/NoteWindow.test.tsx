@@ -22,6 +22,7 @@ const note: OpenedNote = {
   onDesktop: true,
   onTop: false,
   autoTitled: false,
+  version: "v1",
 };
 
 const writable: Status = { access: { state: "writable" }, rootKind: "development", project: null };
@@ -189,7 +190,7 @@ beforeEach(() => {
   Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
   api.getSticky.mockResolvedValue(note);
   api.getStatus.mockResolvedValue(writable);
-  api.writeSticky.mockResolvedValue(null);
+  api.writeSticky.mockResolvedValue("v2");
   api.renameNote.mockResolvedValue(null);
   api.deleteNote.mockResolvedValue(null);
   api.noteFlushed.mockResolvedValue(null);
@@ -241,7 +242,7 @@ describe("note window", () => {
     await render();
     await type("Einkaufen und Brot");
     await request("delete");
-    expect(api.writeSticky).toHaveBeenCalledWith("Einkaufen und Brot");
+    expect(api.writeSticky).toHaveBeenCalledWith("Einkaufen und Brot", "v1");
     expect(api.deleteNote).toHaveBeenCalledWith(GENERAL, ID);
     const saved = api.writeSticky.mock.invocationCallOrder[0] ?? Infinity;
     const deleted = api.deleteNote.mock.invocationCallOrder[0] ?? -Infinity;
@@ -304,7 +305,7 @@ describe("note window", () => {
     await render();
     await type("Letzte Zeile");
     await request("flush");
-    expect(api.writeSticky).toHaveBeenCalledWith("Letzte Zeile");
+    expect(api.writeSticky).toHaveBeenCalledWith("Letzte Zeile", "v1");
     expect(api.noteFlushed).toHaveBeenCalledWith(true);
 
     api.writeSticky.mockRejectedValue(new Error("disk full"));
@@ -441,7 +442,7 @@ describe.each(STICKY_LOOKS)("note window in the look %s", (look) => {
     await render(look);
     await type("Nur hier");
     await request("close");
-    expect(api.writeSticky).toHaveBeenCalledWith("Nur hier");
+    expect(api.writeSticky).toHaveBeenCalledWith("Nur hier", "v1");
     expect(api.closeNote).not.toHaveBeenCalled();
     expect(get(".note-stuck", HTMLElement).getAttribute("role")).toBe("alert");
     now.mockReturnValue(7_005_000);
@@ -472,7 +473,89 @@ describe("note window: looks", () => {
     await rerender("hangar");
     expect(get(".cm-content", HTMLElement)).toBe(content);
     await request("flush");
-    expect(api.writeSticky).toHaveBeenCalledWith("Noch nicht gespeichert");
+    expect(api.writeSticky).toHaveBeenCalledWith("Noch nicht gespeichert", "v1");
     expect(api.noteFlushed).toHaveBeenCalledWith(true);
+  });
+});
+
+function buttonNamed(text: string): HTMLButtonElement {
+  const found = Array.from(container.querySelectorAll("button")).find(
+    (element) => element.textContent === text,
+  );
+  if (!found) throw new Error(`button ${text} missing`);
+  return found;
+}
+
+async function press(element: HTMLElement) {
+  await act(async () => {
+    element.click();
+    await Promise.resolve();
+  });
+  await settle();
+}
+
+describe("note window: changed outside", () => {
+  it("saves with the version it was read with and then with the one each save answers", async () => {
+    await render();
+    await type("Eins");
+    await request("flush");
+    await type("Zwei");
+    await request("flush");
+    expect(api.writeSticky.mock.calls).toEqual([
+      ["Eins", "v1"],
+      ["Zwei", "v2"],
+    ]);
+  });
+
+  it("keeps the text, offers reload and copy, and reloads only after asking", async () => {
+    api.writeSticky.mockRejectedValue("changed");
+    await render();
+    await type("Meine Fassung");
+    await request("flush");
+    expect(api.noteFlushed).toHaveBeenCalledWith(false);
+    const alert = get(".note-stuck", HTMLElement);
+    expect(alert.getAttribute("role")).toBe("alert");
+    expect(alert.textContent).toContain(t("error.changed"));
+    expect(container.textContent).not.toContain("changed");
+    await press(buttonNamed(t("notes.copyMarkdown")));
+    expect(api.copyText).toHaveBeenCalledWith("Meine Fassung");
+    // Further saves are not sent: each would be refused the same way.
+    await type("Meine Fassung, mehr");
+    await request("flush");
+    expect(api.writeSticky).toHaveBeenCalledTimes(1);
+    // "Reload" asks first; going back keeps everything.
+    await press(buttonNamed(t("notes.reloadNote")));
+    expect(api.getSticky).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain(t("notes.reloadDiscards"));
+    await press(buttonNamed(t("notes.reloadCancel")));
+    expect(container.textContent).toContain(t("error.changed"));
+    expect(api.getSticky).toHaveBeenCalledTimes(1);
+    // Confirmed: the note as it is now, and saving goes on with its version.
+    api.getSticky.mockResolvedValue({ ...note, text: "Von außen", version: "v7" });
+    api.writeSticky.mockResolvedValue("v8");
+    await press(buttonNamed(t("notes.reloadNote")));
+    await press(buttonNamed(t("notes.reloadConfirm")));
+    expect(api.getSticky).toHaveBeenCalledTimes(2);
+    expect(container.querySelector(".note-stuck")).toBeNull();
+    await request("flush");
+    expect(api.writeSticky).toHaveBeenCalledTimes(1);
+    await type("Von außen, weiter");
+    await request("flush");
+    expect(api.writeSticky).toHaveBeenLastCalledWith("Von außen, weiter", "v7");
+    expect(api.noteFlushed).toHaveBeenLastCalledWith(true);
+  });
+
+  it("closes a note changed outside only on the second try, as after any failed save", async () => {
+    api.writeSticky.mockRejectedValue("changed");
+    const now = vi.spyOn(Date, "now").mockReturnValue(9_000_000);
+    await render();
+    await type("Meine Fassung");
+    await request("close");
+    expect(api.closeNote).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(t("note.closeUnsaved"));
+    now.mockReturnValue(9_004_000);
+    await request("close");
+    expect(api.closeNote).toHaveBeenCalledTimes(1);
+    now.mockRestore();
   });
 });

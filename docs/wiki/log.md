@@ -108,3 +108,19 @@ between 760 and about 1000 px, the sheet's focus trap) to pages/syntheses/usabil
 Added the section "Rework of looks B and C" (the card fade only on overflow, the hangar progress
 shown once, the trash per look with Escape back, grid keys by column, the sticky window titled
 after its note) to pages/syntheses/usability-pass.md.
+
+## [2026-11-26] query | Backend fixes of the complete security review
+Recorded the backend findings B1 to B10 as built: the capture written by the backend before the
+channel answers, the atomic editor rule, log lines without titles or paths, fixed error codes for
+every error, wiped head buffers, the tray texts from the notes area, invisible characters out of
+sticky window titles, note versions against changes from outside, the license allowlist. Updated
+pages/syntheses/local-channel.md (capture, memory of tokens, log), the "Phase 1 as built" section of
+pages/decisions/0002-hangar-notes-takeover.md, and added "Updater rules for the first release" to
+pages/decisions/0003-version-scheme.md.
+
+## [2026-11-26] query | Content Security Policy and the style nonce
+Added the section "Content Security Policy" to pages/decisions/0001-foundation.md: the policy of
+finding F1, why CodeMirror's style elements carry Tauri's per-load style nonce instead of
+`'unsafe-inline'`, with the places in Tauri 2.12.7 (`src/manager/mod.rs`, `set_csp`,
+`replace_csp_nonce`, `get_asset`) and style-mod 4.1.5 that show it, and why the dev server shows
+no policy.

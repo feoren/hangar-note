@@ -22,6 +22,7 @@ import {
   deleteNote,
   getStatus,
   getSticky,
+  isChanged,
   MAX_NOTE_BYTES,
   newSticky,
   noteFlushed,
@@ -78,6 +79,26 @@ const FORMATS: readonly (Format & KeyedAction)[] = ["bold", "italic", "strike", 
 /** The checklist progress in the hangar look's header follows the text after a short pause. */
 const PROGRESS_DELAY_MS = 250;
 
+/**
+ * The version of the note's file as this window last read or wrote it, and whether a save was
+ * refused because the file was changed outside since. Reading a version ends that refusal.
+ */
+function createFileState() {
+  let version: string | undefined;
+  let conflicted = false;
+  return {
+    version: () => version,
+    conflicted: () => conflicted,
+    read: (next: string) => {
+      version = next;
+      conflicted = false;
+    },
+    refused: () => {
+      conflicted = true;
+    },
+  };
+}
+
 export function NoteWindow({ label, theme, colorNames, look }: Props) {
   const t = useT();
   const [note, setNote] = useState<OpenedNote | null>(null);
@@ -94,6 +115,18 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
   /** Closing was refused because the text is not saved: offer to copy it. */
   const [stuck, setStuck] = useState(false);
   const [copyResult, setCopyResult] = useState<"copied" | "failed" | null>(null);
+  /**
+   * The file was changed outside: "changed" offers to reload or copy, "confirm" asks before the
+   * reload drops the typed text.
+   */
+  const [conflict, setConflict] = useState<"changed" | "confirm" | null>(null);
+  /**
+   * What the saver needs to know about the file, kept outside React's state (the saver reads it
+   * while it writes): `version`, the version the note was read or last saved with, sent as
+   * `expected`; `conflicted`, set once a save was refused as changed, so nothing more is sent
+   * until the note is reloaded.
+   */
+  const [file] = useState(createFileState);
   const [progress, setProgress] = useState<ChecklistProgress>({ done: 0, total: 0 });
   const progressTimer = useRef<number | null>(null);
   const [leaveAnyway] = useState(() => createLeaveAnyway());
@@ -107,10 +140,16 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
   const [saver] = useState(() =>
     createSaver({
       save: async (text) => {
-        await writeSticky(text);
+        // Every save would be refused the same way; the text stays pending, the note says why.
+        if (file.conflicted()) throw new Error("The note was changed outside; reload it first");
+        file.read(await writeSticky(text, file.version()));
       },
       onState: (state, error) => {
         setSaveState(state);
+        if (state === "failed" && isChanged(error)) {
+          file.refused();
+          setConflict((open) => open ?? "changed");
+        }
         if (state === "failed") setSaveError(errorMessage(error, "save")?.key ?? "note.saveFailed");
         if (state === "saved") {
           leaveAnyway.reset();
@@ -153,6 +192,7 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
         const canWrite = status.access.state === "writable";
         noteRef.current = content;
         textRef.current = content.text;
+        file.read(content.version);
         setNote(content);
         setWritable(canWrite);
         setProgress(checklistProgress(content.text));
@@ -193,7 +233,7 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
       editor.current?.destroy();
       editor.current = null;
     };
-  }, [saver, retitle]);
+  }, [saver, retitle, file]);
 
   // Not disposed on unmount: StrictMode unmounts once in development, and the window's end is a
   // destroy anyway. What is still pending goes out right away.
@@ -244,6 +284,30 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
 
   const copyUnsaved = async () => {
     setCopyResult((await copyText(textRef.current)) ? "copied" : "failed");
+  };
+
+  /** The note as its file is now; only after the person confirmed that the typed text goes. */
+  const reloadChanged = async () => {
+    try {
+      const fresh = await getSticky();
+      saver.discard();
+      file.read(fresh.version);
+      noteRef.current = fresh;
+      textRef.current = fresh.text;
+      setNote(fresh);
+      editor.current?.load(fresh.text);
+      setProgress(checklistProgress(fresh.text));
+      setTooLarge(false);
+      setSaveState("saved");
+      setConflict(null);
+      setStuck(false);
+      setCopyResult(null);
+      leaveAnyway.reset();
+      editor.current?.focus();
+    } catch {
+      setConflict("changed");
+      setCopyResult(null);
+    }
   };
 
   const remove = useCallback(async () => {
@@ -566,10 +630,65 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
         </p>
       )}
 
-      {(tooLarge || saveState === "failed") && !stuck && (
+      {(tooLarge || saveState === "failed") && !stuck && conflict === null && (
         <p key="saveError" className="note-message note-error" role="status">
           {tooLarge ? t("note.tooLarge") : t(saveError)}
         </p>
+      )}
+
+      {conflict !== null && !stuck && (
+        <div key="changed" className="note-message note-error note-stuck" role="alert">
+          <p>{conflict === "confirm" ? t("notes.reloadDiscards") : t("error.changed")}</p>
+          {conflict === "confirm" ? (
+            <>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  void reloadChanged();
+                }}
+              >
+                {t("notes.reloadConfirm")}
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setConflict("changed");
+                }}
+              >
+                {t("notes.reloadCancel")}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setCopyResult(null);
+                  setConflict("confirm");
+                }}
+              >
+                {t("notes.reloadNote")}
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  void copyUnsaved();
+                }}
+              >
+                {t("notes.copyMarkdown")}
+              </button>
+            </>
+          )}
+          {copyResult !== null && (
+            <p role="status">
+              {copyResult === "copied" ? t("notes.copied") : t("notes.copyFailed")}
+            </p>
+          )}
+        </div>
       )}
 
       {stuck && (

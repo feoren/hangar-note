@@ -39,6 +39,7 @@ function opened(id: string, title: string, extra: Partial<OpenedNote> = {}): Ope
     onDesktop: false,
     onTop: false,
     autoTitled: false,
+    version: `v-${id}`,
     ...extra,
   };
 }
@@ -62,6 +63,7 @@ const api = vi.hoisted(() => ({
   copyText: vi.fn(),
   restoreNote: vi.fn(),
   setSettings: vi.fn(),
+  setAutostart: vi.fn(),
 }));
 
 // The real error codes and their helpers (errors.ts reads them); the commands are mocked.
@@ -102,7 +104,7 @@ vi.mock("./api", async (importOriginal) => ({
   }),
   windowReady: vi.fn(() => Promise.resolve(null)),
   setSettings: api.setSettings,
-  setAutostart: vi.fn(),
+  setAutostart: api.setAutostart,
   setHubOnTop: api.setHubOnTop,
 }));
 
@@ -263,7 +265,7 @@ beforeEach(() => {
   api.readNote.mockImplementation((_folder: unknown, id: string) =>
     Promise.resolve(opened(id, id === A ? "Einkaufen" : "Projekt")),
   );
-  api.writeNote.mockResolvedValue(null);
+  api.writeNote.mockResolvedValue("v-saved");
   api.renameNote.mockResolvedValue(null);
   api.deleteNote.mockResolvedValue(null);
   api.fromDesktop.mockResolvedValue(null);
@@ -350,7 +352,7 @@ describe("notes area", () => {
     });
     await settle();
     expect(api.createNote).toHaveBeenCalledWith(GENERAL, "Notiz");
-    expect(api.writeNote).toHaveBeenCalledWith(GENERAL, A, "# Einkaufsliste\n- Milch");
+    expect(api.writeNote).toHaveBeenCalledWith(GENERAL, A, "# Einkaufsliste\n- Milch", `v-${A}`);
     // Leaving the note gives it the first line as its title.
     await click(button(t("notes.backToList")));
     expect(api.renameNote).toHaveBeenCalledWith(GENERAL, A, "Einkaufsliste", false);
@@ -400,22 +402,51 @@ async function type(text: string) {
   await settle();
 }
 
-describe("notes area: capture and quick note", () => {
-  it("says a capture was saved only once its note exists, titled after its source", async () => {
-    api.takeHubRequests.mockResolvedValue([capture]);
+describe("notes area: requests and quick note", () => {
+  it("opens the note a capture made in the backend without creating one", async () => {
+    const folder = "C:/p/Demo Projekt";
+    api.takeHubRequests.mockResolvedValue([{ kind: "openNote", folder, id: B }]);
+    api.readNote.mockResolvedValue(
+      opened(B, "Ausgabe", {
+        path: folder,
+        folderKey: "demo",
+        text: "_Aus Demo Projekt_\nAusgabe",
+      }),
+    );
     await render();
-    expect(api.createNote).toHaveBeenCalledTimes(1);
-    const written = String(api.writeNote.mock.calls[0]?.[2]);
-    expect(written).toMatch(/^_Aus Demo Projekt, /);
-    expect(container.textContent).toContain(t("notes.capturedNew"));
+    expect(api.readNote).toHaveBeenCalledWith({ path: folder }, B);
+    expect(api.createNote).not.toHaveBeenCalled();
+    expect(api.writeNote).not.toHaveBeenCalled();
+    expect(container.querySelector(".note-pane")?.getAttribute("aria-label")).toBe("Ausgabe");
+    expect(editor.text).toBe("_Aus Demo Projekt_\nAusgabe");
+    // The list is read again, so the new note shows there too.
+    expect(api.listNotes.mock.calls.length).toBeGreaterThan(1);
   });
 
-  it("does not claim a capture was saved when creating its note failed", async () => {
-    api.takeHubRequests.mockResolvedValue([capture]);
-    api.createNote.mockRejectedValue("disk full");
+  it("opens a captured note read only, without a draft, while Hangar keeps the notes", async () => {
+    api.getStatus.mockResolvedValue(readOnly);
+    api.takeHubRequests.mockResolvedValue([{ kind: "openNote", folder: null, id: A }]);
     await render();
-    expect(container.textContent).not.toContain(t("notes.capturedNew"));
-    expect(container.textContent).toContain(t("notes.heldHint"));
+    expect(api.createNote).not.toHaveBeenCalled();
+    expect(container.querySelector(".note-pane")?.getAttribute("aria-label")).toBe("Einkaufen");
+    expect(container.textContent).not.toContain(t("notes.heldHint"));
+  });
+
+  it("keeps an unsaved open note when a captured note asks to be shown", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nneu");
+    api.writeNote.mockRejectedValue("disk full");
+    api.takeHubRequests.mockResolvedValue([{ kind: "openNote", folder: null, id: B }]);
+    await act(async () => {
+      api.handlers.get("hub-requests")?.();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(api.createNote).not.toHaveBeenCalled();
+    expect(api.readNote).toHaveBeenCalledTimes(1);
+    expect(container.querySelector(".note-pane")?.getAttribute("aria-label")).toBe("Einkaufen");
+    expect(editor.text).toBe("Einkaufen\nText");
   });
 
   it("keeps a capture in a draft to copy while the notes are read only", async () => {
@@ -423,12 +454,20 @@ describe("notes area: capture and quick note", () => {
     api.takeHubRequests.mockResolvedValue([capture]);
     await render();
     expect(api.createNote).not.toHaveBeenCalled();
-    expect(container.textContent).not.toContain(t("notes.capturedNew"));
     expect(container.textContent).toContain(t("notes.heldHint"));
     expect(editor.text).toContain("Ausgabe");
+    expect(editor.text).toMatch(/^_Aus Demo Projekt, /);
     await click(button(t("notes.copyMarkdown")));
     expect(api.copyText).toHaveBeenCalledWith(editor.text);
     expect(container.textContent).toContain(t("notes.copied"));
+  });
+
+  it("never creates a note for a capture the backend could not store", async () => {
+    api.takeHubRequests.mockResolvedValue([capture]);
+    await render();
+    expect(api.createNote).not.toHaveBeenCalled();
+    expect(api.writeNote).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(t("notes.heldHint"));
   });
 
   it("opens no draft for a quick note while the notes are read only", async () => {
@@ -457,7 +496,7 @@ describe("notes area: leaving an unsaved note", () => {
     await click(button(t("notes.backToList")));
     expect(container.querySelector(".note-bar")).not.toBeNull();
     // Once a save works again, leaving works and the warning is gone.
-    api.writeNote.mockResolvedValue(null);
+    api.writeNote.mockResolvedValue("v-saved");
     await click(button(t("notes.backToList")));
     expect(container.querySelector(".note-bar")).toBeNull();
     expect(container.querySelector(".notes-stuck")).toBeNull();
@@ -489,7 +528,7 @@ describe("notes area: leaving an unsaved note", () => {
     expect(container.querySelector(".notes-stuck")).toBeNull();
     expect(container.querySelector(".note-unsaved")).toBeNull();
     // The dropped text is never written later, not even by the flush before quitting.
-    api.writeNote.mockResolvedValue(null);
+    api.writeNote.mockResolvedValue("v-saved");
     await act(async () => {
       api.handlers.get("flush:hub")?.();
       await Promise.resolve();
@@ -537,7 +576,7 @@ describe("notes area: trash and back", () => {
       await Promise.resolve();
     });
     await settle();
-    expect(api.writeNote).toHaveBeenLastCalledWith(GENERAL, A, "Einkaufen\nneu\nmehr");
+    expect(api.writeNote).toHaveBeenLastCalledWith(GENERAL, A, "Einkaufen\nneu\nmehr", "v-saved");
   });
 });
 
@@ -689,7 +728,7 @@ describe("notes area: direction A", () => {
     expect(foot?.querySelectorAll('[role="alert"]')).toHaveLength(1);
     expect(foot?.textContent).toContain(t("storage.diskFull"));
     // Once a save works, the error is fixed and goes.
-    api.writeNote.mockResolvedValue(null);
+    api.writeNote.mockResolvedValue("v-saved");
     await type("Einkaufen\nneu\nmehr");
     await act(async () => {
       api.handlers.get("flush:hub")?.();
@@ -831,7 +870,7 @@ describe.each(ALL_LOOKS)("notes area, shared behaviour in the look %s", (look) =
     await type("Einkaufen\nneu");
     expect(api.writeNote).not.toHaveBeenCalled();
     await leaveNote(look);
-    expect(api.writeNote).toHaveBeenCalledWith(GENERAL, A, "Einkaufen\nneu");
+    expect(api.writeNote).toHaveBeenCalledWith(GENERAL, A, "Einkaufen\nneu", `v-${A}`);
     if (look === "hangar") {
       const written = api.writeNote.mock.invocationCallOrder[0] ?? Infinity;
       const read = api.readNote.mock.invocationCallOrder[1] ?? -Infinity;
@@ -950,6 +989,7 @@ describe("notes area: switching the look", () => {
       GENERAL,
       A,
       "Einkaufen\nnoch nicht gespeichert\nmehr",
+      `v-${A}`,
     );
   });
 
@@ -985,6 +1025,7 @@ describe("notes area: paper look", () => {
       GENERAL,
       A,
       "Einkaufen\n- [x] eins\n- [x] zwei\nRest",
+      `v-${A}`,
     );
   });
 
@@ -1216,5 +1257,152 @@ describe("notes area: hangar look", () => {
     await click(button(t("notes.back")));
     await frames();
     expect(document.activeElement).toBe(container.querySelector('[data-focus-id="trash"]'));
+  });
+});
+
+async function flushHub() {
+  await act(async () => {
+    api.handlers.get("flush:hub")?.();
+    await Promise.resolve();
+  });
+  await settle();
+}
+
+function alertText(): string {
+  return container.querySelector("[role='alert']")?.textContent ?? "";
+}
+
+describe("notes area: a note changed outside", () => {
+  it("saves with the version it was read with, then with the one each save answers", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    api.writeNote.mockResolvedValueOnce("v-1").mockResolvedValueOnce("v-2");
+    await type("Einkaufen\neins");
+    await flushHub();
+    await type("Einkaufen\nzwei");
+    await flushHub();
+    expect(api.writeNote.mock.calls).toEqual([
+      [GENERAL, A, "Einkaufen\neins", `v-${A}`],
+      [GENERAL, A, "Einkaufen\nzwei", "v-1"],
+    ]);
+  });
+
+  it("keeps the text, offers reload and copy, and reloads only after asking", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    api.writeNote.mockRejectedValue("changed");
+    await type("Einkaufen\nmeine Fassung");
+    await flushHub();
+    expect(alertText()).toContain(t("error.changed"));
+    expect(alertText()).not.toContain("changed");
+    expect(container.querySelector(".note-unsaved")?.textContent).toBe(t("notes.unsaved"));
+    expect(api.noteFlushed).toHaveBeenLastCalledWith(false);
+    await click(button(t("notes.copyMarkdown")));
+    expect(api.copyText).toHaveBeenCalledWith("Einkaufen\nmeine Fassung");
+    expect(alertText()).toContain(t("notes.copied"));
+    // Nothing more is sent: every save would be refused the same way.
+    await type("Einkaufen\nmeine Fassung, mehr");
+    await flushHub();
+    expect(api.writeNote).toHaveBeenCalledTimes(1);
+    // "Reload" asks in the notice first; going back changes nothing.
+    await click(button(t("notes.reloadNote")));
+    expect(alertText()).toContain(t("notes.reloadDiscards"));
+    expect(api.readNote).toHaveBeenCalledTimes(1);
+    await click(button(t("notes.reloadCancel")));
+    expect(alertText()).toContain(t("error.changed"));
+    expect(api.readNote).toHaveBeenCalledTimes(1);
+    // Confirmed: the note as its file is now, and saving goes on with that version.
+    api.readNote.mockResolvedValue(opened(A, "Einkaufen", { text: "Von außen", version: "v-9" }));
+    api.writeNote.mockResolvedValue("v-10");
+    await click(button(t("notes.reloadNote")));
+    await click(button(t("notes.reloadConfirm")));
+    expect(api.readNote).toHaveBeenCalledTimes(2);
+    expect(editor.text).toBe("Von außen");
+    expect(container.querySelector(".area-foot [role='alert']")).toBeNull();
+    expect(container.querySelector(".note-unsaved")).toBeNull();
+    await type("Von außen\nweiter");
+    await flushHub();
+    expect(api.writeNote).toHaveBeenLastCalledWith(GENERAL, A, "Von außen\nweiter", "v-9");
+    expect(api.noteFlushed).toHaveBeenLastCalledWith(true);
+  });
+
+  it("leaves a note changed outside only on the second try, as after any failed save", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    api.writeNote.mockRejectedValue("changed");
+    await type("Einkaufen\nmeine Fassung");
+    const now = vi.spyOn(Date, "now").mockReturnValue(8_000_000);
+    await click(rowButton("Projekt"));
+    expect(container.querySelector(".note-pane")?.getAttribute("aria-label")).toBe("Einkaufen");
+    expect(container.querySelector(".notes-stuck")?.textContent).toContain(t("notes.leaveUnsaved"));
+    now.mockReturnValue(8_004_000);
+    await click(rowButton("Projekt"));
+    expect(container.querySelector(".note-pane")?.getAttribute("aria-label")).toBe("Projekt");
+    expect(container.querySelector(".notes-stuck")).toBeNull();
+    now.mockRestore();
+    // Back on the note, it saves again with the version it is read with now.
+    api.writeNote.mockResolvedValue("v-saved");
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nneu");
+    await flushHub();
+    expect(api.writeNote).toHaveBeenLastCalledWith(GENERAL, A, "Einkaufen\nneu", `v-${A}`);
+  });
+
+  it("does not set a tick on a card whose note changed outside, and shows it as it is now", async () => {
+    api.readNote.mockResolvedValue(
+      opened(A, "Einkaufen", { text: "Einkaufen\n- [x] eins\n- [ ] zwei", version: "v-3" }),
+    );
+    api.writeNote.mockRejectedValue("changed");
+    await render("paper");
+    const loads = api.listNotes.mock.calls.length;
+    const boxes = () =>
+      Array.from(
+        rowButton("Einkaufen")
+          .closest(".card")
+          ?.querySelectorAll<HTMLInputElement>(".card-task input") ?? [],
+      );
+    await click(boxes()[1] ?? container);
+    expect(api.writeNote).toHaveBeenCalledWith(
+      GENERAL,
+      A,
+      "Einkaufen\n- [x] eins\n- [x] zwei",
+      "v-3",
+    );
+    expect(api.listNotes.mock.calls.length).toBeGreaterThan(loads);
+    expect(boxes().map((box) => box.checked)).toEqual([true, false]);
+    expect(alertText()).toContain(t("error.changed"));
+  });
+});
+
+describe("notes area: small fixes", () => {
+  it("marks only the trash in the hangar sidebar while the trash is shown", async () => {
+    await render("hangar");
+    const pressed = () =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>(".side-list button")).filter(
+        (element) =>
+          element.getAttribute("aria-pressed") === "true" && !element.querySelector(".color-dot"),
+      );
+    // One scope is the place shown while the notes are.
+    expect(pressed()).toHaveLength(1);
+    await openTrash("hangar");
+    expect(pressed()).toEqual([]);
+    expect(container.querySelector('[data-focus-id="trash"]')?.getAttribute("aria-current")).toBe(
+      "page",
+    );
+  });
+
+  it("says why start with the system could not be changed, in its own sentence", async () => {
+    api.setAutostart.mockRejectedValue("autostart");
+    await render();
+    await openAreaMenu();
+    await click(menuItem(t("notes.settings")));
+    const box = Array.from(container.querySelectorAll<HTMLLabelElement>("label")).find((label) =>
+      label.textContent.includes(t("settings.autostart")),
+    );
+    const input = box?.querySelector("input");
+    if (!input) throw new Error("autostart switch missing");
+    await click(input);
+    expect(container.textContent).toContain(t("error.autostart"));
+    expect(container.textContent).not.toContain(t("settings.failed"));
   });
 });

@@ -16,6 +16,11 @@ export interface Saver {
   flush: () => Promise<boolean>;
   /** Stop the timer; nothing pending is written any more. */
   dispose: () => void;
+  /**
+   * Forget the pending text without writing it (the person chose to reload the note); later
+   * changes are saved as usual.
+   */
+  discard: () => void;
 }
 
 export interface SaverOptions {
@@ -83,6 +88,10 @@ export function createSaver(options: SaverOptions): Saver {
     },
     dispose: () => {
       disposed = true;
+      clearTimer();
+    },
+    discard: () => {
+      pending = null;
       clearTimer();
     },
   };

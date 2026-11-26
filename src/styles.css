@@ -1484,6 +1484,14 @@ kbd {
   color: var(--muted);
 }
 
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-left: auto;
+}
+
 /* ---- Trash and settings ---- */
 
 .trash-row {

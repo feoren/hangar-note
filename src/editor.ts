@@ -37,6 +37,18 @@ import { tags } from "@lezer/highlight";
 
 import { editorText, taskMarkOffset, toggleLinePrefix, toggleWrap } from "./noteText";
 
+/**
+ * The style nonce Tauri put into index.html for this load, `null` without one (the dev server
+ * serves the placeholder unchanged and applies no policy). CodeMirror writes its styles into
+ * `<style>` elements, which `style-src 'self'` refuses without this nonce.
+ */
+export function styleNonce(doc: Document = document): string | null {
+  const value =
+    doc.querySelector<HTMLMetaElement>('meta[name="hangar-style-nonce"]')?.content.trim() ?? "";
+  // Tauri's nonces are decimal numbers; the untouched placeholder is not one.
+  return /^[0-9]+$/.test(value) ? value : null;
+}
+
 export type Format = "bold" | "italic" | "strike" | "bullet" | "task";
 
 export interface NoteEditor {
@@ -261,6 +273,8 @@ function readOnlyLock(readOnly: boolean): Extension {
 export function createNoteEditor(parent: HTMLElement, options: EditorOptions): NoteEditor {
   let readOnly = options.readOnly === true;
   const lock = new Compartment();
+  const allowed = styleNonce(parent.ownerDocument);
+  const nonce: Extension = allowed === null ? [] : EditorView.cspNonce.of(allowed);
   const state = (raw: string) => {
     const text = editorText(raw);
     return EditorState.create({
@@ -268,6 +282,7 @@ export function createNoteEditor(parent: HTMLElement, options: EditorOptions): N
       selection: EditorSelection.cursor(text.length),
       extensions: [
         lock.of(readOnlyLock(readOnly)),
+        nonce,
         history(),
         keymap.of([
           { key: "Tab", run: indentList(true), shift: indentList(false) },

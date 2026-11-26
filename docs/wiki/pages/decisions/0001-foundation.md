@@ -153,6 +153,44 @@ Lemon (default), Peach, Mint, Sky, Lilac, Rose, Sand, Slate. The app chrome uses
   layouts without Latin letters; digits match the key position; AltGr never triggers a shortcut.
   Defined only in `src/shortcuts.ts`, with tests.
 
+### Content Security Policy
+Added 2026-11-26 (complete security review, finding F1). The policy in `src-tauri/tauri.conf.json`
+(`app.security.csp`) allows scripts and style sheets only from the app itself
+(`script-src 'self'`, `style-src 'self'`), no `'unsafe-inline'` and no `'unsafe-eval'` for either,
+inline styles only as attributes (`style-src-attr 'unsafe-inline'`, React's `style` props), no
+frames, workers, media or plugins, and `connect-src` only for the IPC (`ipc:`,
+`http://ipc.localhost`). `freezePrototype` is on. `src/securityConfig.test.ts` holds the policy to
+these rules, also that there is no separate `devCsp` and no `dangerousDisableAssetCspModification`.
+
+CodeMirror writes its styles into `<style>` elements of its own (`style-mod`), which
+`style-src 'self'` refuses. Instead of `'unsafe-inline'`, those elements carry the nonce Tauri
+makes for each load:
+- `index.html` holds `<meta name="hangar-style-nonce" content="__TAURI_STYLE_NONCE__">`.
+  `src/editor.ts` (`styleNonce`) reads it and hands it to CodeMirror (`EditorView.cspNonce`), which
+  sets it as the `nonce` attribute of its style element (`style-mod` 4.1.5, `StyleSet`).
+- Tauri 2.12.7, `src/manager/mod.rs`: `get_asset` (around line 420) calls `set_csp` for every
+  HTML asset when a policy is set; `set_csp` (line 53) calls `replace_csp_nonce` with
+  `STYLE_NONCE_TOKEN` for `style-src` unless `dangerousDisableAssetCspModification` forbids it
+  (lines 96 to 104); `replace_csp_nonce` (lines 126 to 153) replaces every occurrence of the token
+  in the HTML with a fresh random `u64` (`getrandom`) and adds `'nonce-<n>'` (with `'self'`) to
+  that directive of the policy sent with the page. The token is `__TAURI_STYLE_NONCE__`
+  (`tauri-utils` 2.10, `src/assets.rs`, `STYLE_NONCE_TOKEN`).
+- Why not `'unsafe-inline'`: it would let any injected `<style>` restyle the window (hide text,
+  overlay controls). Moreover, as soon as a directive carries a nonce or a hash, browsers ignore
+  `'unsafe-inline'` in it (CSP Level 3), and Tauri adds hashes of inline styles and its own nonces
+  there, so `'unsafe-inline'` would not reliably help either.
+- The nonce is readable by any script in the page, which is no weakness here: only the app's own
+  scripts run (`script-src 'self'`), and the nonce changes with every load.
+- Development: the Vite dev server serves `index.html` itself, so the placeholder stays and no
+  policy applies (`get_asset` only runs for embedded assets). `styleNonce` then gives `null` (a
+  Tauri nonce is a decimal number) and CodeMirror runs without one. The policy is therefore only
+  seen in a build with embedded assets; check the console there after changing it.
+
+> [!question] Unverified
+> That browsers ignore `'unsafe-inline'` in a directive with a nonce or a hash is the CSP Level 3
+> rule as known from the specification, not looked up here. The rest of this section was read in
+> the sources named above (Tauri 2.12.7, tauri-utils 2.10, style-mod 4.1.5) on 2026-11-26.
+
 ### Identity and versions
 Product name "Hangar Note", identifier `com.feoren.hangar-note`, version 0.1.0 with the build
 number from Git as in Hangar. Updater and release script follow with the first release.

@@ -58,6 +58,11 @@ export interface OpenedNote {
   onTop: boolean;
   /** The title still follows the first line. */
   autoTitled: boolean;
+  /**
+   * The state of the file as it was read. A save sends it back as `expected`; the backend refuses
+   * the save with `changed` when the file was changed outside since.
+   */
+  version: string;
 }
 
 export interface TrashRow {
@@ -80,7 +85,12 @@ export interface Status {
   project: string | null;
 }
 
-/** What the command line and Hangar ask of the notes area (`HubRequest` in requests.rs). */
+/**
+ * What the command line and Hangar ask of the notes area (`HubRequest` in requests.rs). A capture
+ * over the channel arrives as `openNote`: the backend has written its note already, the notes
+ * area only shows it. `capture` is left only for a text the backend could not store (a capture
+ * that started the app while the notes are read only); the notes area holds it to be copied.
+ */
 export type HubRequest =
   | { kind: "showProject" }
   | { kind: "openNote"; folder: string | null; id: string }
@@ -133,6 +143,33 @@ export const LOOK_CHANGED_EVENT = "note-look-changed";
 export const NOT_SAVED_ERROR = "not-saved";
 export const READ_ONLY_ERROR = "read-only";
 export const ON_DESKTOP_ERROR = "on-desktop";
+/** The file was changed outside since it was read (`expected` no longer matches). */
+export const CHANGED_ERROR = "changed";
+
+/** Fixed codes of the other command failures (windows.rs); errors.ts gives each its sentence. */
+export const COMMAND_ERRORS = [
+  "autostart",
+  "clipboard",
+  "window",
+  "task",
+  "not-a-path",
+  "invalid-title",
+  "invalid-id",
+  CHANGED_ERROR,
+  "not-open",
+  "not-allowed",
+  "invalid",
+] as const;
+export type CommandError = (typeof COMMAND_ERRORS)[number];
+
+/** The command failure an error stands for, `null` for any other error. */
+export function commandError(error: unknown): CommandError | null {
+  return COMMAND_ERRORS.find((code) => code === error) ?? null;
+}
+
+export function isChanged(error: unknown): boolean {
+  return error === CHANGED_ERROR;
+}
 
 export function isNotSaved(error: unknown): boolean {
   return error === NOT_SAVED_ERROR;
@@ -180,10 +217,15 @@ export const searchNotes = (query: string) => invoke<SearchHit[]>("search_notes"
 export const readNote = (folder: NoteFolder, id: string) =>
   invoke<OpenedNote>("read_note", { folder, id });
 export const getSticky = () => invoke<OpenedNote>("get_sticky");
-export const writeNote = (folder: NoteFolder, id: string, text: string) =>
-  invoke<null>("write_note", { folder, id, text });
+/**
+ * Saves a note and answers its new `version`. With `expected` (the version it was read or last
+ * saved with) the backend refuses with `changed` when the file was changed outside meanwhile.
+ */
+export const writeNote = (folder: NoteFolder, id: string, text: string, expected?: string) =>
+  invoke<string>("write_note", { folder, id, text, expected });
 /** A sticky note saves its own text; the backend knows the note by the window. */
-export const writeSticky = (text: string) => invoke<null>("write_sticky", { text });
+export const writeSticky = (text: string, expected?: string) =>
+  invoke<string>("write_sticky", { text, expected });
 /** A new note titled "`base` N" (the smallest free N). */
 export const createNote = (folder: NoteFolder, base: string) =>
   invoke<OpenedNote>("create_note", { folder, base });

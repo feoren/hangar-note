@@ -16,6 +16,7 @@ import {
   exportNote,
   fromDesktop,
   getStatus,
+  isChanged,
   isReadOnly,
   listNoteFolders,
   listNotes,
@@ -236,6 +237,15 @@ export function useNotesArea(app: AppSettings) {
   const noteRef = useRef<Current | null>(null);
   const textRef = useRef("");
   const pending = useRef<{ folder: NoteFolder; id: string; text: string } | null>(null);
+  /** The version each note was last read or saved with (`noteKey`), sent as `expected`. */
+  const versions = useRef(new Map<string, string>());
+  /**
+   * The note whose file was changed outside (`noteKey`): nothing more is written to it until the
+   * person reloads it or leaves it, since every save would be refused the same way.
+   */
+  const conflict = useRef<string | null>(null);
+  /** Saves run one after the other, so each sends the version the one before it brought back. */
+  const saving = useRef<Promise<boolean>>(Promise.resolve(true));
   const saveTimer = useRef<number | null>(null);
   const statsTimer = useRef<number | null>(null);
   const creating = useRef<Promise<boolean> | null>(null);
@@ -263,6 +273,8 @@ export function useNotesArea(app: AppSettings) {
     reload: () => undefined,
     retry: () => undefined,
   });
+  /** The notice for a note changed outside; filled once the actions below exist. */
+  const changedNotice = useRef<() => Notice>(() => ({ message: "" }));
 
   const writable = status?.access.state === "writable";
   const writableRef = useRef(writable);
@@ -368,13 +380,17 @@ export function useNotesArea(app: AppSettings) {
 
   const hasPending = () => pending.current !== null;
 
-  const flush = useCallback(async (): Promise<boolean> => {
-    if (saveTimer.current !== null) {
-      window.clearTimeout(saveTimer.current);
-      saveTimer.current = null;
-    }
+  /** Remembers the version a note was read with, for its next save. */
+  const remember = useCallback((note: OpenedNote) => {
+    versions.current.set(noteKey({ folder: { path: note.path }, id: note.id }), note.version);
+  }, []);
+
+  const flushNow = useCallback(async (): Promise<boolean> => {
     const job = pending.current;
     if (!job) return true;
+    const key = noteKey(job);
+    // Changed outside: the text stays pending, the notice already says what to do.
+    if (conflict.current === key) return false;
     pending.current = null;
     if (utf8Bytes(job.text) > MAX_NOTE_BYTES) {
       pending.current = job;
@@ -383,7 +399,8 @@ export function useNotesArea(app: AppSettings) {
       return false;
     }
     try {
-      await writeNote(job.folder, job.id, job.text);
+      const version = await writeNote(job.folder, job.id, job.text, versions.current.get(key));
+      versions.current.set(key, version);
       setUnsaved(false);
       setNotices((slots) => clearNotice(slots, "unsaved"));
       // Typed meanwhile: that text is still on its way. Read through a call, since the await above
@@ -414,12 +431,27 @@ export function useNotesArea(app: AppSettings) {
       // Kept for the next attempt, unless newer text replaced it meanwhile.
       pending.current ??= job;
       setUnsaved(true);
+      if (isChanged(e)) {
+        conflict.current = key;
+        report(changedNotice.current());
+        return false;
+      }
       const message = errorMessage(e, "save");
       if (message === null) fail(e);
       else report(toNotice(message, "save"));
       return false;
     }
   }, [fail, report, toNotice, t]);
+
+  const flush = useCallback((): Promise<boolean> => {
+    if (saveTimer.current !== null) {
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    const run = saving.current.then(flushNow, flushNow);
+    saving.current = run;
+    return run;
+  }, [flushNow]);
 
   /**
    * Creates the quick note in the backend as soon as it has content. `true` when the open draft
@@ -432,6 +464,7 @@ export function useNotesArea(app: AppSettings) {
     const work = (async () => {
       try {
         const made = await createNote(draft.folder, t("notes.untitled"));
+        remember(made);
         const created: Current = current(made);
         // The window may already show another note; then the new one is only saved.
         if (noteRef.current === draft) {
@@ -456,7 +489,7 @@ export function useNotesArea(app: AppSettings) {
     const made = await work;
     creating.current = null;
     return made;
-  }, [fail, flush, reloadFolders, t]);
+  }, [fail, flush, reloadFolders, remember, t]);
 
   /**
    * Leaving the open note: save, give a new note its title from the first line, and drop a new
@@ -533,6 +566,7 @@ export function useNotesArea(app: AppSettings) {
       saveTimer.current = null;
     }
     pending.current = null;
+    conflict.current = null;
     setUnsaved(false);
     setDirty(false);
     setNotices((slots) => clearNotice(clearNotice(slots, "unsaved"), "error"));
@@ -608,6 +642,8 @@ export function useNotesArea(app: AppSettings) {
     (open: Current | null, content: string, focus: boolean) => {
       noteRef.current = open;
       textRef.current = content;
+      // A new text in the editor: whatever was refused for the old one is over.
+      conflict.current = null;
       setNote(open);
       setRenaming(false);
       setHeld(false);
@@ -677,7 +713,10 @@ export function useNotesArea(app: AppSettings) {
         const row = next.find((r) => sameNote(r, { folder: open.folder, id: open.id ?? "" }));
         if (row && row.onDesktop !== open.onDesktop) {
           const fresh = await readNote(open.folder, open.id);
-          if (noteRef.current === open) show(current(fresh), fresh.text, false);
+          if (noteRef.current === open) {
+            remember(fresh);
+            show(current(fresh), fresh.text, false);
+          }
         }
       }
     } catch (e) {
@@ -693,7 +732,7 @@ export function useNotesArea(app: AppSettings) {
     }
     // `listKey` names the folders; the array itself is rebuilt on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listKey, fail, show]);
+  }, [listKey, fail, remember, show]);
 
   useEffect(() => {
     reloadRef.current = reloadList;
@@ -777,6 +816,7 @@ export function useNotesArea(app: AppSettings) {
       try {
         const opened = await readNote(ref.folder, ref.id);
         if (mine !== generation.current) return;
+        remember(opened);
         show(current(opened), opened.text, focus);
         setPane("note");
         setView("browse");
@@ -784,21 +824,21 @@ export function useNotesArea(app: AppSettings) {
         if (mine === generation.current) fail(e);
       }
     },
-    [fail, flush, leave, leaveByPerson, show],
+    [fail, flush, leave, leaveByPerson, remember, show],
   );
 
   /**
    * A new quick note in `folder`; it is created once it has content. "stayed": the open note
-   * could not be saved, so nothing changed. "held": the content could not become a note and waits
+   * could not be saved, so nothing changed. With `held`, a text the backend could not store waits
    * in the draft to be copied.
    */
   const startDraft = useCallback(
     async (
       folder: NoteFolder,
       focus: boolean,
-      content = "",
       byPerson = false,
-    ): Promise<"created" | "draft" | "held" | "stayed"> => {
+      held = "",
+    ): Promise<"draft" | "stayed"> => {
       generation.current += 1;
       const mine = generation.current;
       const left = await (byPerson ? leaveByPerson() : leave());
@@ -814,19 +854,13 @@ export function useNotesArea(app: AppSettings) {
           onDesktop: false,
           color: settings?.newNoteColor ?? "lemon",
         },
-        content,
+        held,
         focus,
       );
-      if (content === "") return "draft";
-      if (!writableRef.current) {
-        setHeld(true);
-        return "held";
-      }
-      const made = await ensureCreated();
-      void reloadRef.current();
-      return made ? "created" : "held";
+      if (held !== "") setHeld(true);
+      return "draft";
     },
-    [ensureCreated, leave, leaveByPerson, settings?.newNoteColor, show],
+    [leave, leaveByPerson, settings?.newNoteColor, show],
   );
 
   /** The focus onto a row, else onto the search, else onto "New note". */
@@ -860,34 +894,12 @@ export function useNotesArea(app: AppSettings) {
   const newNote = () => {
     if (!writable) return;
     setQuery("");
-    void startDraft(newFolder, true, "", true);
+    void startDraft(newFolder, true, true);
   };
 
-  /**
-   * A capture while the open note cannot be left (its text is not saved): the capture becomes a
-   * note of its own in the background, so neither text is lost.
-   */
-  const keepCapture = useCallback(
-    async (folder: NoteFolder, content: string) => {
-      if (!writableRef.current) {
-        report({ message: t("notes.heldHint") });
-        return;
-      }
-      try {
-        const made = await createNote(folder, t("notes.untitled"));
-        await writeNote(folder, made.id, content);
-        const title = nextAutoTitle(current(made), content, UNTITLED_BASES);
-        if (title !== null) await renameNote(folder, made.id, title, false);
-        void reloadRef.current();
-        inform({ message: t("notes.capturedNew") });
-      } catch (e) {
-        fail(e);
-      }
-    },
-    [fail, inform, report, t],
-  );
-
-  // Requests from the command line and from Hangar: quick note, capture, open a note.
+  // Requests from the command line and from Hangar: quick note, open a note, and a captured text
+  // the backend could not store. A capture over the channel arrives as "open a note": the backend
+  // has written it already, so nothing is created here.
   const handleRequests = useCallback(
     async (requests: HubRequest[]) => {
       for (const request of requests) {
@@ -901,6 +913,9 @@ export function useNotesArea(app: AppSettings) {
             setScope(scopeForFolder(folder, project));
             setQuery("");
             await openNote({ folder, id: request.id }, true, false);
+            // A captured note is new: the list and the counts show it, even if it could not open.
+            reloadFolders();
+            void reloadRef.current();
             break;
           }
           case "quick":
@@ -910,7 +925,8 @@ export function useNotesArea(app: AppSettings) {
             if (writableRef.current) await startDraft(newNoteFolder(DEFAULT_SCOPE, project), true);
             break;
           case "capture": {
-            const folder = { path: request.folder };
+            // A text the backend could not store (read only): never created here, only held in
+            // a draft with "Copy as Markdown", so it is not lost.
             const content = appendCapture(
               "",
               request.text,
@@ -918,9 +934,20 @@ export function useNotesArea(app: AppSettings) {
               folderName(request.folder),
               (time, source) => t("notes.capturedFrom", { source, time }),
             );
-            const result = await startDraft(folder, false, content);
-            if (result === "created") inform({ message: t("notes.capturedNew") });
-            else if (result === "stayed") await keepCapture(folder, content);
+            const result = await startDraft({ path: request.folder }, false, false, content);
+            if (result === "stayed") {
+              report({
+                message: t("notes.heldHint"),
+                action: {
+                  label: t("notes.copyMarkdown"),
+                  run: () => {
+                    void copyText(content).then((copied) => {
+                      if (copied) setNotices((slots) => clearNotice(slots, "error"));
+                    });
+                  },
+                },
+              });
+            }
             break;
           }
           case "sharedUnavailable":
@@ -931,7 +958,7 @@ export function useNotesArea(app: AppSettings) {
     },
     // `project` is rebuilt every render; its path says when it changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [projectId, language, keepCapture, openNote, inform, startDraft, t],
+    [projectId, language, openNote, inform, reloadFolders, report, startDraft, t],
   );
   const requestsRef = useRef(handleRequests);
   useEffect(() => {
@@ -1225,7 +1252,9 @@ export function useNotesArea(app: AppSettings) {
                   : item,
               ),
         );
-        await writeNote(row.folder, row.id, next);
+        // Sent with the version it was read with: changed outside since, it is refused, the list
+        // shows the note as it is now, and the tick is not set.
+        await writeNote(row.folder, row.id, next, fresh.version);
         setNotices((slots) =>
           slots.error?.source === "save" ? clearNotice(slots, "error") : slots,
         );
@@ -1246,7 +1275,7 @@ export function useNotesArea(app: AppSettings) {
         event.preventDefault();
         if (writableRef.current) {
           setQuery("");
-          void startDraft(newFolder, true, "", true);
+          void startDraft(newFolder, true, true);
         }
         return;
       }
@@ -1272,8 +1301,79 @@ export function useNotesArea(app: AppSettings) {
     };
   }, [newFolder, startDraft, view]);
 
+  /**
+   * The open note again as its file is now, after the person confirmed in the notice that their
+   * change goes. Never without that confirmation.
+   */
+  const reloadChanged = async () => {
+    const open = noteRef.current;
+    if (open?.id == null) return;
+    try {
+      const fresh = await readNote(open.folder, open.id);
+      if (noteRef.current !== open) return;
+      if (saveTimer.current !== null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      pending.current = null;
+      remember(fresh);
+      leaveAnyway.current.reset();
+      setNotices((slots) => clearNotice(clearNotice(slots, "unsaved"), "error"));
+      show(current(fresh), fresh.text, true);
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  /** "Changed outside" with "Reload" (asks first) and "Copy as Markdown". */
+  const conflictNotice = (): Notice => ({
+    message: t("error.changed"),
+    source: "save",
+    action: {
+      label: t("notes.reloadNote"),
+      run: () => {
+        report({
+          message: t("notes.reloadDiscards"),
+          source: "save",
+          action: {
+            label: t("notes.reloadConfirm"),
+            run: () => {
+              void reloadChanged();
+            },
+          },
+          secondAction: {
+            label: t("notes.reloadCancel"),
+            run: () => {
+              report(conflictNotice());
+            },
+          },
+        });
+      },
+    },
+    secondAction: {
+      label: t("notes.copyMarkdown"),
+      run: () => {
+        // The result shows inside the notice itself, as in the warning on leaving.
+        void copyText(textRef.current).then((copied) => {
+          setNotices((slots) =>
+            slots.error === null
+              ? slots
+              : {
+                  ...slots,
+                  error: {
+                    ...slots.error,
+                    detail: t(copied ? "notes.copied" : "notes.copyFailed"),
+                  },
+                },
+          );
+        });
+      },
+    },
+  });
+
   // The one helpful button of an error (errors.ts) does what its label says.
   useEffect(() => {
+    changedNotice.current = conflictNotice;
     errorActions.current = {
       openFolder: () => {
         void revealNotesFolder(noteRef.current?.folder ?? newFolder).catch(fail);

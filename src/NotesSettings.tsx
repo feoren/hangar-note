@@ -6,6 +6,7 @@ import { useId, useState } from "react";
 
 import { setAutostart, setSettings, type Settings, type ThemeSetting } from "./api";
 import type { AppSettings } from "./appSettings";
+import { errorMessage } from "./errors";
 import { colorLabelKey, colorName, NOTE_COLORS, swatchColor, type NoteColor } from "./colors";
 import { LANGUAGE_NAMES, LANGUAGES, useT, type MessageKey } from "./i18n";
 import { BackIcon, CheckIcon } from "./icons";
@@ -37,9 +38,16 @@ export function withColorName(
   return next;
 }
 
+/** The sentence for a failed change: the code's own one (errors.ts), else the general one. */
+export function settingsError(error: unknown): MessageKey {
+  const message = errorMessage(error, "action");
+  return message === null || message.key === "error.failed" ? "settings.failed" : message.key;
+}
+
 export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () => void }) {
   const t = useT();
-  const [failed, setFailed] = useState(false);
+  /** The sentence of the last failed change, `null` while everything worked. */
+  const [failed, setFailed] = useState<MessageKey | null>(null);
   const hintId = useId();
   const { settings, applySaved, applyAutostart } = app;
   if (!settings) return null;
@@ -56,10 +64,10 @@ export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () =>
     setSettings(next)
       .then((saved) => {
         applySaved(saved);
-        setFailed(false);
+        setFailed(null);
       })
-      .catch(() => {
-        setFailed(true);
+      .catch((e: unknown) => {
+        setFailed(settingsError(e));
       });
   };
 
@@ -218,17 +226,17 @@ export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () =>
               setAutostart(enabled)
                 .then((now) => {
                   applyAutostart(now);
-                  setFailed(false);
+                  setFailed(null);
                 })
-                .catch(() => {
-                  setFailed(true);
+                .catch((e: unknown) => {
+                  setFailed(settingsError(e));
                 });
             }}
           />
           {t("settings.autostart")}
         </label>
 
-        {failed && <p className="notes-message error-text">{t("settings.failed")}</p>}
+        {failed !== null && <p className="notes-message error-text">{t(failed)}</p>}
       </div>
     </>
   );

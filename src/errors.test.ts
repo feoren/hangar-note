@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { STORAGE_ERRORS, storageErrorText } from "./api";
-import { errorActionLabel, errorMessage, type ErrorAction } from "./errors";
+import { COMMAND_ERRORS, STORAGE_ERRORS, storageErrorText } from "./api";
+import { COMMAND_ERROR_TEXTS, errorActionLabel, errorMessage, type ErrorAction } from "./errors";
 import { DICTIONARIES, LANGUAGES } from "./i18n";
 
 describe("error messages", () => {
@@ -58,6 +58,38 @@ describe("error messages", () => {
         const text = DICTIONARIES[language][key];
         expect(text.trim(), `${language} ${key}`).not.toBe("");
         expect(text, `${language} ${key}`).not.toMatch(/\{\w+\}/);
+      }
+    }
+  });
+
+  it("give every command code its own sentence, never the general one", () => {
+    for (const code of COMMAND_ERRORS) {
+      for (const context of ["save", "action"] as const) {
+        const message = errorMessage(code, context);
+        expect(message?.key, code).toBe(COMMAND_ERROR_TEXTS[code]);
+        expect(message?.key, code).not.toBe("error.failed");
+        expect(message?.key, code).not.toBe("note.saveFailed");
+      }
+    }
+    expect(new Set(Object.values(COMMAND_ERROR_TEXTS)).size).toBe(COMMAND_ERRORS.length);
+    expect(errorMessage("changed", "save")).toEqual({ key: "error.changed", action: null });
+    expect(errorMessage("invalid-id", "action")?.action).toBe("reload");
+    expect(errorMessage("task", "save")?.action).toBe("retry");
+    expect(errorMessage("task", "action")?.action).toBeNull();
+  });
+
+  it("say each command code in every language, without the code or English in another one", () => {
+    for (const language of LANGUAGES) {
+      for (const code of COMMAND_ERRORS) {
+        const text = DICTIONARIES[language][COMMAND_ERROR_TEXTS[code]];
+        expect(text.trim(), `${language} ${code}`).not.toBe("");
+        expect(text, `${language} ${code}`).not.toMatch(/\{\w+\}/);
+        expect(text, `${language} ${code}`).not.toBe(code);
+        // A code like "not-a-path" never shows; a plain word such as "clipboard" may.
+        if (code.includes("-")) expect(text, `${language} ${code}`).not.toContain(code);
+        if (language !== "en") {
+          expect(text, `${language} ${code}`).not.toBe(DICTIONARIES.en[COMMAND_ERROR_TEXTS[code]]);
+        }
       }
     }
   });

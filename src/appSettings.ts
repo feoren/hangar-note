@@ -114,6 +114,8 @@ export function useAppSettings(): AppSettings {
 
   useEffect(() => {
     document.documentElement.lang = language;
+    // Every window asks; while the notes area exists, the backend answers a sticky note
+    // `not-allowed` (the notes area sets the labels). Nothing to tell the person either way.
     if (settings) void setTrayLabels(trayLabels(t)).catch(() => null);
   }, [language, t, settings]);
 

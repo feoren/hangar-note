@@ -11,12 +11,19 @@ import { useT } from "./i18n";
 import { AlertIcon, CloseIcon, InfoIcon } from "./icons";
 import { noticeLifetime, type NoticeKind } from "./notices";
 
+export interface NoticeAction {
+  label: string;
+  run: () => void;
+}
+
 export interface Notice {
   message: string;
   /** A second line, e.g. the result of "Copy as Markdown" inside a warning. */
   detail?: string | undefined;
-  /** The one button that helps. */
-  action?: { label: string; run: () => void } | undefined;
+  /** The button that helps. */
+  action?: NoticeAction | undefined;
+  /** A second way out, where one button is not enough (a note changed outside). */
+  secondAction?: NoticeAction | undefined;
   /** Where an error came from: a save error goes once a save works again. */
   source?: "save" | undefined;
 }
@@ -80,24 +87,32 @@ export function NoticeSlot({ shown, onDismiss, onFocusLost }: Props) {
           </>
         )}
       </p>
-      {item.action && (
-        <button type="button" className="link-button" onClick={item.action.run}>
-          {item.action.label}
-        </button>
-      )}
-      {which !== "unsaved" && (
-        <button
-          type="button"
-          className="icon-button"
-          aria-label={t("notes.dismiss")}
-          title={t("notes.dismiss")}
-          onClick={() => {
-            onDismiss(which, item);
-          }}
-        >
-          <CloseIcon size={12} />
-        </button>
-      )}
+      {/* The buttons stay together: short of room, they move under the sentence as one row. */}
+      <span className="notice-actions">
+        {item.action && (
+          <button type="button" className="link-button" onClick={item.action.run}>
+            {item.action.label}
+          </button>
+        )}
+        {item.secondAction && (
+          <button type="button" className="link-button" onClick={item.secondAction.run}>
+            {item.secondAction.label}
+          </button>
+        )}
+        {which !== "unsaved" && (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={t("notes.dismiss")}
+            title={t("notes.dismiss")}
+            onClick={() => {
+              onDismiss(which, item);
+            }}
+          >
+            <CloseIcon size={12} />
+          </button>
+        )}
+      </span>
     </>
   );
 

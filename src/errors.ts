@@ -2,7 +2,15 @@
 // code. The backend sends fixed codes (api.ts); the sentences live in i18n.ts. Pure, so every code
 // is tested. "read-only" has no sentence here: the calm read-only hint already says it.
 
-import { isNotSaved, isReadOnly, ON_DESKTOP_ERROR, storageError, storageErrorText } from "./api";
+import {
+  commandError,
+  isNotSaved,
+  isReadOnly,
+  ON_DESKTOP_ERROR,
+  storageError,
+  storageErrorText,
+  type CommandError,
+} from "./api";
 import type { MessageKey } from "./i18n";
 
 /** What the person was doing: saving typed text, or any other action (rename, color, export). */
@@ -15,6 +23,21 @@ export interface ErrorMessage {
   key: MessageKey;
   action: ErrorAction | null;
 }
+
+/** The sentence for each command failure, in `i18n.ts`. */
+export const COMMAND_ERROR_TEXTS: Readonly<Record<CommandError, MessageKey>> = {
+  autostart: "error.autostart",
+  clipboard: "error.clipboard",
+  window: "error.window",
+  task: "error.task",
+  "not-a-path": "error.notAPath",
+  "invalid-title": "notes.invalidTitle",
+  "invalid-id": "error.invalidId",
+  changed: "error.changed",
+  "not-open": "error.notOpen",
+  "not-allowed": "error.notAllowed",
+  invalid: "error.invalid",
+};
 
 /** The sentence (and the helpful button) for `error`; `null` for "read-only". */
 export function errorMessage(error: unknown, context: ErrorContext): ErrorMessage | null {
@@ -32,6 +55,19 @@ export function errorMessage(error: unknown, context: ErrorContext): ErrorMessag
         return { key: storage, action: context === "save" ? "retry" : null };
       default:
         return { key: storage, action: null };
+    }
+  }
+  const command = commandError(error);
+  if (command !== null) {
+    const key = COMMAND_ERROR_TEXTS[command];
+    switch (command) {
+      case "invalid-id":
+        return { key, action: "reload" };
+      case "task":
+        return { key, action: context === "save" ? "retry" : null };
+      default:
+        // "changed" gets its two buttons where the text is (the notes area, the sticky note).
+        return { key, action: null };
     }
   }
   return context === "save"

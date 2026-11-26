@@ -105,7 +105,8 @@ export function HangarLayout({ m, trash }: { m: NotesModel; trash?: ReactNode })
                   <button
                     type="button"
                     className="side-item"
-                    aria-pressed={m.isShownScope(entry)}
+                    // In the trash the trash is the place shown, not a scope as well.
+                    aria-pressed={!inTrash && m.isShownScope(entry)}
                     title={entry.title}
                     onClick={() => {
                       m.setScope(entry.scope);
