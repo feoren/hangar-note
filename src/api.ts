@@ -120,6 +120,15 @@ export interface SettingsView extends Settings {
    * without the setting leaves it out, and the switch starts off.
    */
   hubOnTop?: boolean;
+  /**
+   * Whether the notes area's sidebar is shown in a wide window (`settings.json`, open by default).
+   * Optional for the same reason: a backend without it leaves it out, and the sidebar is open.
+   */
+  sidebarOpen?: boolean;
+  /** The sidebar's width in px as dragged (`settings.json`); left out by an older backend. */
+  sidebarWidth?: number;
+  /** The project the "Project" level showed last, `null` or left out without one. */
+  lastProject?: string | null;
 }
 
 export interface TrayLabels {
@@ -267,6 +276,13 @@ export const setSettings = (value: Settings) => invoke<Settings>("set_settings",
  * `settings.json` and answers the state it applied.
  */
 export const setHubOnTop = (onTop: boolean) => invoke<boolean>("set_hub_on_top", { onTop });
+/** Shows or folds away the notes area's sidebar for the next start too; answers the stored state. */
+export const setSidebarOpen = (open: boolean) => invoke<boolean>("set_sidebar_open", { open });
+/** Stores the sidebar's width in px; the backend keeps it within its range and answers it. */
+export const setSidebarWidth = (width: number) => invoke<number>("set_sidebar_width", { width });
+/** Remembers the project the "Project" level shows (`null` forgets it); answers the stored one. */
+export const setLastProject = (folder: string | null) =>
+  invoke<string | null>("set_last_project", { folder });
 export const setAutostart = (enabled: boolean) => invoke<boolean>("set_autostart", { enabled });
 export const setTrayLabels = (labels: TrayLabels) => invoke<null>("set_tray_labels", { labels });
 export const windowReady = () => invoke<null>("window_ready");

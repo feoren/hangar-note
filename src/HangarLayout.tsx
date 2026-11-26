@@ -10,6 +10,7 @@ import { colorName, noteTone, toneVariables } from "./colors";
 import { DesktopIcon, MoreIcon, PlusIcon, TaskIcon } from "./icons";
 import {
   AreaHeading,
+  emptyAreaText,
   FootStatus,
   HeldPanel,
   ListMessages,
@@ -70,7 +71,7 @@ export function HangarLayout({ m }: { m: NotesModel }) {
               data-focus-id="new"
               aria-label={t("notes.new")}
               title={`${t("notes.new")} (${m.quickKeys})`}
-              disabled={!writable}
+              disabled={!m.canCreate}
               onClick={m.newNote}
             >
               <PlusIcon />
@@ -81,14 +82,8 @@ export function HangarLayout({ m }: { m: NotesModel }) {
         {emptyMode ? (
           <div className="hangar-empty">
             <p className="hangar-empty-title">{t("notes.emptyTitle")}</p>
-            {(writable || m.shownScope.kind !== "all") && (
-              <p>
-                {m.shownScope.kind === "all"
-                  ? t("notes.emptyLead")
-                  : t("notes.emptyProject", { folder: m.shownScopeLabel })}
-              </p>
-            )}
-            {writable && (
+            {(writable || m.shownScope.kind !== "all") && <p>{emptyAreaText(m)}</p>}
+            {m.canCreate && (
               <button
                 type="button"
                 className="primary-button"

@@ -79,7 +79,7 @@ const de = {
   "tray.quit": "Beenden",
 
   // The notes area (phase 1); most texts as in Hangar's notes panel.
-  "notes.general": "Allgemein",
+  "notes.general": "Privat",
   "notes.new": "Neue Notiz",
   "notes.untitled": "Notiz",
   "notes.newTitle": "Titel der Notiz",
@@ -206,7 +206,6 @@ const de = {
   "notes.reloadDiscards": "Neu laden verwirft deine Änderung.",
   "notes.reloadConfirm": "Verwerfen und neu laden",
   "notes.reloadCancel": "Abbrechen",
-  "nav.open": "Bereiche zeigen",
   "nav.close": "Bereiche schließen",
   "nav.projects": "Projekte",
   "notes.readOnlyChip": "Nur lesen",
@@ -214,6 +213,25 @@ const de = {
     "Diese Notiz wurde außerhalb gelöscht. Dein Text steht noch hier; kopier ihn, wenn du ihn behalten willst.",
   "notes.lockFailed":
     "Die Notizen ließen sich gerade nicht zum Schreiben öffnen. Hier sind sie nur lesbar.",
+  "level.tabs": "Ebenen",
+  "level.private": "Privat",
+  "level.project": "Projekt",
+  "level.projectNamed": "Projekt · {name}",
+  "level.team": "Team",
+  "level.projectTip": "Die Notizen des Projekts, an dem du in Hangar arbeitest",
+  "level.teamTip": "Notizen, die du mit deinem Team teilst",
+  "level.switchProject": "Projekt wechseln",
+  "level.privateTitle": "Private Notizen",
+  "level.noProject":
+    "Noch kein Projekt. Öffne Hangar Note aus einem Projekt in Hangar, dann stehen seine Notizen hier.",
+  "level.emptyPrivate": "Noch keine privaten Notizen.",
+  "team.title": "Team-Notizen",
+  "team.needsHangar": "Team-Notizen erscheinen hier, sobald Hangar verbunden ist.",
+  "nav.toggle": "Seitenleiste",
+  "nav.hide": "Seitenleiste ausblenden",
+  "nav.show": "Seitenleiste einblenden",
+  "nav.resize": "Breite der Seitenleiste",
+  "nav.resizeHint": "Ziehen ändert die Breite, ein Doppelklick setzt sie zurück.",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof de;
@@ -270,7 +288,7 @@ const en: Record<MessageKey, string> = {
   "tray.quit": "Quit",
 
   // The notes area (phase 1); most texts as in Hangar's notes panel.
-  "notes.general": "General",
+  "notes.general": "Private",
   "notes.new": "New note",
   "notes.untitled": "Note",
   "notes.newTitle": "Note title",
@@ -393,7 +411,6 @@ const en: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Reloading discards your change.",
   "notes.reloadConfirm": "Discard and reload",
   "notes.reloadCancel": "Cancel",
-  "nav.open": "Show areas",
   "nav.close": "Close areas",
   "nav.projects": "Projects",
   "notes.readOnlyChip": "Read only",
@@ -401,6 +418,25 @@ const en: Record<MessageKey, string> = {
     "This note was deleted elsewhere. Your text is still here; copy it if you want to keep it.",
   "notes.lockFailed":
     "The notes could not be opened for writing just now. Here they are read only.",
+  "level.tabs": "Levels",
+  "level.private": "Private",
+  "level.project": "Project",
+  "level.projectNamed": "Project · {name}",
+  "level.team": "Team",
+  "level.projectTip": "Notes of the project you work on in Hangar",
+  "level.teamTip": "Notes you share with your team",
+  "level.switchProject": "Switch project",
+  "level.privateTitle": "Private notes",
+  "level.noProject":
+    "No project yet. Open Hangar Note from a project in Hangar, and its notes show here.",
+  "level.emptyPrivate": "No private notes yet.",
+  "team.title": "Team notes",
+  "team.needsHangar": "Team notes appear here once Hangar is connected.",
+  "nav.toggle": "Sidebar",
+  "nav.hide": "Hide sidebar",
+  "nav.show": "Show sidebar",
+  "nav.resize": "Sidebar width",
+  "nav.resizeHint": "Drag to change the width, double click to reset it.",
 };
 
 const el: Record<MessageKey, string> = {
@@ -455,7 +491,7 @@ const el: Record<MessageKey, string> = {
   "tray.quit": "Έξοδος",
 
   // The notes area (phase 1); most texts as in Hangar's notes panel.
-  "notes.general": "Γενικά",
+  "notes.general": "Ιδιωτικά",
   "notes.new": "Νέα σημείωση",
   "notes.untitled": "Σημείωση",
   "notes.newTitle": "Τίτλος σημείωσης",
@@ -584,7 +620,6 @@ const el: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Η επαναφόρτωση απορρίπτει την αλλαγή σου.",
   "notes.reloadConfirm": "Απόρριψη και επαναφόρτωση",
   "notes.reloadCancel": "Άκυρο",
-  "nav.open": "Εμφάνιση περιοχών",
   "nav.close": "Κλείσιμο περιοχών",
   "nav.projects": "Έργα",
   "notes.readOnlyChip": "Μόνο ανάγνωση",
@@ -592,6 +627,25 @@ const el: Record<MessageKey, string> = {
     "Αυτή η σημείωση διαγράφηκε αλλού. Το κείμενό σου είναι ακόμα εδώ· αντίγραψέ το αν θέλεις να το κρατήσεις.",
   "notes.lockFailed":
     "Οι σημειώσεις δεν άνοιξαν για εγγραφή αυτή τη στιγμή. Εδώ είναι μόνο για ανάγνωση.",
+  "level.tabs": "Επίπεδα",
+  "level.private": "Ιδιωτικά",
+  "level.project": "Έργο",
+  "level.projectNamed": "Έργο · {name}",
+  "level.team": "Ομάδα",
+  "level.projectTip": "Οι σημειώσεις του έργου στο οποίο δουλεύεις στο Hangar",
+  "level.teamTip": "Σημειώσεις που μοιράζεσαι με την ομάδα σου",
+  "level.switchProject": "Αλλαγή έργου",
+  "level.privateTitle": "Ιδιωτικές σημειώσεις",
+  "level.noProject":
+    "Δεν υπάρχει ακόμη έργο. Άνοιξε το Hangar Note από ένα έργο στο Hangar και οι σημειώσεις του θα εμφανιστούν εδώ.",
+  "level.emptyPrivate": "Δεν υπάρχουν ακόμη ιδιωτικές σημειώσεις.",
+  "team.title": "Σημειώσεις ομάδας",
+  "team.needsHangar": "Οι σημειώσεις ομάδας εμφανίζονται εδώ μόλις συνδεθεί το Hangar.",
+  "nav.toggle": "Πλαϊνή στήλη",
+  "nav.hide": "Απόκρυψη πλαϊνής στήλης",
+  "nav.show": "Εμφάνιση πλαϊνής στήλης",
+  "nav.resize": "Πλάτος πλαϊνής στήλης",
+  "nav.resizeHint": "Σύρε για να αλλάξεις το πλάτος, διπλό κλικ για επαναφορά.",
 };
 
 const es: Record<MessageKey, string> = {
@@ -646,7 +700,7 @@ const es: Record<MessageKey, string> = {
   "tray.quit": "Salir",
 
   // The notes area (phase 1); most texts as in Hangar's notes panel.
-  "notes.general": "General",
+  "notes.general": "Privado",
   "notes.new": "Nueva nota",
   "notes.untitled": "Nota",
   "notes.newTitle": "Título de la nota",
@@ -769,7 +823,6 @@ const es: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Volver a cargar descarta tu cambio.",
   "notes.reloadConfirm": "Descartar y volver a cargar",
   "notes.reloadCancel": "Cancelar",
-  "nav.open": "Mostrar áreas",
   "nav.close": "Cerrar áreas",
   "nav.projects": "Proyectos",
   "notes.readOnlyChip": "Solo lectura",
@@ -777,6 +830,25 @@ const es: Record<MessageKey, string> = {
     "Esta nota se borró en otro lugar. Tu texto sigue aquí; cópialo si quieres conservarlo.",
   "notes.lockFailed":
     "Ahora mismo no se pudieron abrir las notas para escribir. Aquí solo se pueden leer.",
+  "level.tabs": "Niveles",
+  "level.private": "Privado",
+  "level.project": "Proyecto",
+  "level.projectNamed": "Proyecto · {name}",
+  "level.team": "Equipo",
+  "level.projectTip": "Notas del proyecto en el que trabajas en Hangar",
+  "level.teamTip": "Notas que compartes con tu equipo",
+  "level.switchProject": "Cambiar de proyecto",
+  "level.privateTitle": "Notas privadas",
+  "level.noProject":
+    "Aún no hay ningún proyecto. Abre Hangar Note desde un proyecto en Hangar y sus notas aparecerán aquí.",
+  "level.emptyPrivate": "Aún no hay notas privadas.",
+  "team.title": "Notas del equipo",
+  "team.needsHangar": "Las notas del equipo aparecen aquí en cuanto Hangar esté conectado.",
+  "nav.toggle": "Barra lateral",
+  "nav.hide": "Ocultar barra lateral",
+  "nav.show": "Mostrar barra lateral",
+  "nav.resize": "Ancho de la barra lateral",
+  "nav.resizeHint": "Arrastra para cambiar el ancho; doble clic para restablecerlo.",
 };
 
 const fr: Record<MessageKey, string> = {
@@ -831,7 +903,7 @@ const fr: Record<MessageKey, string> = {
   "tray.quit": "Quitter",
 
   // The notes area (phase 1); most texts as in Hangar's notes panel.
-  "notes.general": "Général",
+  "notes.general": "Privé",
   "notes.new": "Nouvelle note",
   "notes.untitled": "Note",
   "notes.newTitle": "Titre de la note",
@@ -958,7 +1030,6 @@ const fr: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Recharger annule ta modification.",
   "notes.reloadConfirm": "Annuler et recharger",
   "notes.reloadCancel": "Garder",
-  "nav.open": "Afficher les espaces",
   "nav.close": "Fermer les espaces",
   "nav.projects": "Projets",
   "notes.readOnlyChip": "Lecture seule",
@@ -966,6 +1037,25 @@ const fr: Record<MessageKey, string> = {
     "Cette note a été supprimée ailleurs. Ton texte est encore là ; copie-le si tu veux le garder.",
   "notes.lockFailed":
     "Les notes n’ont pas pu être ouvertes en écriture pour l’instant. Ici, elles sont en lecture seule.",
+  "level.tabs": "Niveaux",
+  "level.private": "Privé",
+  "level.project": "Projet",
+  "level.projectNamed": "Projet · {name}",
+  "level.team": "Équipe",
+  "level.projectTip": "Notes du projet sur lequel tu travailles dans Hangar",
+  "level.teamTip": "Notes que tu partages avec ton équipe",
+  "level.switchProject": "Changer de projet",
+  "level.privateTitle": "Notes privées",
+  "level.noProject":
+    "Pas encore de projet. Ouvre Hangar Note depuis un projet dans Hangar, et ses notes s’afficheront ici.",
+  "level.emptyPrivate": "Pas encore de notes privées.",
+  "team.title": "Notes d’équipe",
+  "team.needsHangar": "Les notes d’équipe apparaissent ici dès que Hangar est connecté.",
+  "nav.toggle": "Barre latérale",
+  "nav.hide": "Masquer la barre latérale",
+  "nav.show": "Afficher la barre latérale",
+  "nav.resize": "Largeur de la barre latérale",
+  "nav.resizeHint": "Fais glisser pour changer la largeur, double-clique pour la rétablir.",
 };
 
 const it: Record<MessageKey, string> = {
@@ -1020,7 +1110,7 @@ const it: Record<MessageKey, string> = {
   "tray.quit": "Esci",
 
   // The notes area (phase 1); most texts as in Hangar's notes panel.
-  "notes.general": "Generale",
+  "notes.general": "Privato",
   "notes.new": "Nuova nota",
   "notes.untitled": "Nota",
   "notes.newTitle": "Titolo della nota",
@@ -1145,7 +1235,6 @@ const it: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Ricaricare scarta la tua modifica.",
   "notes.reloadConfirm": "Scarta e ricarica",
   "notes.reloadCancel": "Annulla",
-  "nav.open": "Mostra aree",
   "nav.close": "Chiudi aree",
   "nav.projects": "Progetti",
   "notes.readOnlyChip": "Sola lettura",
@@ -1153,6 +1242,25 @@ const it: Record<MessageKey, string> = {
     "Questa nota è stata eliminata altrove. Il tuo testo è ancora qui; copialo se vuoi tenerlo.",
   "notes.lockFailed":
     "Al momento non è stato possibile aprire le note in scrittura. Qui sono di sola lettura.",
+  "level.tabs": "Livelli",
+  "level.private": "Privato",
+  "level.project": "Progetto",
+  "level.projectNamed": "Progetto · {name}",
+  "level.team": "Team",
+  "level.projectTip": "Le note del progetto su cui lavori in Hangar",
+  "level.teamTip": "Note che condividi con il tuo team",
+  "level.switchProject": "Cambia progetto",
+  "level.privateTitle": "Note private",
+  "level.noProject":
+    "Ancora nessun progetto. Apri Hangar Note da un progetto in Hangar e le sue note appariranno qui.",
+  "level.emptyPrivate": "Ancora nessuna nota privata.",
+  "team.title": "Note del team",
+  "team.needsHangar": "Le note del team appaiono qui non appena Hangar è connesso.",
+  "nav.toggle": "Barra laterale",
+  "nav.hide": "Nascondi barra laterale",
+  "nav.show": "Mostra barra laterale",
+  "nav.resize": "Larghezza della barra laterale",
+  "nav.resizeHint": "Trascina per cambiare la larghezza, doppio clic per ripristinarla.",
 };
 
 const ja: Record<MessageKey, string> = {
@@ -1207,7 +1315,7 @@ const ja: Record<MessageKey, string> = {
   "tray.quit": "終了",
 
   // The notes area (phase 1); most texts as in Hangar's notes panel.
-  "notes.general": "全般",
+  "notes.general": "プライベート",
   "notes.new": "新しいメモ",
   "notes.untitled": "メモ",
   "notes.newTitle": "メモのタイトル",
@@ -1331,13 +1439,31 @@ const ja: Record<MessageKey, string> = {
   "notes.reloadDiscards": "再読み込みすると変更は破棄されます。",
   "notes.reloadConfirm": "破棄して再読み込み",
   "notes.reloadCancel": "キャンセル",
-  "nav.open": "エリアを表示",
   "nav.close": "エリアを閉じる",
   "nav.projects": "プロジェクト",
   "notes.readOnlyChip": "読み取り専用",
   "note.deletedOutside":
     "このメモは別の場所で削除されました。テキストはまだここにあります。残したい場合はコピーしてください。",
   "notes.lockFailed": "現在、メモを書き込み用に開けませんでした。ここでは読み取り専用です。",
+  "level.tabs": "レベル",
+  "level.private": "プライベート",
+  "level.project": "プロジェクト",
+  "level.projectNamed": "プロジェクト · {name}",
+  "level.team": "チーム",
+  "level.projectTip": "Hangar で作業中のプロジェクトのメモ",
+  "level.teamTip": "チームと共有するメモ",
+  "level.switchProject": "プロジェクトを切り替え",
+  "level.privateTitle": "プライベートのメモ",
+  "level.noProject":
+    "まだプロジェクトがありません。Hangar のプロジェクトから Hangar Note を開くと、そのメモがここに表示されます。",
+  "level.emptyPrivate": "まだプライベートのメモはありません。",
+  "team.title": "チームのメモ",
+  "team.needsHangar": "Hangar が接続されると、チームのメモがここに表示されます。",
+  "nav.toggle": "サイドバー",
+  "nav.hide": "サイドバーを隠す",
+  "nav.show": "サイドバーを表示",
+  "nav.resize": "サイドバーの幅",
+  "nav.resizeHint": "ドラッグで幅を変更、ダブルクリックで元に戻します。",
 };
 
 const pl: Record<MessageKey, string> = {
@@ -1392,7 +1518,7 @@ const pl: Record<MessageKey, string> = {
   "tray.quit": "Zakończ",
 
   // The notes area (phase 1); most texts as in Hangar's notes panel.
-  "notes.general": "Ogólne",
+  "notes.general": "Prywatne",
   "notes.new": "Nowa notatka",
   "notes.untitled": "Notatka",
   "notes.newTitle": "Tytuł notatki",
@@ -1516,13 +1642,31 @@ const pl: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Ponowne wczytanie odrzuci twoją zmianę.",
   "notes.reloadConfirm": "Odrzuć i wczytaj ponownie",
   "notes.reloadCancel": "Anuluj",
-  "nav.open": "Pokaż obszary",
   "nav.close": "Zamknij obszary",
   "nav.projects": "Projekty",
   "notes.readOnlyChip": "Tylko do odczytu",
   "note.deletedOutside":
     "Ta notatka została usunięta gdzie indziej. Twój tekst nadal tu jest; skopiuj go, jeśli chcesz go zachować.",
   "notes.lockFailed": "Nie udało się teraz otworzyć notatek do zapisu. Tutaj są tylko do odczytu.",
+  "level.tabs": "Poziomy",
+  "level.private": "Prywatne",
+  "level.project": "Projekt",
+  "level.projectNamed": "Projekt · {name}",
+  "level.team": "Zespół",
+  "level.projectTip": "Notatki projektu, nad którym pracujesz w Hangar",
+  "level.teamTip": "Notatki, które dzielisz z zespołem",
+  "level.switchProject": "Zmień projekt",
+  "level.privateTitle": "Prywatne notatki",
+  "level.noProject":
+    "Nie ma jeszcze projektu. Otwórz Hangar Note z projektu w Hangar, a jego notatki pojawią się tutaj.",
+  "level.emptyPrivate": "Nie ma jeszcze prywatnych notatek.",
+  "team.title": "Notatki zespołu",
+  "team.needsHangar": "Notatki zespołu pojawią się tutaj, gdy Hangar zostanie połączony.",
+  "nav.toggle": "Pasek boczny",
+  "nav.hide": "Ukryj pasek boczny",
+  "nav.show": "Pokaż pasek boczny",
+  "nav.resize": "Szerokość paska bocznego",
+  "nav.resizeHint": "Przeciągnij, aby zmienić szerokość; kliknij dwukrotnie, aby ją przywrócić.",
 };
 
 const pt: Record<MessageKey, string> = {
@@ -1577,7 +1721,7 @@ const pt: Record<MessageKey, string> = {
   "tray.quit": "Sair",
 
   // The notes area (phase 1); most texts as in Hangar's notes panel.
-  "notes.general": "Geral",
+  "notes.general": "Privado",
   "notes.new": "Nova nota",
   "notes.untitled": "Nota",
   "notes.newTitle": "Título da nota",
@@ -1703,7 +1847,6 @@ const pt: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Recarregar descarta sua alteração.",
   "notes.reloadConfirm": "Descartar e recarregar",
   "notes.reloadCancel": "Cancelar",
-  "nav.open": "Mostrar áreas",
   "nav.close": "Fechar áreas",
   "nav.projects": "Projetos",
   "notes.readOnlyChip": "Somente leitura",
@@ -1711,6 +1854,25 @@ const pt: Record<MessageKey, string> = {
     "Esta nota foi excluída em outro lugar. Seu texto ainda está aqui; copie-o se quiser mantê-lo.",
   "notes.lockFailed":
     "Não foi possível abrir as notas para gravação agora. Aqui elas são somente leitura.",
+  "level.tabs": "Níveis",
+  "level.private": "Privado",
+  "level.project": "Projeto",
+  "level.projectNamed": "Projeto · {name}",
+  "level.team": "Equipe",
+  "level.projectTip": "Notas do projeto em que você trabalha no Hangar",
+  "level.teamTip": "Notas que você compartilha com sua equipe",
+  "level.switchProject": "Trocar de projeto",
+  "level.privateTitle": "Notas privadas",
+  "level.noProject":
+    "Ainda não há projeto. Abra o Hangar Note a partir de um projeto no Hangar e as notas dele aparecem aqui.",
+  "level.emptyPrivate": "Ainda não há notas privadas.",
+  "team.title": "Notas da equipe",
+  "team.needsHangar": "As notas da equipe aparecem aqui assim que o Hangar estiver conectado.",
+  "nav.toggle": "Barra lateral",
+  "nav.hide": "Ocultar barra lateral",
+  "nav.show": "Mostrar barra lateral",
+  "nav.resize": "Largura da barra lateral",
+  "nav.resizeHint": "Arraste para mudar a largura; clique duas vezes para redefinir.",
 };
 
 const ru: Record<MessageKey, string> = {
@@ -1765,7 +1927,7 @@ const ru: Record<MessageKey, string> = {
   "tray.quit": "Выйти",
 
   // The notes area (phase 1); most texts as in Hangar's notes panel.
-  "notes.general": "Общие",
+  "notes.general": "Личное",
   "notes.new": "Новая заметка",
   "notes.untitled": "Заметка",
   "notes.newTitle": "Название заметки",
@@ -1889,13 +2051,31 @@ const ru: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Загрузка заново отменит твоё изменение.",
   "notes.reloadConfirm": "Отменить и загрузить заново",
   "notes.reloadCancel": "Отмена",
-  "nav.open": "Показать разделы",
   "nav.close": "Закрыть разделы",
   "nav.projects": "Проекты",
   "notes.readOnlyChip": "Только чтение",
   "note.deletedOutside":
     "Эта заметка удалена в другом месте. Твой текст ещё здесь; скопируй его, если хочешь сохранить.",
   "notes.lockFailed": "Сейчас не удалось открыть заметки для записи. Здесь они только для чтения.",
+  "level.tabs": "Уровни",
+  "level.private": "Личное",
+  "level.project": "Проект",
+  "level.projectNamed": "Проект · {name}",
+  "level.team": "Команда",
+  "level.projectTip": "Заметки проекта, над которым ты работаешь в Hangar",
+  "level.teamTip": "Заметки, которыми ты делишься с командой",
+  "level.switchProject": "Сменить проект",
+  "level.privateTitle": "Личные заметки",
+  "level.noProject":
+    "Проекта пока нет. Открой Hangar Note из проекта в Hangar, и его заметки появятся здесь.",
+  "level.emptyPrivate": "Личных заметок пока нет.",
+  "team.title": "Заметки команды",
+  "team.needsHangar": "Заметки команды появятся здесь, как только Hangar будет подключён.",
+  "nav.toggle": "Боковая панель",
+  "nav.hide": "Скрыть боковую панель",
+  "nav.show": "Показать боковую панель",
+  "nav.resize": "Ширина боковой панели",
+  "nav.resizeHint": "Перетащи, чтобы изменить ширину; двойной щелчок вернёт её.",
 };
 
 const tr: Record<MessageKey, string> = {
@@ -1950,7 +2130,7 @@ const tr: Record<MessageKey, string> = {
   "tray.quit": "Çık",
 
   // The notes area (phase 1); most texts as in Hangar's notes panel.
-  "notes.general": "Genel",
+  "notes.general": "Özel",
   "notes.new": "Yeni not",
   "notes.untitled": "Not",
   "notes.newTitle": "Not başlığı",
@@ -2072,13 +2252,31 @@ const tr: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Yeniden yüklemek değişikliğini siler.",
   "notes.reloadConfirm": "Sil ve yeniden yükle",
   "notes.reloadCancel": "Vazgeç",
-  "nav.open": "Alanları göster",
   "nav.close": "Alanları kapat",
   "nav.projects": "Projeler",
   "notes.readOnlyChip": "Salt okunur",
   "note.deletedOutside":
     "Bu not başka bir yerde silindi. Metnin hâlâ burada; saklamak istersen kopyala.",
   "notes.lockFailed": "Notlar şu anda yazmak için açılamadı. Burada yalnızca okunabilir.",
+  "level.tabs": "Düzeyler",
+  "level.private": "Özel",
+  "level.project": "Proje",
+  "level.projectNamed": "Proje · {name}",
+  "level.team": "Ekip",
+  "level.projectTip": "Hangar’da üzerinde çalıştığın projenin notları",
+  "level.teamTip": "Ekibinle paylaştığın notlar",
+  "level.switchProject": "Projeyi değiştir",
+  "level.privateTitle": "Özel notlar",
+  "level.noProject":
+    "Henüz proje yok. Hangar Note’u Hangar’daki bir projeden aç, notları burada görünür.",
+  "level.emptyPrivate": "Henüz özel not yok.",
+  "team.title": "Ekip notları",
+  "team.needsHangar": "Hangar bağlandığında ekip notları burada görünür.",
+  "nav.toggle": "Kenar çubuğu",
+  "nav.hide": "Kenar çubuğunu gizle",
+  "nav.show": "Kenar çubuğunu göster",
+  "nav.resize": "Kenar çubuğu genişliği",
+  "nav.resizeHint": "Genişliği değiştirmek için sürükle, sıfırlamak için çift tıkla.",
 };
 
 const zh: Record<MessageKey, string> = {
@@ -2133,7 +2331,7 @@ const zh: Record<MessageKey, string> = {
   "tray.quit": "退出",
 
   // The notes area (phase 1); most texts as in Hangar's notes panel.
-  "notes.general": "通用",
+  "notes.general": "私人",
   "notes.new": "新建笔记",
   "notes.untitled": "笔记",
   "notes.newTitle": "笔记标题",
@@ -2251,12 +2449,29 @@ const zh: Record<MessageKey, string> = {
   "notes.reloadDiscards": "重新加载会丢弃你的修改。",
   "notes.reloadConfirm": "丢弃并重新加载",
   "notes.reloadCancel": "取消",
-  "nav.open": "显示区域",
   "nav.close": "关闭区域",
   "nav.projects": "项目",
   "notes.readOnlyChip": "只读",
   "note.deletedOutside": "此笔记已在别处删除。文本仍在这里；如需保留，请复制。",
   "notes.lockFailed": "暂时无法以写入方式打开这些笔记。此处为只读。",
+  "level.tabs": "层级",
+  "level.private": "私人",
+  "level.project": "项目",
+  "level.projectNamed": "项目 · {name}",
+  "level.team": "团队",
+  "level.projectTip": "你在 Hangar 中处理的项目的笔记",
+  "level.teamTip": "与团队共享的笔记",
+  "level.switchProject": "切换项目",
+  "level.privateTitle": "私人笔记",
+  "level.noProject": "还没有项目。从 Hangar 中的项目打开 Hangar Note，其笔记会显示在这里。",
+  "level.emptyPrivate": "还没有私人笔记。",
+  "team.title": "团队笔记",
+  "team.needsHangar": "Hangar 连接后，团队笔记会显示在这里。",
+  "nav.toggle": "侧边栏",
+  "nav.hide": "隐藏侧边栏",
+  "nav.show": "显示侧边栏",
+  "nav.resize": "侧边栏宽度",
+  "nav.resizeHint": "拖动以更改宽度，双击恢复默认。",
 };
 
 export const DICTIONARIES: Record<Language, Record<MessageKey, string>> = {

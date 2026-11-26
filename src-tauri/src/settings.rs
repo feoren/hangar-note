@@ -1,7 +1,8 @@
 //! `settings.json` in Hangar Note's data folder (ADR 0001): language, theme, the color of new
-//! notes, the personal names of the colors (ADR 0002, "Color categories") and "Always on top" of
-//! the notes area and the look of the windows (ADR 0004). "Start with the system" is not stored here: it is the OS state itself
-//! (autostart plugin).
+//! notes, the personal names of the colors (ADR 0002, "Color categories"), "Always on top" of
+//! the notes area, the look of the windows (ADR 0004), and two things the notes area remembers
+//! across restarts: whether its sidebar is open and the project its "Project" level showed last.
+//! "Start with the system" is not stored here: it is the OS state itself (autostart plugin).
 
 use std::collections::BTreeMap;
 use std::io;
@@ -22,6 +23,13 @@ pub const LANGUAGES: [&str; 12] = [
 const MAX_SETTINGS_BYTES: usize = 64 * 1024;
 /// A color's own name is a short label for a chip, not a description.
 pub const MAX_COLOR_NAME_CHARS: usize = 40;
+/// The last project is a folder path the backend listed; longer ones are not real folders.
+pub const MAX_PROJECT_PATH_CHARS: usize = 4096;
+/// The sidebar's width in px: its default and the range a drag can give it (`src/sidebarWidth.ts`
+/// holds the same numbers). A stored width outside the range is brought back into it.
+pub const SIDEBAR_WIDTH_DEFAULT: u32 = 232;
+pub const SIDEBAR_WIDTH_MIN: u32 = 180;
+pub const SIDEBAR_WIDTH_MAX: u32 = 400;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -56,7 +64,7 @@ impl<'de> Deserialize<'de> for Look {
 }
 
 /// What the windows read and change. `language: null` follows the system language.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     #[serde(default)]
@@ -76,6 +84,61 @@ pub struct Settings {
     /// The look of every window; switching it takes effect at once in all of them.
     #[serde(default)]
     pub look: Look,
+    /// The notes area's sidebar is shown (wide windows). Open unless the person folded it away;
+    /// a file without the field opens it. Changed only through `set_sidebar_open`, kept by
+    /// [`SettingsStore::set`] like [`Settings::hub_on_top`].
+    #[serde(default = "open_by_default")]
+    pub sidebar_open: bool,
+    /// The sidebar's width in px as the person dragged it; a file without the field, or with a
+    /// value that is no width, gives the default. Changed only through `set_sidebar_width`.
+    #[serde(default = "default_sidebar_width", deserialize_with = "tolerant_width")]
+    pub sidebar_width: u32,
+    /// The project the notes area's "Project" level showed last, for a start without a folder.
+    /// Changed only through `set_last_project`, kept by [`SettingsStore::set`]; a stored value
+    /// that is no valid project path reads as none.
+    #[serde(default)]
+    pub last_project: Option<PathBuf>,
+}
+
+fn open_by_default() -> bool {
+    true
+}
+
+fn default_sidebar_width() -> u32 {
+    SIDEBAR_WIDTH_DEFAULT
+}
+
+/// Any width brought into the range; anything that is no number is the default, so a hand-edited
+/// file never loses its other settings over this field.
+pub fn clamp_sidebar_width(width: u32) -> u32 {
+    width.clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)
+}
+
+fn tolerant_width<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(match value.as_f64() {
+        Some(width) if width.is_finite() => {
+            // Rounded and bounded before the cast, so it cannot overflow.
+            clamp_sidebar_width(width.round().clamp(0.0, f64::from(u32::MAX)) as u32)
+        }
+        _ => SIDEBAR_WIDTH_DEFAULT,
+    })
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            language: None,
+            theme: Theme::default(),
+            new_note_color: NoteColor::default(),
+            color_names: BTreeMap::new(),
+            hub_on_top: false,
+            look: Look::default(),
+            sidebar_open: true,
+            sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            last_project: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,6 +155,8 @@ pub enum SettingsError {
     UnknownLanguage,
     #[error("Invalid color name: at most {MAX_COLOR_NAME_CHARS} characters, no line breaks")]
     InvalidColorName,
+    #[error("Invalid project: an absolute path of at most {MAX_PROJECT_PATH_CHARS} characters")]
+    InvalidProject,
     /// Shown and logged without the path (security review B3).
     #[error("{}", crate::fsio::storage_log_io(path, source))]
     Io {
@@ -106,7 +171,7 @@ impl SettingsError {
     pub fn storage_code(&self) -> Option<StorageCode> {
         match self {
             Self::Io { source, .. } => Some(StorageCode::of(source)),
-            Self::UnknownLanguage | Self::InvalidColorName => None,
+            Self::UnknownLanguage | Self::InvalidColorName | Self::InvalidProject => None,
         }
     }
 
@@ -140,7 +205,21 @@ pub fn validate(settings: &Settings) -> Result<(), SettingsError> {
     if bad_name {
         return Err(SettingsError::InvalidColorName);
     }
+    if let Some(project) = &settings.last_project {
+        if !valid_project(project) {
+            return Err(SettingsError::InvalidProject);
+        }
+    }
     Ok(())
+}
+
+/// A project folder as the backend lists it: absolute, of a sane length, without control
+/// characters (the path is shown as a tooltip and written into `settings.json`).
+pub fn valid_project(path: &Path) -> bool {
+    let text = path.to_string_lossy();
+    path.is_absolute()
+        && text.chars().count() <= MAX_PROJECT_PATH_CHARS
+        && !text.chars().any(char::is_control)
 }
 
 /// Color names as the window typed them: trimmed, empty ones removed (the color's own name shows).
@@ -176,6 +255,13 @@ pub fn load(path: &Path) -> Settings {
                 if !LANGUAGES.contains(&code.as_str()) {
                     settings.language = None;
                 }
+            }
+            if settings
+                .last_project
+                .as_deref()
+                .is_some_and(|project| !valid_project(project))
+            {
+                settings.last_project = None;
             }
             if validate(&settings).is_err() {
                 settings.color_names.clear();
@@ -218,11 +304,27 @@ impl SettingsStore {
         lock(&self.current).clone()
     }
 
-    /// Everything but [`Settings::hub_on_top`], which keeps its stored value.
+    /// Everything but what the notes area changes through its own commands
+    /// ([`Settings::hub_on_top`], [`Settings::sidebar_open`], [`Settings::sidebar_width`],
+    /// [`Settings::last_project`]): those
+    /// keep their stored values, since the settings page sends its settings without them.
     pub fn set(&self, settings: Settings) -> Result<Settings, SettingsError> {
         let mut settings = tidy(settings);
         let mut current = lock(&self.current);
         settings.hub_on_top = current.hub_on_top;
+        settings.sidebar_open = current.sidebar_open;
+        settings.sidebar_width = current.sidebar_width;
+        settings.last_project = current.last_project.clone();
+        save(&self.path, &settings)?;
+        *current = settings.clone();
+        Ok(settings)
+    }
+
+    /// One change to the stored settings, written through; nothing changes when the write fails.
+    fn update(&self, change: impl FnOnce(&mut Settings)) -> Result<Settings, SettingsError> {
+        let mut current = lock(&self.current);
+        let mut settings = current.clone();
+        change(&mut settings);
         save(&self.path, &settings)?;
         *current = settings.clone();
         Ok(settings)
@@ -230,14 +332,22 @@ impl SettingsStore {
 
     /// Switches "Always on top" of the notes area and stores it.
     pub fn set_hub_on_top(&self, on_top: bool) -> Result<Settings, SettingsError> {
-        let mut current = lock(&self.current);
-        let settings = Settings {
-            hub_on_top: on_top,
-            ..current.clone()
-        };
-        save(&self.path, &settings)?;
-        *current = settings.clone();
-        Ok(settings)
+        self.update(|settings| settings.hub_on_top = on_top)
+    }
+
+    /// Shows or folds away the notes area's sidebar and stores it.
+    pub fn set_sidebar_open(&self, open: bool) -> Result<Settings, SettingsError> {
+        self.update(|settings| settings.sidebar_open = open)
+    }
+
+    /// Stores the sidebar's width, brought into its range first.
+    pub fn set_sidebar_width(&self, width: u32) -> Result<Settings, SettingsError> {
+        self.update(|settings| settings.sidebar_width = clamp_sidebar_width(width))
+    }
+
+    /// Remembers the project the "Project" level shows; `None` forgets it.
+    pub fn set_last_project(&self, project: Option<PathBuf>) -> Result<Settings, SettingsError> {
+        self.update(|settings| settings.last_project = project)
     }
 
     pub fn path(&self) -> &Path {
@@ -263,6 +373,9 @@ mod tests {
             color_names: BTreeMap::from([(NoteColor::Sky, "Arbeit".to_owned())]),
             hub_on_top: false,
             look: Look::Paper,
+            sidebar_open: true,
+            sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            last_project: None,
         };
         store.set(changed.clone()).unwrap();
         assert_eq!(SettingsStore::open(dir.path()).get(), changed);
@@ -272,7 +385,8 @@ mod tests {
             json,
             serde_json::json!({
                 "version": 1, "language": "pl", "theme": "dark", "newNoteColor": "mint",
-                "colorNames": { "sky": "Arbeit" }, "hubOnTop": false, "look": "paper"
+                "colorNames": { "sky": "Arbeit" }, "hubOnTop": false, "look": "paper",
+                "sidebarOpen": true, "sidebarWidth": 232, "lastProject": null
             })
         );
     }
@@ -390,6 +504,123 @@ b"
             })
             .unwrap();
         assert_eq!(store.set_hub_on_top(true).unwrap().look, Look::Hangar);
+    }
+
+    fn project() -> PathBuf {
+        PathBuf::from(if cfg!(windows) {
+            r"C:\Projects\website"
+        } else {
+            "/projects/website"
+        })
+    }
+
+    #[test]
+    fn the_sidebar_is_open_by_default_and_remembers_being_folded() {
+        let dir = TempDir::new("settings-sidebar");
+        let store = SettingsStore::open(dir.path());
+        assert!(store.get().sidebar_open);
+        assert!(!store.set_sidebar_open(false).unwrap().sidebar_open);
+        assert!(!SettingsStore::open(dir.path()).get().sidebar_open);
+        // The settings page sends its settings without the field; the folded sidebar stays.
+        let sent: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(sent.sidebar_open);
+        assert!(!store.set(sent).unwrap().sidebar_open);
+        assert!(store.set_sidebar_open(true).unwrap().sidebar_open);
+        // Files written before the field existed open it.
+        fs::write(store.path(), r#"{"version":1,"theme":"dark"}"#).unwrap();
+        assert!(load(store.path()).sidebar_open);
+        fs::write(store.path(), r#"{"version":1,"sidebarOpen":false}"#).unwrap();
+        assert!(!load(store.path()).sidebar_open);
+    }
+
+    #[test]
+    fn the_sidebar_width_is_kept_within_its_range() {
+        let dir = TempDir::new("settings-width");
+        let store = SettingsStore::open(dir.path());
+        assert_eq!(store.get().sidebar_width, SIDEBAR_WIDTH_DEFAULT);
+        assert_eq!(store.set_sidebar_width(300).unwrap().sidebar_width, 300);
+        assert_eq!(SettingsStore::open(dir.path()).get().sidebar_width, 300);
+        assert_eq!(
+            store.set_sidebar_width(20).unwrap().sidebar_width,
+            SIDEBAR_WIDTH_MIN
+        );
+        assert_eq!(
+            store.set_sidebar_width(5000).unwrap().sidebar_width,
+            SIDEBAR_WIDTH_MAX
+        );
+        // The settings page and the open state keep it.
+        store.set_sidebar_width(260).unwrap();
+        let sent: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(store.set(sent).unwrap().sidebar_width, 260);
+        assert_eq!(store.set_sidebar_open(false).unwrap().sidebar_width, 260);
+        // Stored by hand: out of range, a fraction, no number, or missing; the rest stays.
+        for (text, width) in [
+            (
+                r#"{"version":1,"theme":"dark","sidebarWidth":9999}"#,
+                SIDEBAR_WIDTH_MAX,
+            ),
+            (
+                r#"{"version":1,"theme":"dark","sidebarWidth":-3}"#,
+                SIDEBAR_WIDTH_MIN,
+            ),
+            (r#"{"version":1,"theme":"dark","sidebarWidth":250.6}"#, 251),
+            (
+                r#"{"version":1,"theme":"dark","sidebarWidth":"wide"}"#,
+                SIDEBAR_WIDTH_DEFAULT,
+            ),
+            (
+                r#"{"version":1,"theme":"dark","sidebarWidth":null}"#,
+                SIDEBAR_WIDTH_DEFAULT,
+            ),
+            (r#"{"version":1,"theme":"dark"}"#, SIDEBAR_WIDTH_DEFAULT),
+        ] {
+            fs::write(store.path(), text).unwrap();
+            let loaded = load(store.path());
+            assert_eq!(loaded.sidebar_width, width, "{text}");
+            assert_eq!(loaded.theme, Theme::Dark, "{text}");
+        }
+    }
+
+    #[test]
+    fn the_last_project_is_kept_and_only_as_a_valid_path() {
+        let dir = TempDir::new("settings-project");
+        let store = SettingsStore::open(dir.path());
+        assert_eq!(store.get().last_project, None);
+        let saved = store.set_last_project(Some(project())).unwrap();
+        assert_eq!(saved.last_project, Some(project()));
+        assert_eq!(
+            SettingsStore::open(dir.path()).get().last_project,
+            Some(project())
+        );
+        // The settings page and the other switches keep it.
+        let sent: Settings = serde_json::from_str(r#"{"look":"paper"}"#).unwrap();
+        assert_eq!(store.set(sent).unwrap().last_project, Some(project()));
+        assert_eq!(
+            store.set_sidebar_open(false).unwrap().last_project,
+            Some(project())
+        );
+        // A relative path, a control character or an endless path is refused; nothing changes.
+        for bad in [
+            PathBuf::from("relative"),
+            project().join("a\nb"),
+            project().join("x".repeat(MAX_PROJECT_PATH_CHARS)),
+        ] {
+            assert!(matches!(
+                store.set_last_project(Some(bad)),
+                Err(SettingsError::InvalidProject)
+            ));
+        }
+        assert_eq!(store.get().last_project, Some(project()));
+        assert_eq!(store.set_last_project(None).unwrap().last_project, None);
+        // A stored value that is no absolute path reads as none; the rest of the file stays.
+        fs::write(
+            store.path(),
+            r#"{"version":1,"theme":"dark","lastProject":"relative"}"#,
+        )
+        .unwrap();
+        let loaded = load(store.path());
+        assert_eq!(loaded.last_project, None);
+        assert_eq!(loaded.theme, Theme::Dark);
     }
 
     #[test]

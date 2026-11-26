@@ -483,6 +483,51 @@ pub async fn set_hub_on_top(
     Ok(saved.hub_on_top)
 }
 
+/// The notes area's sidebar shown or folded away, stored in `settings.json` for the next start.
+/// Returns the stored value.
+#[tauri::command]
+pub async fn set_sidebar_open(
+    app: AppHandle,
+    window: WebviewWindow,
+    settings: State<'_, SettingsStore>,
+    open: bool,
+) -> Result<bool, AppError> {
+    hub_only(&window)?;
+    let saved = settings.set_sidebar_open(open)?;
+    let _ = app.emit(windows::SETTINGS_CHANGED_EVENT, &saved);
+    Ok(saved.sidebar_open)
+}
+
+/// The width of the notes area's sidebar in px, as dragged; stored within its range for the next
+/// start. Returns the stored width.
+#[tauri::command]
+pub async fn set_sidebar_width(
+    app: AppHandle,
+    window: WebviewWindow,
+    settings: State<'_, SettingsStore>,
+    width: u32,
+) -> Result<u32, AppError> {
+    hub_only(&window)?;
+    let saved = settings.set_sidebar_width(width)?;
+    let _ = app.emit(windows::SETTINGS_CHANGED_EVENT, &saved);
+    Ok(saved.sidebar_width)
+}
+
+/// The project the notes area's "Project" level shows, remembered for a start without a folder.
+/// `null` forgets it. Only a path a project folder can have is stored (`settings::valid_project`).
+#[tauri::command]
+pub async fn set_last_project(
+    app: AppHandle,
+    window: WebviewWindow,
+    settings: State<'_, SettingsStore>,
+    folder: Option<PathBuf>,
+) -> Result<Option<PathBuf>, AppError> {
+    hub_only(&window)?;
+    let saved = settings.set_last_project(folder)?;
+    let _ = app.emit(windows::SETTINGS_CHANGED_EVENT, &saved);
+    Ok(saved.last_project)
+}
+
 #[tauri::command]
 pub async fn set_autostart(
     app: AppHandle,

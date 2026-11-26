@@ -2,17 +2,20 @@ import { describe, expect, it } from "vitest";
 
 import { createTranslator } from "./i18n";
 import {
-  areaShortcutLabel,
   hubShortcutLabel,
   isBrowserKey,
   letterOf,
-  matchAreaShortcut,
+  levelShortcutLabel,
   matchHubShortcut,
+  matchLevelShortcut,
   matchNoteShortcut,
   matchRowShortcut,
+  matchSidebarShortcut,
   platformOf,
   shortcutLabel,
+  sidebarShortcutLabel,
   sidebarTarget,
+  tabTarget,
   type Platform,
 } from "./shortcuts";
 
@@ -246,34 +249,72 @@ describe("row shortcuts", () => {
   });
 });
 
-describe("sidebar shortcuts", () => {
-  it("choose an area with Ctrl+1 to Ctrl+9, by the key's position", () => {
-    expect(matchAreaShortcut(press({ key: "1", code: "Digit1", ctrl: true }), "windows")).toBe(1);
-    expect(matchAreaShortcut(press({ key: "9", code: "Digit9", ctrl: true }), "linux")).toBe(9);
-    expect(matchAreaShortcut(press({ key: "3", code: "Digit3", meta: true }), "mac")).toBe(3);
+describe("level and sidebar shortcuts", () => {
+  it("choose a level with Ctrl+1 to Ctrl+3, by the key's position", () => {
+    expect(matchLevelShortcut(press({ key: "1", code: "Digit1", ctrl: true }), "windows")).toBe(1);
+    expect(matchLevelShortcut(press({ key: "3", code: "Digit3", ctrl: true }), "linux")).toBe(3);
+    expect(matchLevelShortcut(press({ key: "2", code: "Digit2", meta: true }), "mac")).toBe(2);
     // French layout: the digit row types "&" without Shift; the position still counts.
-    expect(matchAreaShortcut(press({ key: "&", code: "Digit1", ctrl: true }), "windows")).toBe(1);
+    expect(matchLevelShortcut(press({ key: "&", code: "Digit1", ctrl: true }), "windows")).toBe(1);
   });
 
-  it("leave Ctrl+0, Ctrl+Shift+digit (the editor's lists), AltGr and plain digits alone", () => {
+  it("leave Ctrl+0, Ctrl+4 and up, Ctrl+Shift+digit, AltGr and plain digits alone", () => {
+    for (const digit of ["0", "4", "9"]) {
+      expect(
+        matchLevelShortcut(press({ key: digit, code: `Digit${digit}`, ctrl: true }), "windows"),
+      ).toBeNull();
+    }
+    // Ctrl+Shift+8 and 9 are the editor's lists.
     expect(
-      matchAreaShortcut(press({ key: "0", code: "Digit0", ctrl: true }), "windows"),
+      matchLevelShortcut(press({ key: "(", code: "Digit9", ctrl: true, shift: true }), "windows"),
     ).toBeNull();
     expect(
-      matchAreaShortcut(press({ key: "(", code: "Digit9", ctrl: true, shift: true }), "windows"),
+      matchLevelShortcut(press({ key: "!", code: "Digit1", ctrl: true, shift: true }), "windows"),
     ).toBeNull();
     expect(
-      matchAreaShortcut(press({ key: "2", code: "Digit2", ctrl: true, alt: true }), "windows"),
+      matchLevelShortcut(press({ key: "2", code: "Digit2", ctrl: true, alt: true }), "windows"),
     ).toBeNull();
-    expect(matchAreaShortcut(press({ key: "2", code: "Digit2" }), "windows")).toBeNull();
-    expect(matchAreaShortcut(press({ key: "2", code: "Digit2", ctrl: true }), "mac")).toBeNull();
-    expect(matchAreaShortcut(press({ key: "a", code: "KeyA", ctrl: true }), "windows")).toBeNull();
+    expect(matchLevelShortcut(press({ key: "2", code: "Digit2" }), "windows")).toBeNull();
+    expect(matchLevelShortcut(press({ key: "2", code: "Digit2", ctrl: true }), "mac")).toBeNull();
+    expect(matchLevelShortcut(press({ key: "a", code: "KeyA", ctrl: true }), "windows")).toBeNull();
+  });
+
+  it("show or fold the sidebar with Ctrl+Shift+S, never with Ctrl+B (bold) or Ctrl+S", () => {
+    const sidebar = (p: Press, platform: Platform = "windows") =>
+      matchSidebarShortcut(press(p), platform);
+    expect(sidebar({ key: "S", code: "KeyS", ctrl: true, shift: true })).toBe(true);
+    expect(sidebar({ key: "S", code: "KeyS", meta: true, shift: true }, "mac")).toBe(true);
+    // Cyrillic layout: the key's position counts.
+    expect(sidebar({ key: "Ы", code: "KeyS", ctrl: true, shift: true }, "linux")).toBe(true);
+    expect(sidebar({ key: "s", code: "KeyS", ctrl: true })).toBe(false);
+    expect(sidebar({ key: "b", code: "KeyB", ctrl: true })).toBe(false);
+    expect(sidebar({ key: "S", code: "KeyS", ctrl: true, shift: true, alt: true })).toBe(false);
+    expect(sidebar({ key: "S", code: "KeyS", ctrl: true, shift: true }, "mac")).toBe(false);
+    // The editor's and the notes area's own keys are not the sidebar's.
+    const shiftS = press({ key: "S", code: "KeyS", ctrl: true, shift: true });
+    expect(matchNoteShortcut(shiftS, "windows")).toBeNull();
+    expect(matchHubShortcut(shiftS, "windows")).toBeNull();
+    expect(isBrowserKey(shiftS, "windows")).toBe(false);
+  });
+
+  it("move between the level tabs with Left, Right, Home and End, wrapping at the ends", () => {
+    const key = (name: string) => press({ key: name });
+    expect(tabTarget(key("ArrowRight"), 0, 3)).toBe(1);
+    expect(tabTarget(key("ArrowRight"), 2, 3)).toBe(0);
+    expect(tabTarget(key("ArrowLeft"), 0, 3)).toBe(2);
+    expect(tabTarget(key("Home"), 2, 3)).toBe(0);
+    expect(tabTarget(key("End"), 0, 3)).toBe(2);
+    expect(tabTarget(key("ArrowDown"), 1, 3)).toBeNull();
+    expect(tabTarget(press({ key: "ArrowRight", shift: true }), 1, 3)).toBeNull();
+    expect(tabTarget(key("ArrowRight"), 0, 0)).toBeNull();
   });
 
   it("name their keys", () => {
     const de = createTranslator("de");
-    expect(areaShortcutLabel(3, "windows", de)).toBe("Strg+3");
-    expect(areaShortcutLabel(1, "mac", de)).toBe("⌘1");
+    expect(levelShortcutLabel(3, "windows", de)).toBe("Strg+3");
+    expect(levelShortcutLabel(1, "mac", de)).toBe("⌘1");
+    expect(sidebarShortcutLabel("windows", de)).toBe("Strg+Umschalt+S");
+    expect(sidebarShortcutLabel("mac", de)).toBe("⇧⌘S");
   });
 
   it("move through the entries with the arrow keys, Home and End, wrapping at the ends", () => {

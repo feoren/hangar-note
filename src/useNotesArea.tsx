@@ -32,6 +32,7 @@ import {
   revealNotesFolder,
   searchNotes,
   setHubOnTop,
+  setLastProject,
   setNoteColor,
   takeHubRequests,
   toDesktop,
@@ -59,6 +60,7 @@ import {
   colorCounts,
   filterByColors,
   folderName,
+  GENERAL_FOLDER,
   isUntitled,
   nextAutoTitle,
   noteKey,
@@ -68,13 +70,17 @@ import {
   type NoteRef,
 } from "./notes";
 import {
-  DEFAULT_SCOPE,
-  effectiveScope,
+  activeProject,
+  isProject,
+  levelOf,
+  LEVELS,
   mixesScopes,
   newNoteFolder,
-  sameScope,
   scopeFolders,
   scopeForFolder,
+  scopeOfLevel,
+  startScope,
+  type Level,
   type NotesScope,
 } from "./notesScope";
 import { clearNotice, noNotices, putNotice, shownNotice, type NoticeSlots } from "./notices";
@@ -89,11 +95,11 @@ import {
 } from "./noteText";
 import { PopupMenu, type MenuItem } from "./PopupMenu";
 import {
-  areaShortcutLabel,
   currentPlatform,
   hubShortcutLabel,
-  matchAreaShortcut,
+  levelShortcutLabel,
   matchHubShortcut,
+  matchLevelShortcut,
   matchNoteShortcut,
   matchRowShortcut,
 } from "./shortcuts";
@@ -109,10 +115,24 @@ export const PLATFORM = currentPlatform();
 const UNTITLED_BASES = LANGUAGES.map((language) => DICTIONARIES[language]["notes.untitled"]);
 
 // Remembered while the app runs, so closing and reopening the window finds things as they were.
-let lastScope: NotesScope = DEFAULT_SCOPE;
+// `null`: nothing chosen yet, the window starts where `startScope` says.
+let lastScope: NotesScope | null = null;
+/** The project chosen by hand (the project menu, the sidebar), until Hangar names another. */
+let lastChosen: string | null = null;
 let lastColors: ReadonlySet<NoteColor> = new Set();
 /** Notes shown as preview. */
 const previewNotes = new Set<string>();
+
+/**
+ * Forgets what this run remembered (the level, the chosen project, the colors, the previews), as
+ * a new start does. For tests, which render many notes areas in one run.
+ */
+export function forgetSession(): void {
+  lastScope = null;
+  lastChosen = null;
+  lastColors = new Set();
+  previewNotes.clear();
+}
 
 /** The note in the editor. `id === null`: a new quick note that exists only once you type. */
 export interface Current {
@@ -147,13 +167,14 @@ export interface Row extends NoteRef {
 export type View = "browse" | "trash" | "settings";
 
 /**
- * The open menu: the sidebar's "…" ("side": notes folder, always on top), the open note's "…"
+ * The open menu: the sidebar's "…" ("side": notes folder, always on top), the project tab's
+ * project switch ("project"), the open note's "…"
  * with or without its colors ("note", "noteActions"), the open note's colors alone ("noteColor"),
  * a row's color tool, or a row's context menu (right click, the menu key or Shift+F10).
  */
 export type MenuState =
   | {
-      kind: "side" | "note" | "noteActions" | "noteColor";
+      kind: "side" | "note" | "noteActions" | "noteColor" | "project";
       anchor: HTMLElement;
     }
   | { kind: "row" | "rowColor"; anchor: HTMLElement; row: Row; at?: { x: number; y: number } };
@@ -163,17 +184,34 @@ export type MenuKind = MenuState["kind"];
 /** Where the focus goes back to after the trash or the settings (`data-focus-id`). */
 export type ReturnFocus = "trash" | "settings";
 
-/** An area of the sidebar: "All notes", "General" or one project. */
+/** An entry of the sidebar: "All notes" or one project (which the "Project" level then shows). */
 export interface ScopeEntry {
   key: string;
   scope: NotesScope;
-  /** "main" for All and General, "project" for a working folder. */
+  /** "main" for All, "project" for a working folder. */
   group: "main" | "project";
+  /** The project's folder, `null` for All. */
+  path: string | null;
   label: string;
-  /** The tooltip: what the area holds (a project's full path) and its shortcut, if it has one. */
+  /** The tooltip: what the entry holds (a project's full path). */
   title: string;
   count: number | undefined;
 }
+
+/** One of the three level tabs above the notes. */
+export interface LevelTab {
+  level: Level;
+  label: string;
+  /** The tooltip: what the level holds (for "Project" its full path) and its shortcut. */
+  title: string;
+}
+
+/**
+ * What the team level can show. Team notes are opened and sealed through Hangar (ADR 0002), whose
+ * team routes come in Hangar's phase 2; until then the level says that Hangar is needed. The
+ * connected states (a list of the project's team notes) are added here when those routes exist.
+ */
+export type TeamState = { kind: "needsHangar" };
 
 /** The sidebar entry shown as the current place besides the areas. */
 export type Place = "trash" | "settings" | null;
@@ -206,7 +244,8 @@ export function useNotesArea(app: AppSettings) {
   const colorNames = settings?.colorNames ?? {};
   const [status, setStatus] = useState<Status | null>(null);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
-  const [scope, setScope] = useState<NotesScope>(lastScope);
+  const [scope, setScope] = useState<NotesScope | null>(lastScope);
+  const [chosen, setChosen] = useState<string | null>(lastChosen);
   const [colors, setColors] = useState<ReadonlySet<NoteColor>>(lastColors);
   const [view, setView] = useState<View>("browse");
   const [pane, setPane] = useState<"list" | "note">("list");
@@ -289,21 +328,54 @@ export function useNotesArea(app: AppSettings) {
   useEffect(() => {
     writableRef.current = writable;
   });
-  const project: NoteFolder | null = status?.project != null ? { path: status.project } : null;
-  const projectId = project?.path ?? null;
-  const shownScope = effectiveScope(scope, project);
-  const listFolders = scopeFolders(scope, project, folders);
-  const listKey = listFolders.map((folder) => folder.path ?? "").join("|");
-  const newFolder = newNoteFolder(scope, project);
-  const mixed = mixesScopes(scope, project);
+  /** The folder Hangar Note was opened for (`--folder`), `null` without one. */
+  const opened = status?.project ?? null;
+  const project = activeProject({
+    chosen,
+    opened,
+    last: settings?.lastProject ?? null,
+    folders,
+  });
+  const privateCount =
+    folders.length === 0 ? undefined : (folders.find((info) => info.path === null)?.noteCount ?? 0);
+  const shownScope = scope ?? startScope(opened, privateCount, project);
+  const listFolders = scopeFolders(shownScope, project, folders);
+  // General and "no folder at all" (a level without notes here) must not share a key.
+  const listKey = listFolders
+    .map((folder) => (folder.path === null ? "general" : `path:${folder.path}`))
+    .join("|");
+  /** Where "New note" writes; `null` where nothing can be written (Team, or no project). */
+  const newFolder = newNoteFolder(shownScope, project);
+  const canCreate = writable && newFolder !== null;
+  const mixed = mixesScopes(shownScope);
+  const level = levelOf(shownScope);
+  const team: TeamState = { kind: "needsHangar" };
   const general = t("notes.general");
   const preview =
     note?.id != null && !note.onDesktop && previewNotes.has(noteKey({ ...note, id: note.id }));
 
   useEffect(() => {
     lastScope = scope;
+    lastChosen = chosen;
     lastColors = colors;
-  }, [scope, colors]);
+  }, [scope, chosen, colors]);
+
+  /** The project last sent to `settings.json`, so the same one is not written again. */
+  const rememberedProject = useRef<string | null | undefined>(undefined);
+  /**
+   * The project the "Project" level shows, remembered for the next start without a folder. A
+   * backend that does not know the setting yet (before a restart) answers an error: the choice
+   * still holds while the app runs, and nothing needs saying.
+   */
+  const rememberProject = useCallback(
+    (path: string) => {
+      const known = rememberedProject.current ?? settings?.lastProject ?? null;
+      if (known === path) return;
+      rememberedProject.current = path;
+      void setLastProject(path).catch(() => null);
+    },
+    [settings?.lastProject],
+  );
   const foldersRef = useRef(listFolders);
   useEffect(() => {
     foldersRef.current = listFolders;
@@ -355,10 +427,15 @@ export function useNotesArea(app: AppSettings) {
     [report, toNotice],
   );
 
+  /** The first answer about the folder (or its failure) has come: the start level is known. */
+  const [statusAsked, setStatusAsked] = useState(false);
   const loadStatus = useCallback(() => {
     void getStatus()
       .then(setStatus)
-      .catch(() => null);
+      .catch(() => null)
+      .finally(() => {
+        setStatusAsked(true);
+      });
   }, []);
 
   const reloadFolders = useCallback(() => {
@@ -782,9 +859,13 @@ export function useNotesArea(app: AppSettings) {
     refreshRef.current = refreshOpen;
   });
 
+  // The first list waits for the status: before it, the start level could still change from
+  // "Private" to Hangar's project, and the window, shown once its first list is there, would
+  // show the wrong level for a moment.
   useEffect(() => {
+    if (!statusAsked) return;
     void Promise.resolve().then(reloadList);
-  }, [reloadList]);
+  }, [reloadList, statusAsked]);
 
   useEffect(() => {
     loadStatus();
@@ -937,7 +1018,7 @@ export function useNotesArea(app: AppSettings) {
   }, [leaveByPerson, show]);
 
   const newNote = () => {
-    if (!writable) return;
+    if (!writable || newFolder === null) return;
     setQuery("");
     void startDraft(newFolder, true, true);
   };
@@ -946,16 +1027,23 @@ export function useNotesArea(app: AppSettings) {
   // the backend could not store. A capture over the channel arrives as "open a note": the backend
   // has written it already, so nothing is created here.
   const handleRequests = useCallback(
-    async (requests: HubRequest[]) => {
+    async (requests: HubRequest[], fresh: Status) => {
+      /** Hangar named its working folder: the "Project" level shows it from now on. */
+      const followHangar = (path: string) => {
+        setChosen(path);
+        rememberProject(path);
+        setScope({ kind: "project" });
+      };
       for (const request of requests) {
         switch (request.kind) {
           case "showProject":
-            setScope(DEFAULT_SCOPE);
+            if (fresh.project !== null) followHangar(fresh.project);
             setQuery("");
             break;
           case "openNote": {
             const folder = { path: request.folder };
-            setScope(scopeForFolder(folder, project));
+            if (request.folder === null) setScope(scopeForFolder(folder));
+            else followHangar(request.folder);
             setQuery("");
             await openNote({ folder, id: request.id }, true, false);
             // A captured note is new: the list and the counts show it, even if it could not open.
@@ -963,12 +1051,23 @@ export function useNotesArea(app: AppSettings) {
             void reloadRef.current();
             break;
           }
-          case "quick":
-            setScope(DEFAULT_SCOPE);
+          case "quick": {
             setQuery("");
+            // Into Hangar's project, else into the level shown; the team level has no notes to
+            // write here, so the quick note goes to the private ones.
+            let folder: NoteFolder = GENERAL_FOLDER;
+            if (fresh.project !== null) {
+              followHangar(fresh.project);
+              folder = { path: fresh.project };
+            } else if (newFolder !== null) {
+              folder = newFolder;
+            } else {
+              setScope({ kind: "general" });
+            }
             // Read only: no draft that could never be saved; the "Read only" chip says why.
-            if (writableRef.current) await startDraft(newNoteFolder(DEFAULT_SCOPE, project), true);
+            if (writableRef.current) await startDraft(folder, true);
             break;
+          }
           case "capture": {
             // A text the backend could not store (read only): never created here, only held in
             // a draft with "Copy as Markdown", so it is not lost.
@@ -1001,9 +1100,19 @@ export function useNotesArea(app: AppSettings) {
         }
       }
     },
-    // `project` is rebuilt every render; its path says when it changed.
+    // `newFolder` is rebuilt every render; its path says when it changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [projectId, language, openNote, inform, reloadFolders, report, startDraft, t],
+    [
+      newFolder?.path,
+      language,
+      openNote,
+      inform,
+      rememberProject,
+      reloadFolders,
+      report,
+      startDraft,
+      t,
+    ],
   );
   const requestsRef = useRef(handleRequests);
   useEffect(() => {
@@ -1017,9 +1126,8 @@ export function useNotesArea(app: AppSettings) {
           setStatus(next);
           // The requests run before the next render, so they read the fresh state here.
           writableRef.current = next.access.state === "writable";
-          return takeHubRequests();
+          return takeHubRequests().then((requests) => requestsRef.current(requests, next));
         })
-        .then((requests) => requestsRef.current(requests))
         .catch(() => null);
     };
     take();
@@ -1318,7 +1426,8 @@ export function useNotesArea(app: AppSettings) {
       const hub = matchHubShortcut(event, PLATFORM);
       if (hub === "quickNote") {
         event.preventDefault();
-        if (writableRef.current) {
+        // The team level has nowhere to write a note here yet.
+        if (writableRef.current && newFolder !== null) {
           setQuery("");
           void startDraft(newFolder, true, true);
         }
@@ -1422,7 +1531,7 @@ export function useNotesArea(app: AppSettings) {
     changedNotice.current = conflictNotice;
     errorActions.current = {
       openFolder: () => {
-        void revealNotesFolder(noteRef.current?.folder ?? newFolder).catch(fail);
+        void revealNotesFolder(noteRef.current?.folder ?? newFolder ?? GENERAL_FOLDER).catch(fail);
       },
       reload: () => {
         setNotices((slots) => clearNotice(slots, "error"));
@@ -1469,70 +1578,97 @@ export function useNotesArea(app: AppSettings) {
     (allCount === undefined || allCount === 0);
 
   /**
-   * The projects of the sidebar: every working folder with notes, the folder Hangar Note was
-   * opened for (even while it has none, so its empty area can be reached) and a folder opened from
-   * a search hit that the folders do not list (yet), by name.
+   * The projects of the sidebar and of the project menu: every working folder with notes, the one
+   * Hangar Note was opened for and the one the "Project" level shows (even while they have none,
+   * so their empty level can be reached), by name.
    */
   const projectFolders = folders
     .flatMap((info): { path: string; name: string | null; count: number | undefined }[] =>
-      info.path === null ||
-      info.noteCount === 0 ||
-      (project !== null && sameFolder({ path: info.path }, project))
+      info.path === null || info.noteCount === 0
         ? []
         : [{ path: info.path, name: info.name, count: info.noteCount }],
     )
     .concat(
-      project?.path != null ? [{ path: project.path, name: null, count: knownCount(project) }] : [],
+      [opened, project?.path ?? null].flatMap((path) =>
+        path === null ||
+        folders.some(
+          (info) =>
+            info.path !== null && info.noteCount > 0 && sameFolder({ path: info.path }, { path }),
+        )
+          ? []
+          : [{ path, name: null, count: knownCount({ path }) }],
+      ),
     )
-    .concat(
-      shownScope.kind === "folder" &&
-        shownScope.folder.path !== null &&
-        !folders.some((info) => sameFolder({ path: info.path }, shownScope.folder))
-        ? [{ path: shownScope.folder.path, name: null, count: 0 }]
-        : [],
+    .filter(
+      (entry, index, all) =>
+        all.findIndex((other) => sameFolder({ path: other.path }, { path: entry.path })) === index,
     )
     .map((entry) => ({ ...entry, label: entry.name ?? folderName(entry.path) }))
     .sort((a, b) => a.label.localeCompare(b.label, language));
 
-  /** The sidebar's areas in its order; Ctrl+1 to Ctrl+9 choose the first nine. */
-  const areas: ScopeEntry[] = [
+  /** The sidebar's entries in its order: "All notes", then the projects. */
+  const scopeEntries: ScopeEntry[] = [
     {
       key: "all",
       scope: { kind: "all" },
       group: "main",
+      path: null,
       label: t("note.allNotes"),
       title: t("notes.scopeAllTip"),
       count: allCount,
     },
-    {
-      key: "general",
-      scope: { kind: "general" },
-      group: "main",
-      label: general,
-      title: t("notes.scopeGeneralTip"),
-      count: knownCount({ path: null }),
-    },
     ...projectFolders.map((entry) => ({
       key: `folder:${entry.path}`,
-      scope: scopeForFolder({ path: entry.path }, project),
+      scope: { kind: "project" } as const,
       group: "project" as const,
+      path: entry.path,
       label: entry.label,
       title: entry.path,
       count: entry.count,
     })),
   ];
-  const scopeEntries = areas.map((entry, index) =>
-    index < 9
-      ? {
-          ...entry,
-          title: `${entry.title}
-${areaShortcutLabel(index + 1, PLATFORM, t)}`,
-        }
-      : entry,
-  );
+  const projectName =
+    project === null
+      ? null
+      : (projectFolders.find((entry) => sameFolder({ path: entry.path }, project))?.label ??
+        folderName(project.path ?? ""));
   const shownScopeLabel =
-    scopeEntries.find((entry) => sameScope(entry.scope, shownScope))?.label ?? t("note.allNotes");
-  const isShownScope = (entry: ScopeEntry) => sameScope(entry.scope, shownScope);
+    shownScope.kind === "all"
+      ? t("note.allNotes")
+      : shownScope.kind === "general"
+        ? t("level.privateTitle")
+        : shownScope.kind === "team"
+          ? t("team.title")
+          : (projectName ?? t("level.project"));
+  /** Is `entry` what the notes show now? A project only while the "Project" level shows it. */
+  const isShownScope = (entry: ScopeEntry) =>
+    entry.path === null
+      ? shownScope.kind === "all"
+      : shownScope.kind === "project" && isProject({ path: entry.path }, project);
+
+  /** The three level tabs, the project one named after its project. */
+  const levelTabs: LevelTab[] = LEVELS.map((each, index) => {
+    const keys = levelShortcutLabel(index + 1, PLATFORM, t);
+    switch (each) {
+      case "private":
+        return {
+          level: each,
+          label: t("level.private"),
+          title: `${t("notes.scopeGeneralTip")}\n${keys}`,
+        };
+      case "project":
+        return {
+          level: each,
+          label:
+            projectName === null
+              ? t("level.project")
+              : t("level.projectNamed", { name: projectName }),
+          title: `${project?.path ?? t("level.projectTip")}\n${keys}`,
+        };
+      case "team":
+        return { level: each, label: t("level.team"), title: `${t("level.teamTip")}\n${keys}` };
+    }
+  });
 
   const projectLabel = (folder: NoteFolder) =>
     folder.path === null ? general : folderName(folder.path);
@@ -1653,6 +1789,11 @@ ${areaShortcutLabel(index + 1, PLATFORM, t)}`,
   ) => {
     const anchor = event.currentTarget;
     setMenu((open) => (open?.kind === kind ? null : { kind, anchor }));
+  };
+
+  /** Opens a menu at `anchor` from the keyboard (the project tab's Down and Enter). */
+  const openMenu = (kind: Exclude<MenuKind, "row" | "rowColor">, anchor: HTMLElement) => {
+    setMenu({ kind, anchor });
   };
 
   const openRowColors = (row: Row, anchor: HTMLElement) => {
@@ -1939,24 +2080,34 @@ ${areaShortcutLabel(index + 1, PLATFORM, t)}`,
       void reloadRef.current();
     }
   };
+  /** A level tab: its notes in the list. */
+  const chooseLevel = (next: Level) => {
+    goTo(scopeOfLevel(next));
+  };
+  /** A project from the project menu or the sidebar: the "Project" level shows it from now on. */
+  const chooseProject = (path: string) => {
+    setChosen(path);
+    rememberProject(path);
+    goTo({ kind: "project" });
+  };
+  /** A sidebar entry: "All notes", or a project in the "Project" level. */
+  const goToEntry = (entry: ScopeEntry) => {
+    if (entry.path === null) goTo(entry.scope);
+    else chooseProject(entry.path);
+  };
   const goToRef = useRef(goTo);
   useEffect(() => {
     goToRef.current = goTo;
   });
-  const entriesRef = useRef(scopeEntries);
-  useEffect(() => {
-    entriesRef.current = scopeEntries;
-  });
 
-  // Ctrl+1 to Ctrl+9 (Cmd on macOS): the sidebar's areas in its order, from anywhere in the window.
+  // Ctrl+1 to Ctrl+3 (Cmd on macOS): the levels in the order of their tabs, from anywhere.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      const position = matchAreaShortcut(event, PLATFORM);
-      if (position === null) return;
-      const entry = entriesRef.current[position - 1];
-      if (entry === undefined) return;
+      const position = matchLevelShortcut(event, PLATFORM);
+      const next = position === null ? undefined : LEVELS[position - 1];
+      if (next === undefined) return;
       event.preventDefault();
-      goToRef.current(entry.scope);
+      goToRef.current(scopeOfLevel(next));
     };
     window.addEventListener("keydown", onKey);
     return () => {
@@ -1976,7 +2127,7 @@ ${areaShortcutLabel(index + 1, PLATFORM, t)}`,
     label: t("notes.openFolder"),
     icon: <FolderIcon size={14} />,
     run: () => {
-      void revealNotesFolder(newFolder).catch(fail);
+      void revealNotesFolder(newFolder ?? GENERAL_FOLDER).catch(fail);
     },
   };
   const onTopItem: MenuItem = {
@@ -2002,6 +2153,21 @@ ${areaShortcutLabel(index + 1, PLATFORM, t)}`,
     switch (open.kind) {
       case "side":
         return [folderItem, onTopItem];
+      case "project":
+        return scopeEntries
+          .filter((entry) => entry.path !== null)
+          .map((entry) => ({
+            type: "action" as const,
+            key: entry.key,
+            label: entry.label,
+            title: entry.title,
+            count: entry.count,
+            radio: true,
+            checked: entry.path !== null && isProject({ path: entry.path }, project),
+            run: () => {
+              if (entry.path !== null) chooseProject(entry.path);
+            },
+          }));
       case "note":
         return noteMenu(true);
       case "noteActions":
@@ -2029,6 +2195,8 @@ ${areaShortcutLabel(index + 1, PLATFORM, t)}`,
       case "note":
       case "noteActions":
         return t("notes.more");
+      case "project":
+        return t("level.switchProject");
       case "noteColor":
       case "rowColor":
         return t("notes.color");
@@ -2044,7 +2212,9 @@ ${areaShortcutLabel(index + 1, PLATFORM, t)}`,
         items={() => menuItems(menu)}
         label={menuLabel(menu)}
         anchor={menu.anchor}
-        align={menu.kind === "side" || menu.kind === "row" ? "start" : "end"}
+        align={
+          menu.kind === "side" || menu.kind === "row" || menu.kind === "project" ? "start" : "end"
+        }
         at={menu.kind === "row" ? menu.at : undefined}
         onClose={closeMenu}
       />
@@ -2095,12 +2265,21 @@ ${areaShortcutLabel(index + 1, PLATFORM, t)}`,
     noticeSlot,
     noticeShown,
     idle,
-    // Scopes and colors
+    // Levels, scopes and colors
+    level,
+    levelTabs,
+    chooseLevel,
+    project,
+    projectEntries: scopeEntries.filter((entry) => entry.group === "project"),
+    chooseProject,
+    team,
+    canCreate,
     scopeEntries,
     shownScope,
     shownScopeLabel,
     isShownScope,
     goTo,
+    goToEntry,
     place,
     openPlace,
     mixed,
@@ -2167,6 +2346,7 @@ ${areaShortcutLabel(index + 1, PLATFORM, t)}`,
     menu,
     menuOpen,
     toggleMenu,
+    openMenu,
     leaveFor,
     backToNotes,
   };

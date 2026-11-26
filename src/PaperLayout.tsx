@@ -24,7 +24,6 @@ import {
 } from "./NoteParts";
 import { noteKey } from "./notes";
 import { cardLines } from "./noteText";
-import { NavButton } from "./Sidebar";
 import { dotStyle, type NotesModel, type Row } from "./useNotesArea";
 
 /**
@@ -58,7 +57,7 @@ function gridColumns(element: Element): number {
 }
 
 export function PaperLayout({ m }: { m: NotesModel }) {
-  const { t, note, writable, emptyMode } = m;
+  const { t, note, emptyMode } = m;
   const sheet = useRef<HTMLElement>(null);
   const close = useRef<HTMLButtonElement>(null);
   const openKey = note === null ? null : `${note.folder.path ?? ""}\n${note.id ?? ""}`;
@@ -102,7 +101,6 @@ export function PaperLayout({ m }: { m: NotesModel }) {
     <div className={emptyMode ? "notes-area layout-paper is-empty" : "notes-area layout-paper"}>
       <div className="paper-room" inert={note !== null}>
         <header className="paper-top">
-          <NavButton m={m} />
           <AreaHeading m={m} className="paper-title" />
           {!emptyMode && <SearchField m={m} placeholder={t("notes.search")} />}
           {!emptyMode && (
@@ -112,7 +110,7 @@ export function PaperLayout({ m }: { m: NotesModel }) {
               data-focus-id="new"
               aria-label={t("notes.new")}
               title={`${t("notes.new")} (${m.quickKeys})`}
-              disabled={!writable}
+              disabled={!m.canCreate}
               onClick={m.newNote}
             >
               <PlusIcon size={18} />

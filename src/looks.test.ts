@@ -32,6 +32,13 @@ describe("looks", () => {
     expect(layoutFor("hangar", HANGAR_MIN_WIDTH - 1)).toBe("calm");
     expect(layoutFor("paper", 320)).toBe("paper");
     expect(layoutFor("calm", 1200)).toBe("calm");
+    // A sidebar folded away or narrowed leaves the room; a wider one takes it.
+    expect(layoutFor("hangar", 780, 0)).toBe("hangar");
+    expect(layoutFor("hangar", 780, 180)).toBe("calm");
+    expect(layoutFor("hangar", 1000, 400)).toBe("calm");
+    expect(layoutFor("hangar", 1010, 400)).toBe("hangar");
+    // Below the folding width the hangar look is always calm's, even without a sidebar.
+    expect(layoutFor("hangar", 700, 0)).toBe("calm");
   });
 
   it("fold the sidebar away below 760 px, in every look", () => {

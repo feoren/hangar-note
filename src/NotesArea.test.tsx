@@ -65,6 +65,9 @@ const api = vi.hoisted(() => ({
   restoreNote: vi.fn(),
   setSettings: vi.fn(),
   setAutostart: vi.fn(),
+  setSidebarOpen: vi.fn(),
+  setSidebarWidth: vi.fn(),
+  setLastProject: vi.fn(),
 }));
 
 // The real error codes and their helpers (errors.ts reads them); the commands are mocked.
@@ -110,6 +113,9 @@ vi.mock("./api", async (importOriginal) => ({
   setSettings: api.setSettings,
   setAutostart: api.setAutostart,
   setHubOnTop: api.setHubOnTop,
+  setSidebarOpen: api.setSidebarOpen,
+  setSidebarWidth: api.setSidebarWidth,
+  setLastProject: api.setLastProject,
 }));
 
 vi.mock("./clipboard", () => ({ copyText: api.copyText }));
@@ -145,6 +151,7 @@ vi.mock("./editor", () => ({
 }));
 
 const { NotesArea } = await import("./NotesArea");
+const { forgetSession } = await import("./useNotesArea");
 
 const t = createTranslator("de");
 const calmApp: AppSettings = {
@@ -165,6 +172,8 @@ const calmApp: AppSettings = {
 };
 
 let app: AppSettings = calmApp;
+/** Stored settings beyond the defaults for the next render (sidebar, last project). */
+let stored: Partial<NonNullable<AppSettings["settings"]>> = {};
 let root: Root;
 let container: HTMLDivElement;
 
@@ -173,7 +182,7 @@ function withLook(look: Look): AppSettings {
   return {
     ...calmApp,
     look,
-    settings: calmApp.settings === null ? null : { ...calmApp.settings, look },
+    settings: calmApp.settings === null ? null : { ...calmApp.settings, ...stored, look },
   };
 }
 
@@ -261,6 +270,20 @@ function heading(): string {
   return container.querySelector(".area-heading h1")?.textContent ?? "";
 }
 
+/** A level tab by its level. */
+function tab(level: "private" | "project" | "team"): HTMLButtonElement {
+  const found = container.querySelector<HTMLButtonElement>(`#level-tab-${level}`);
+  if (!found) throw new Error(`tab ${level} missing`);
+  return found;
+}
+
+/** The levels whose tab is chosen. */
+function chosenTabs(): string[] {
+  return Array.from(container.querySelectorAll('[role="tab"][aria-selected="true"]')).map(
+    (element) => element.id.replace("level-tab-", ""),
+  );
+}
+
 /** The sidebar entries marked as the current place. */
 function currentPlaces(): string[] {
   return Array.from(container.querySelectorAll('.nav [aria-current="page"]')).map(
@@ -304,6 +327,11 @@ beforeEach(() => {
   api.createNote.mockResolvedValue(opened(A, "Notiz 1", { autoTitled: true, text: "" }));
   api.restoreNote.mockImplementation((_folder: unknown, id: string) => Promise.resolve(id));
   api.setSettings.mockImplementation((value: unknown) => Promise.resolve(value));
+  api.setSidebarOpen.mockImplementation((open: boolean) => Promise.resolve(open));
+  api.setSidebarWidth.mockImplementation((width: number) => Promise.resolve(width));
+  api.setLastProject.mockImplementation((folder: string | null) => Promise.resolve(folder));
+  stored = {};
+  forgetSession();
 });
 
 afterEach(() => {
@@ -608,10 +636,11 @@ describe("notes area: trash and back", () => {
 });
 
 describe("notes area: list", () => {
-  it("shows All on a start without a project, and new notes still go to General", async () => {
+  it("starts on Private without a project, and new notes go there", async () => {
     await render();
-    expect(heading()).toBe(t("note.allNotes"));
-    expect(currentPlaces()).toEqual([t("note.allNotes")]);
+    expect(heading()).toBe(t("level.privateTitle"));
+    expect(chosenTabs()).toEqual(["private"]);
+    expect(currentPlaces()).toEqual([]);
     await click(button(t("notes.new")));
     await type("Neu");
     expect(api.createNote).toHaveBeenCalledWith(GENERAL, "Notiz");
@@ -865,11 +894,14 @@ describe("notes area: rework of the calm look", () => {
 
   it("names each row's project only in All notes", async () => {
     await render();
+    expect(container.querySelector(".note-row-project")).toBeNull();
+    await click(navItem(t("note.allNotes")));
+    expect(heading()).toBe(t("note.allNotes"));
+    expect(chosenTabs()).toEqual([]);
     expect(
       Array.from(container.querySelectorAll(".note-row-project")).map((e) => e.textContent),
     ).toEqual([t("notes.general"), t("notes.general")]);
-    await click(navItem(t("notes.general")));
-    expect(heading()).toBe(t("notes.general"));
+    await click(tab("private"));
     expect(container.querySelector(".note-row-project")).toBeNull();
   });
 });
@@ -1461,7 +1493,7 @@ async function pressWindow(key: string, init: KeyboardEventInit = {}) {
 }
 
 describe.each(ALL_LOOKS)("notes area, the sidebar in the look %s", (look) => {
-  it("lists All, General and every project by its name, with counts, and marks the place", async () => {
+  it("lists All and every project by its name, with counts, and marks the place", async () => {
     withProjects();
     await render(look);
     const nav = container.querySelector("nav.nav");
@@ -1473,18 +1505,19 @@ describe.each(ALL_LOOKS)("notes area, the sidebar in the look %s", (look) => {
       ]),
     ).toEqual([
       [t("note.allNotes"), "3"],
-      [t("notes.general"), "2"],
       ["shop", "1"],
       [t("notes.trash"), null],
       [t("notes.settings"), null],
     ]);
-    // The tooltip names the full path and the shortcut.
-    expect(navItem("shop").title).toBe(`${SHOP}\nStrg+3`);
+    // The tooltip names the full path.
+    expect(navItem("shop").title).toBe(SHOP);
     await click(navItem(t("note.allNotes")));
     expect(currentPlaces()).toEqual([t("note.allNotes")]);
     expect(heading()).toBe(t("note.allNotes"));
+    // A project from the sidebar shows in the Project level.
     await click(navItem("shop"));
     expect(currentPlaces()).toEqual(["shop"]);
+    expect(chosenTabs()).toEqual(["project"]);
     expect(heading()).toBe("shop");
     expect(titles()).toEqual(["Kunden"]);
     expect(api.listNotes).toHaveBeenLastCalledWith({ path: SHOP });
@@ -1499,8 +1532,6 @@ describe.each(ALL_LOOKS)("notes area, the sidebar in the look %s", (look) => {
     );
     expect(stops).toEqual([navItem(t("note.allNotes"))]);
     await press(navItem(t("note.allNotes")), "ArrowDown");
-    expect(document.activeElement).toBe(navItem(t("notes.general")));
-    await press(navItem(t("notes.general")), "ArrowDown");
     expect(document.activeElement).toBe(navItem("shop"));
     await press(navItem("shop"), "End");
     expect(document.activeElement).toBe(navItem(t("notes.settings")));
@@ -1508,19 +1539,22 @@ describe.each(ALL_LOOKS)("notes area, the sidebar in the look %s", (look) => {
     expect(document.activeElement).toBe(navItem(t("note.allNotes")));
   });
 
-  it("chooses an area with Ctrl+1 to Ctrl+9, from the trash too", async () => {
+  it("chooses a level with Ctrl+1 to Ctrl+3, from the trash too", async () => {
     withProjects();
     await render(look);
-    await pressWindow("3", { code: "Digit3", ctrlKey: true });
+    await pressWindow("2", { code: "Digit2", ctrlKey: true });
+    expect(chosenTabs()).toEqual(["project"]);
     expect(heading()).toBe("shop");
     await click(navItem(t("notes.trash")));
     await pressWindow("1", { code: "Digit1", ctrlKey: true });
     expect(container.querySelector(".trash-list")).toBeNull();
-    expect(heading()).toBe(t("note.allNotes"));
-    // Ctrl+Shift+9 stays the editor's checklist; an area that does not exist does nothing.
+    expect(heading()).toBe(t("level.privateTitle"));
+    await pressWindow("3", { code: "Digit3", ctrlKey: true });
+    expect(chosenTabs()).toEqual(["team"]);
+    // Ctrl+Shift+9 stays the editor's checklist; Ctrl+4 and up choose nothing.
     await pressWindow("(", { code: "Digit9", ctrlKey: true, shiftKey: true });
-    await pressWindow("9", { code: "Digit9", ctrlKey: true });
-    expect(heading()).toBe(t("note.allNotes"));
+    await pressWindow("4", { code: "Digit4", ctrlKey: true });
+    expect(chosenTabs()).toEqual(["team"]);
   });
 });
 
@@ -1581,9 +1615,11 @@ describe("notes area: a narrow window", () => {
       withProjects();
       await render();
       expect(container.querySelector(".nav")).toBeNull();
-      const opener = container.querySelector<HTMLButtonElement>(".nav-button");
+      const opener = container.querySelector<HTMLButtonElement>(".side-toggle");
       if (!opener) throw new Error("sidebar button missing");
-      expect(opener.getAttribute("aria-label")).toBe(t("nav.open"));
+      expect(opener.getAttribute("aria-label")).toBe(t("nav.toggle"));
+      expect(opener.getAttribute("aria-expanded")).toBe("false");
+      expect(opener.getAttribute("aria-haspopup")).toBe("dialog");
       await click(opener);
       const dialog = container.querySelector('[role="dialog"]');
       expect(dialog?.getAttribute("aria-modal")).toBe("true");
@@ -1591,13 +1627,17 @@ describe("notes area: a narrow window", () => {
       await click(navItem("shop"));
       expect(container.querySelector(".nav")).toBeNull();
       expect(heading()).toBe("shop");
-      expect(document.activeElement).toBe(container.querySelector(".nav-button"));
-      // Escape closes it as well.
+      expect(document.activeElement).toBe(container.querySelector(".side-toggle"));
+      // Escape closes it as well, and so does Ctrl+Shift+S.
       await click(opener);
       const nav = container.querySelector(".nav");
       if (!nav) throw new Error("sidebar missing");
       await press(nav, "Escape");
       expect(container.querySelector(".nav")).toBeNull();
+      await pressWindow("S", { code: "KeyS", ctrlKey: true, shiftKey: true });
+      expect(container.querySelector(".nav")).not.toBeNull();
+      // A narrow window never stores the folded state: it is the window's, not the person's.
+      expect(api.setSidebarOpen).not.toHaveBeenCalled();
     } finally {
       width.mockRestore();
     }
@@ -1682,5 +1722,308 @@ describe("notes area: a change outside", () => {
     api.readNote.mockResolvedValue(opened(A, "Einkaufen", { text: "anders", version: `v-${A}` }));
     await notesChanged();
     expect(editor.text).toBe(shown);
+  });
+});
+
+/** General, "shop" and "hangar.feoren.com", whose note is the newest. */
+function withTwoProjects() {
+  api.listNoteFolders.mockResolvedValue([
+    { folderKey: "general", path: null, name: null, noteCount: 2, updatedAt: 3 },
+    { folderKey: "s", path: SHOP, name: "shop", noteCount: 1, updatedAt: 2 },
+    { folderKey: "w", path: WEB, name: "hangar.feoren.com", noteCount: 1, updatedAt: 5 },
+  ]);
+  api.listNotes.mockImplementation((folder: { path: string | null }) =>
+    Promise.resolve(
+      folder.path === null
+        ? [row(A, "Einkaufen", "mint"), row(IDEAS, "Ideen", "sky")]
+        : folder.path === SHOP
+          ? [row(B, "Kunden", "rose", { path: SHOP, folderKey: "s" })]
+          : [row(C, "Release", "lemon", { path: WEB, folderKey: "w" })],
+    ),
+  );
+}
+
+const C = "d4e5f6a7-0000-4000-8000-000000000002";
+
+/** The name the project tab shows. */
+function projectTabLabel(): string {
+  return tab("project").querySelector(".level-label")?.textContent ?? "";
+}
+
+function sideToggle(): HTMLButtonElement {
+  const found = container.querySelector<HTMLButtonElement>(".side-toggle");
+  if (!found) throw new Error("sidebar button missing");
+  return found;
+}
+
+function separator(): HTMLElement {
+  const found = container.querySelector<HTMLElement>('[role="separator"]');
+  if (!found) throw new Error("sidebar edge missing");
+  return found;
+}
+
+describe("notes area: folding the sidebar away", () => {
+  it("folds and shows it with its button and Ctrl+Shift+S, and stores the choice", async () => {
+    await render();
+    const toggle = sideToggle();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const side = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+    expect(side?.tagName).toBe("NAV");
+    expect(toggle.title).toBe(`${t("nav.hide")} (Strg+Umschalt+S)`);
+    await click(toggle);
+    expect(container.querySelector(".notes-shell")?.getAttribute("data-side")).toBe("closed");
+    expect(container.querySelector(".shell-side")?.hasAttribute("inert")).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.title).toBe(`${t("nav.show")} (Strg+Umschalt+S)`);
+    expect(api.setSidebarOpen).toHaveBeenLastCalledWith(false);
+    // From the editor too: the key is none of the editor's.
+    await click(button(t("notes.new")));
+    await pressWindow("S", { code: "KeyS", ctrlKey: true, shiftKey: true });
+    expect(container.querySelector(".notes-shell")?.getAttribute("data-side")).toBe("open");
+    expect(api.setSidebarOpen).toHaveBeenLastCalledWith(true);
+    // Folded from inside the sidebar: the focus goes to the button, not to the page.
+    const entry = container.querySelector<HTMLElement>(".shell-side nav button");
+    entry?.focus();
+    expect(document.activeElement).toBe(entry);
+    await pressWindow("S", { code: "KeyS", ctrlKey: true, shiftKey: true });
+    expect(container.querySelector(".notes-shell")?.getAttribute("data-side")).toBe("closed");
+    expect(document.activeElement).toBe(sideToggle());
+  });
+
+  it("starts folded when the settings say so, and keeps working without the stored setting", async () => {
+    stored = { sidebarOpen: false };
+    api.setSidebarOpen.mockRejectedValue("Command set_sidebar_open not found");
+    await render();
+    expect(sideToggle().getAttribute("aria-expanded")).toBe("false");
+    await click(sideToggle());
+    expect(sideToggle().getAttribute("aria-expanded")).toBe("true");
+    // An older backend (before a restart) refuses to store it: nothing alarming is said.
+    expect(container.querySelector(".notice")).toBeNull();
+  });
+});
+
+describe("notes area: the sidebar's width", () => {
+  it("is a separator with its range, moved with the arrow keys and reset with a double click", async () => {
+    await render();
+    const edge = separator();
+    expect(edge.getAttribute("aria-valuenow")).toBe("232");
+    expect(edge.getAttribute("aria-valuemin")).toBe("180");
+    // 40 % of the 1024 px test window is wider than the maximum.
+    expect(edge.getAttribute("aria-valuemax")).toBe("400");
+    expect(edge.tabIndex).toBe(0);
+    await press(edge, "ArrowRight");
+    expect(api.setSidebarWidth).toHaveBeenLastCalledWith(240);
+    expect(separator().getAttribute("aria-valuenow")).toBe("240");
+    await press(separator(), "ArrowRight", { shiftKey: true });
+    expect(api.setSidebarWidth).toHaveBeenLastCalledWith(272);
+    await press(separator(), "Home");
+    expect(api.setSidebarWidth).toHaveBeenLastCalledWith(180);
+    await press(separator(), "ArrowLeft");
+    // Already at the minimum: nothing new to store.
+    expect(api.setSidebarWidth).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      separator().dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(api.setSidebarWidth).toHaveBeenLastCalledWith(232);
+    const shell = container.querySelector<HTMLElement>(".notes-shell");
+    expect(shell?.style.getPropertyValue("--side-width")).toBe("232px");
+  });
+
+  it("follows a drag within its range and stores it when the drag ends", async () => {
+    await render();
+    const edge = separator();
+    const pointer = (type: string, clientX: number) =>
+      act(async () => {
+        edge.dispatchEvent(
+          new PointerEvent(type, { bubbles: true, clientX, pointerId: 1, button: 0 }),
+        );
+        await Promise.resolve();
+      });
+    await pointer("pointerdown", 232);
+    await pointer("pointermove", 300);
+    expect(separator().getAttribute("aria-valuenow")).toBe("300");
+    expect(api.setSidebarWidth).not.toHaveBeenCalled();
+    await pointer("pointermove", 900);
+    expect(separator().getAttribute("aria-valuenow")).toBe("400");
+    await pointer("pointerup", 900);
+    expect(api.setSidebarWidth).toHaveBeenCalledTimes(1);
+    expect(api.setSidebarWidth).toHaveBeenLastCalledWith(400);
+  });
+
+  it("starts at the stored width, brought into the window's range", async () => {
+    stored = { sidebarWidth: 300 };
+    await render();
+    expect(separator().getAttribute("aria-valuenow")).toBe("300");
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    stored = { sidebarWidth: 5000 };
+    await render();
+    expect(separator().getAttribute("aria-valuenow")).toBe("400");
+  });
+});
+
+describe.each(ALL_LOOKS)("notes area, the level tabs in the look %s", (look) => {
+  it("are one Tab stop, and the arrow keys, Home and End choose", async () => {
+    withProjects();
+    await render(look);
+    const list = container.querySelector('[role="tablist"]');
+    expect(list?.getAttribute("aria-label")).toBe(t("level.tabs"));
+    const stops = Array.from(container.querySelectorAll<HTMLElement>('[role="tab"]')).filter(
+      (element) => element.tabIndex === 0,
+    );
+    expect(stops).toEqual([tab("private")]);
+    expect(tab("private").getAttribute("aria-controls")).toBe("level-panel");
+    expect(container.querySelector('[role="tabpanel"]')?.getAttribute("aria-labelledby")).toBe(
+      "level-tab-private",
+    );
+    tab("private").focus();
+    await press(tab("private"), "ArrowRight");
+    expect(document.activeElement).toBe(tab("project"));
+    expect(chosenTabs()).toEqual(["project"]);
+    expect(heading()).toBe("shop");
+    await press(tab("project"), "End");
+    expect(document.activeElement).toBe(tab("team"));
+    expect(chosenTabs()).toEqual(["team"]);
+    await press(tab("team"), "ArrowRight");
+    expect(document.activeElement).toBe(tab("private"));
+    await press(tab("private"), "ArrowLeft");
+    expect(chosenTabs()).toEqual(["team"]);
+    await press(tab("team"), "Home");
+    expect(chosenTabs()).toEqual(["private"]);
+    expect(tab("private").title).toBe(`${t("notes.scopeGeneralTip")}\nStrg+1`);
+  });
+
+  it("show the Team level as one calm sentence, nothing read only and no new note", async () => {
+    withProjects();
+    await render(look);
+    await click(tab("team"));
+    expect(container.querySelector(".team-level")?.textContent).toContain(t("team.needsHangar"));
+    expect(container.querySelector(".ro-chip")).toBeNull();
+    expect(container.querySelector('input[type="search"]')).toBeNull();
+    expect(container.querySelector('[data-focus-id="new"]')).toBeNull();
+    expect(container.textContent).not.toContain(t("notes.readOnlyChip"));
+    // Ctrl+Shift+N has nowhere to write in Team: no draft opens.
+    await pressWindow("N", { code: "KeyN", ctrlKey: true, shiftKey: true });
+    expect(container.querySelector(".cm-content")).toBeNull();
+    expect(chosenTabs()).toEqual(["team"]);
+  });
+
+  it("write a new note into the level shown, with the cursor in the text", async () => {
+    withProjects();
+    await render(look);
+    expect(container.querySelector(".ro-chip")).toBeNull();
+    const create = container.querySelector<HTMLButtonElement>('[data-focus-id="new"]');
+    expect(create?.disabled).toBe(false);
+    await click(button(t("notes.new")));
+    await frames();
+    expect(document.activeElement?.classList.contains("cm-content")).toBe(true);
+    await type("Privat notiert");
+    expect(api.createNote).toHaveBeenLastCalledWith(GENERAL, "Notiz");
+    // The tab is reachable with the note open; the next new note saves this one first.
+    await click(tab("project"));
+    await click(button(t("notes.new")));
+    await frames();
+    expect(document.activeElement?.classList.contains("cm-content")).toBe(true);
+    await type("Im Projekt");
+    expect(api.createNote).toHaveBeenLastCalledWith({ path: SHOP }, "Notiz");
+    expect(api.writeNote).toHaveBeenCalled();
+  });
+
+  it("start a quick note with Ctrl+Shift+N in the level shown", async () => {
+    withProjects();
+    await render(look);
+    await click(tab("project"));
+    await pressWindow("N", { code: "KeyN", ctrlKey: true, shiftKey: true });
+    await type("Schnell");
+    expect(api.createNote).toHaveBeenLastCalledWith({ path: SHOP }, "Notiz");
+  });
+});
+
+describe("notes area: the project of the Project level", () => {
+  it("is the folder Hangar opened it for, before the last one shown", async () => {
+    withTwoProjects();
+    stored = { lastProject: SHOP };
+    api.getStatus.mockResolvedValue({ ...writable, project: WEB });
+    api.takeHubRequests.mockResolvedValue([{ kind: "showProject" }]);
+    await render();
+    expect(chosenTabs()).toEqual(["project"]);
+    expect(projectTabLabel()).toBe(t("level.projectNamed", { name: "hangar.feoren.com" }));
+    expect(tab("project").title).toBe(`${WEB}\nStrg+2`);
+    expect(api.setLastProject).toHaveBeenLastCalledWith(WEB);
+  });
+
+  it("is the last one shown without a folder, before the newest", async () => {
+    withTwoProjects();
+    stored = { lastProject: SHOP };
+    await render();
+    expect(projectTabLabel()).toBe(t("level.projectNamed", { name: "shop" }));
+  });
+
+  it("is the project with the newest note without either", async () => {
+    withTwoProjects();
+    await render();
+    expect(projectTabLabel()).toBe(t("level.projectNamed", { name: "hangar.feoren.com" }));
+  });
+
+  it("says how to get one while there is no project at all, without a new note", async () => {
+    api.listNoteFolders.mockResolvedValue([
+      { folderKey: "general", path: null, name: null, noteCount: 2, updatedAt: 3 },
+    ]);
+    await render();
+    await click(tab("project"));
+    expect(projectTabLabel()).toBe(t("level.project"));
+    expect(tab("project").getAttribute("aria-haspopup")).toBeNull();
+    expect(container.textContent).toContain(t("level.noProject"));
+    expect(container.querySelector<HTMLButtonElement>('[data-focus-id="new"]')?.disabled).toBe(
+      true,
+    );
+  });
+
+  it("switches from the tab's menu, by mouse and keyboard, and remembers the choice", async () => {
+    withTwoProjects();
+    await render();
+    await click(tab("project"));
+    expect(heading()).toBe("hangar.feoren.com");
+    expect(tab("project").getAttribute("aria-haspopup")).toBe("menu");
+    expect(tab("project").getAttribute("aria-expanded")).toBe("false");
+    // A click on the chosen tab opens the menu; the project shown is checked.
+    await click(tab("project"));
+    expect(tab("project").getAttribute("aria-expanded")).toBe("true");
+    const radios = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.popup-menu [role="menuitemradio"]'),
+    );
+    expect(radios.map((item) => item.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+    await click(menuItem("shop"));
+    expect(heading()).toBe("shop");
+    expect(projectTabLabel()).toBe(t("level.projectNamed", { name: "shop" }));
+    expect(titles()).toEqual(["Kunden"]);
+    expect(api.setLastProject).toHaveBeenLastCalledWith(SHOP);
+    // Down on the tab opens it as well.
+    await press(tab("project"), "ArrowDown");
+    expect(tab("project").getAttribute("aria-expanded")).toBe("true");
+    await click(menuItem("hangar.feoren.com"));
+    expect(heading()).toBe("hangar.feoren.com");
+  });
+
+  it("follows a folder Hangar forwards while the app runs", async () => {
+    withTwoProjects();
+    await render();
+    await click(tab("project"));
+    await click(tab("project"));
+    await click(menuItem("shop"));
+    expect(heading()).toBe("shop");
+    api.getStatus.mockResolvedValue({ ...writable, project: WEB });
+    api.takeHubRequests.mockResolvedValue([{ kind: "showProject" }]);
+    await act(async () => {
+      api.handlers.get("hub-requests")?.();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(chosenTabs()).toEqual(["project"]);
+    expect(heading()).toBe("hangar.feoren.com");
+    expect(api.setLastProject).toHaveBeenLastCalledWith(WEB);
   });
 });

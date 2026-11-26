@@ -1,11 +1,12 @@
-// The one navigation of the notes area, the same in every look (ADR 0004): "All notes" and
-// "General", the projects by their folder name, the color filter, and at the bottom "Recently
-// deleted" and "Settings". The current place is marked (`aria-current`). The arrow keys, Home and
-// End move between the entries (one Tab stop for all of them); Ctrl+1 to Ctrl+9 choose an area from
-// anywhere (useNotesArea.tsx). Below NAV_MIN_WIDTH the sidebar is folded away: a button in the
-// heading of each look opens it over the notes, and choosing a place closes it again.
+// The one navigation of the notes area, the same in every look (ADR 0004): "All notes", the
+// projects by their folder name (choosing one shows it in the "Project" level), the color filter,
+// and at the bottom "Recently deleted" and "Settings". The levels themselves ("Private", "Project",
+// "Team") are the tabs above the notes (LevelBar.tsx). The current place is marked
+// (`aria-current`). The arrow keys, Home and End move between the entries (one Tab stop for all of
+// them). The button at the start of the level bar shows or folds the sidebar away (Ctrl+Shift+S);
+// below NAV_MIN_WIDTH it opens the sidebar over the notes instead, and choosing a place closes it.
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { colorName, NOTE_COLORS } from "./colors";
 import {
@@ -14,47 +15,11 @@ import {
   FolderIcon,
   GearIcon,
   MoreIcon,
-  NoteIcon,
   NotesIcon,
-  SidebarIcon,
   TrashIcon,
 } from "./icons";
 import { sidebarTarget } from "./shortcuts";
 import { dotStyle, type NotesModel, type ScopeEntry } from "./useNotesArea";
-
-/** The sidebar as a narrow window offers it: folded away behind a button, or always there. */
-export interface NavState {
-  /** Folded away: the looks show the button that opens it. */
-  folded: boolean;
-  /** Opens the folded sidebar over the notes; the focus returns to the button on closing. */
-  open: (from: HTMLElement) => void;
-}
-
-const NavContext = createContext<NavState>({ folded: false, open: () => undefined });
-
-export const NavProvider = NavContext.Provider;
-
-/** The button that opens the folded sidebar; nothing while the sidebar is shown anyway. */
-export function NavButton({ m }: { m: NotesModel }) {
-  const nav = useContext(NavContext);
-  if (!nav.folded) return null;
-  const label = m.t("nav.open");
-  return (
-    <button
-      type="button"
-      className="icon-button nav-button"
-      data-focus-id="nav"
-      aria-label={label}
-      title={label}
-      aria-haspopup="dialog"
-      onClick={(event) => {
-        nav.open(event.currentTarget);
-      }}
-    >
-      <SidebarIcon size={18} />
-    </button>
-  );
-}
 
 /**
  * The sidebar. `overlay`: shown over the notes in a narrow window, as a modal dialog that
@@ -62,10 +27,13 @@ export function NavButton({ m }: { m: NotesModel }) {
  */
 export function Sidebar({
   m,
+  id,
   overlay = false,
   onClose,
 }: {
   m: NotesModel;
+  /** The element id the sidebar button names in `aria-controls`. */
+  id?: string;
   overlay?: boolean;
   onClose?: () => void;
 }) {
@@ -130,7 +98,7 @@ export function Sidebar({
           title={entry.title}
           {...entryProps(entry.key)}
           onClick={() => {
-            m.goTo(entry.scope);
+            m.goToEntry(entry);
             close();
           }}
         >
@@ -147,6 +115,7 @@ export function Sidebar({
 
   return (
     <nav
+      id={id}
       className={overlay ? "nav nav-overlay" : "nav"}
       aria-label={t("notes.scopes")}
       onKeyDown={onKeyDown}
@@ -180,11 +149,7 @@ export function Sidebar({
       </div>
 
       <div className="nav-scroll" ref={list}>
-        <ul className="nav-list">
-          {main.map((entry) =>
-            area(entry, entry.key === "all" ? <NotesIcon size={15} /> : <NoteIcon size={15} />),
-          )}
-        </ul>
+        <ul className="nav-list">{main.map((entry) => area(entry, <NotesIcon size={15} />))}</ul>
 
         {projects.length > 0 && (
           <>

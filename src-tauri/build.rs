@@ -34,6 +34,9 @@ const COMMANDS: &[&str] = &[
     "set_autostart",
     "set_tray_labels",
     "set_hub_on_top",
+    "set_sidebar_open",
+    "set_sidebar_width",
+    "set_last_project",
     "window_ready",
 ];
 

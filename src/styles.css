@@ -571,9 +571,12 @@ kbd {
 
 /* ---- The window: the one sidebar beside the notes, in every look ---- */
 
+/* `--side-width` is the sidebar's width as dragged (NotesArea.tsx); folding it away slides it shut
+   in 180 ms, which reduced motion turns into a jump. */
 .notes-shell {
+  --side-width: 232px;
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   height: 100%;
   background: var(--bg);
 }
@@ -588,8 +591,239 @@ kbd {
   min-height: 0;
 }
 
+.shell-side {
+  position: relative;
+  width: var(--side-width);
+  transition: width 180ms var(--ease-out);
+}
+
+/* The sidebar keeps its width while the column slides, so nothing in it wraps on the way. */
+.shell-side .nav {
+  width: var(--side-width);
+}
+
+.shell-side > .nav {
+  overflow: hidden;
+}
+
+.notes-shell[data-side="closed"] .shell-side {
+  width: 0;
+  overflow: hidden;
+}
+
+.notes-shell[data-side="closed"] .side-resize {
+  display: none;
+}
+
+/* The sidebar's edge: a 7 px strip to grab, a thin accent line while it is hovered, dragged or
+   focused. */
+.side-resize {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: -4px;
+  z-index: 3;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.side-resize::after {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 3px;
+  width: 2px;
+  background: transparent;
+  content: "";
+  transition: background-color 120ms var(--ease-out);
+}
+
+.side-resize:hover::after,
+.side-resize.dragging::after,
+.side-resize:focus-visible::after {
+  background: var(--accent);
+}
+
+.side-resize:focus-visible {
+  outline: none;
+}
+
+.notes-shell:has(.side-resize.dragging) {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.notes-shell:has(.side-resize.dragging) .shell-side {
+  transition: none;
+}
+
 .shell-main {
+  display: flex;
+  flex-direction: column;
   container: main / inline-size;
+}
+
+.level-panel {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* ---- The level bar: the sidebar button and the tabs Private, Project, Team ---- */
+
+.level-row {
+  flex: none;
+}
+
+.level-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 16px 2px 10px;
+}
+
+.side-toggle {
+  color: var(--text);
+}
+
+.side-toggle:hover {
+  background: var(--hover);
+}
+
+/* One segmented control: the panel tone as its track, the chosen tab lifted onto the page tone. */
+.level-tabs {
+  display: inline-flex;
+  flex: 0 1 auto;
+  gap: 2px;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.level-tab {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+.level-tab:hover {
+  color: var(--text);
+}
+
+.level-tab[aria-selected="true"] {
+  background: var(--bg);
+  box-shadow: 0 1px 3px var(--shadow);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.level-tab:focus-visible {
+  outline-offset: -2px;
+}
+
+.level-tab > svg {
+  flex: none;
+}
+
+.level-project {
+  flex-shrink: 1;
+  max-width: 300px;
+}
+
+.level-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.level-chevron {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-inline: -2px -4px;
+  padding: 2px;
+  border-radius: 4px;
+  opacity: 0.75;
+}
+
+.level-tab:hover .level-chevron,
+.level-tab[aria-expanded="true"] .level-chevron {
+  opacity: 1;
+}
+
+/* The paper look lays the bar on its table, like the cards. */
+.look-paper .shell-main {
+  background: var(--table);
+}
+
+@container main (max-width: 460px) {
+  .level-bar {
+    gap: 6px;
+    padding-inline: 8px 10px;
+  }
+
+  .level-tab {
+    padding: 0 9px;
+  }
+
+  .level-project {
+    max-width: 170px;
+  }
+}
+
+/* ---- The team level: one calm sentence until Hangar is connected ---- */
+
+.team-level {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  padding: var(--space-3);
+}
+
+.team-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 36ch;
+  text-align: center;
+}
+
+.team-mark {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--accent);
+}
+
+.team-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.team-empty p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 /* Quiet: the panel tone, small type, one accent only on the current place. */
@@ -820,15 +1054,6 @@ kbd {
     opacity: 0;
     transform: translateX(-24px);
   }
-}
-
-.nav-button {
-  margin-inline-start: -4px;
-  color: var(--muted);
-}
-
-.nav-button:hover {
-  color: var(--text);
 }
 
 /* The area's name as the heading, with the small "Read only" chip beside it. */

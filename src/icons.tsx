@@ -217,3 +217,14 @@ export function LockIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** The team level: two people side by side. */
+export function TeamIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="6" cy="5.5" r="2.25" />
+      <path d="M1.75 13.25c.4-2.3 2-3.5 4.25-3.5s3.85 1.2 4.25 3.5" />
+      <path d="M10.75 3.6a2.25 2.25 0 0 1 0 4.3M12 9.9c1.2.45 2 1.55 2.25 3.35" />
+    </Svg>
+  );
+}

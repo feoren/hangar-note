@@ -321,6 +321,12 @@
           "markdownDescription": "Enables the set_hub_on_top command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_last_project command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-last-project",
+          "markdownDescription": "Enables the set_last_project command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_note_color command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-note-color",
@@ -337,6 +343,18 @@
           "type": "string",
           "const": "allow-set-settings",
           "markdownDescription": "Enables the set_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_sidebar_open command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-sidebar-open",
+          "markdownDescription": "Enables the set_sidebar_open command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_sidebar_width command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-sidebar-width",
+          "markdownDescription": "Enables the set_sidebar_width command without any pre-configured scope."
         },
         {
           "description": "Enables the set_tray_labels command without any pre-configured scope.",
@@ -519,6 +537,12 @@
           "markdownDescription": "Denies the set_hub_on_top command without any pre-configured scope."
         },
         {
+          "description": "Denies the set_last_project command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-last-project",
+          "markdownDescription": "Denies the set_last_project command without any pre-configured scope."
+        },
+        {
           "description": "Denies the set_note_color command without any pre-configured scope.",
           "type": "string",
           "const": "deny-set-note-color",
@@ -535,6 +559,18 @@
           "type": "string",
           "const": "deny-set-settings",
           "markdownDescription": "Denies the set_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_sidebar_open command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-sidebar-open",
+          "markdownDescription": "Denies the set_sidebar_open command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_sidebar_width command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-sidebar-width",
+          "markdownDescription": "Denies the set_sidebar_width command without any pre-configured scope."
         },
         {
           "description": "Denies the set_tray_labels command without any pre-configured scope.",

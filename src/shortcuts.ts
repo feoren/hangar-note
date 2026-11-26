@@ -13,9 +13,10 @@
 // The notes area (Hangar's notes panel) has two of its own: Ctrl+Shift+N starts a quick note and
 // F2 renames the open note, as in Hangar.
 //
-// The sidebar's areas have Ctrl+1 to Ctrl+9 (Cmd on macOS): 1 "All notes", 2 "General", 3 to 9
-// the projects in the order the sidebar lists them. No editor command uses Ctrl+digit; with Shift
-// the digits stay the editor's (Ctrl+Shift+8 and 9).
+// The three levels above the notes have Ctrl+1 to Ctrl+3 (Cmd on macOS): 1 "Private", 2
+// "Project", 3 "Team". No editor command uses Ctrl+digit; with Shift the digits stay the editor's
+// (Ctrl+Shift+8 and 9). Ctrl+Shift+S shows or folds away the sidebar: Ctrl+B, the usual key for
+// that, is bold in the editor, and neither CodeMirror's keymaps nor the note use Ctrl+Shift+S.
 //
 // A row of the notes list has two more: Delete puts the note into the trash, and the context menu
 // key or Shift+F10 opens the row's menu, the keyboard's way to what a right click shows.
@@ -93,17 +94,56 @@ export function matchHubShortcut(event: KeyInfo, platform: Platform): HubAction 
   return null;
 }
 
-/** The sidebar area (1 to 9) a key press chooses, or `null`. */
-export function matchAreaShortcut(event: KeyInfo, platform: Platform): number | null {
+/** How many levels Ctrl+digit chooses ("Private", "Project", "Team"). */
+export const LEVEL_KEYS = 3;
+
+/** The level (1 to 3, in the order the tabs show them) a key press chooses, or `null`. */
+export function matchLevelShortcut(event: KeyInfo, platform: Platform): number | null {
   if (!commandKey(event, platform) || event.shiftKey) return null;
-  const digit = digitOf(event);
-  return digit === null || digit === "0" ? null : Number(digit);
+  const digit = Number(digitOf(event));
+  return digit >= 1 && digit <= LEVEL_KEYS ? digit : null;
 }
 
-/** "Strg+3" or "⌘3", for the sidebar's tooltips. */
-export function areaShortcutLabel(position: number, platform: Platform, t: Translate): string {
+/** "Strg+3" or "⌘3", for the level tabs' tooltips. */
+export function levelShortcutLabel(position: number, platform: Platform, t: Translate): string {
   if (platform === "mac") return `⌘${String(position)}`;
   return `${t("key.ctrl")}+${String(position)}`;
+}
+
+/** Ctrl+Shift+S (Shift+Cmd+S on macOS): show or fold away the sidebar. */
+export function matchSidebarShortcut(event: KeyInfo, platform: Platform): boolean {
+  return commandKey(event, platform) && event.shiftKey && letterOf(event) === "s";
+}
+
+/** "Strg+Umschalt+S" or "⇧⌘S", for the sidebar button's tooltip. */
+export function sidebarShortcutLabel(platform: Platform, t: Translate): string {
+  if (platform === "mac") return "⇧⌘S";
+  return [t("key.ctrl"), t("key.shift"), "S"].join("+");
+}
+
+/**
+ * Where the arrow keys, Home and End move the focus among the level tabs: the index of the tab to
+ * focus among `count`, or `null` for any other key. Left goes back, Right goes on, the ends wrap.
+ * The tabs lie in a row, so Up and Down are left alone (Down opens the project tab's menu).
+ */
+export function tabTarget(
+  event: Pick<KeyInfo, "key" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey">,
+  index: number,
+  count: number,
+): number | null {
+  if (count === 0 || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return null;
+  switch (event.key) {
+    case "ArrowRight":
+      return (index + 1) % count;
+    case "ArrowLeft":
+      return (index - 1 + count) % count;
+    case "Home":
+      return 0;
+    case "End":
+      return count - 1;
+    default:
+      return null;
+  }
 }
 
 /**

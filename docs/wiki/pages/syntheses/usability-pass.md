@@ -231,3 +231,25 @@ the "This project" and "All" chip names and "Notes" as a heading.
 Open points: the last chosen area is not stored across restarts; colors in the sidebar have no
 visible names (their names are the tooltip and the accessible name).
 
+## Levels and a sidebar that folds away
+
+The owner asked on 2026-11-26 for a sidebar that can be folded away and resized, for writing to be
+obvious, and for three levels as tabs: private, the project currently open in Hangar, and its team
+notes. Hangar Note is meant to replace Hangar's notes area, not to read it.
+
+| Area | Change | Reason |
+| --- | --- | --- |
+| Levels | A bar above the notes in every look (`src/LevelBar.tsx`): the sidebar button, then one segmented control with the tabs "Private", "Project · name" and "Team" (`role="tablist"`, one Tab stop; Left, Right, Home and End move and choose; Ctrl+1 to Ctrl+3 from anywhere). The chosen tab is lifted onto the page tone. The view below is its `tabpanel`. | One clear hierarchy: level, then heading, search and "New note", then list and note. |
+| Project | The project tab names the project Hangar works in (`activeProject` in `src/notesScope.ts`): a project chosen by hand in this session, else the folder Hangar Note was opened for (`--folder`, also forwarded to a running instance, which then switches to it), else `lastProject` from `settings.json`, else the project with the newest note. Its tooltip is the full path. With two or more projects a chevron sits in the tab; a click on the chosen tab, the chevron, Down or Enter open a menu of the projects (radio items with counts). A choice is stored as `lastProject`. | The project follows Hangar, and switching is one click away. |
+| Team | The team tab shows one calm empty state: an icon, "Team notes" and one sentence ("Team notes appear here once Hangar is connected."). No list, no search, no "New note", nothing read only. `TeamState` in `src/useNotesArea.tsx` is the seam for the list once Hangar's team routes exist (ADR 0002 phase 2). | No fake data and nothing alarming while the crypto runs through Hangar. |
+| Sidebar | "General" left the sidebar (the "Private" tab is it); "All notes" stays as the overview across everything, the projects stay and choose the project in the "Project" level. "General" reads "Private" everywhere (rows in All, the crumb, the trash). | Nothing twice. |
+| Folding | The sidebar button (`aria-expanded`, `aria-controls`) and Ctrl+Shift+S fold the sidebar away and back in a 180 ms width transition (a jump with reduced motion); the folded sidebar is `inert`. Stored as `sidebarOpen` in `settings.json` (open by default). Below 760 px the button opens the sidebar over the notes as before, and nothing is stored. Ctrl+B was not taken: it is bold in the editor. | The owner wants the room for writing; the button sits in the same place at every width. |
+| Width | The sidebar's right edge is a `role="separator"` with `aria-valuenow`, `aria-valuemin` and `aria-valuemax`: dragged with the mouse or a pen (pointer capture, `col-resize`), moved by 8 px with the arrow keys (32 px with Shift), Home and End go to the ends, a double click resets 232 px. Between 180 and 400 px and never more than 40 % of the window (`src/sidebarWidth.ts`); stored as `sidebarWidth` when a drag ends. The hangar look now needs 608 px of room beside the sidebar instead of an 840 px window. | A long project name or a small screen. |
+| Writing | "New note" is in every level that can hold notes and writes there; the editor opens with the cursor in the text; Ctrl+Shift+N starts a quick note in the level shown (in Team it does nothing). A "Project" level without any project says how to get one and offers no "New note". | Writing must be obvious and land where the person looks. |
+| Start | Opened for a folder, the window starts on the "Project" level; otherwise on "Private", unless it is empty while a project has notes. The first list waits for the folder status, so the window never shows the wrong level first. The chosen level and project are kept while the app runs. | The first view is where the person works. |
+
+Checked with tests (mocked backend, every look) and in a browser preview against Vite with a mocked
+Tauri API (calm, paper and hangar; light and dark; 360, 760, 800 and 1100 px; the folded sidebar,
+the overlay, the project menu and the team level), and in the real window after hot reload (paper,
+dark). `sidebarOpen`, `sidebarWidth` and `lastProject` are stored only by a backend built with this
+change; an older one refuses the commands, and the choices then hold while the app runs.

@@ -70,7 +70,7 @@ export function SearchField({ m, placeholder }: { m: NotesModel; placeholder?: s
 
 /** What the list says instead of rows: a failed load, no hits, nothing here, no color matches. */
 export function ListMessages({ m }: { m: NotesModel }) {
-  const { t, searching, shownHits, allRows, visible, list, listFailed, writable } = m;
+  const { t, searching, shownHits, allRows, visible, list, listFailed } = m;
   return (
     <>
       {listFailed && !searching && (
@@ -100,7 +100,7 @@ export function ListMessages({ m }: { m: NotesModel }) {
       {!searching && !listFailed && list !== null && allRows.length === 0 && (
         <div className="notes-empty">
           <p>{emptyAreaText(m)}</p>
-          {writable && (
+          {m.canCreate && (
             <button type="button" className="secondary-button" onClick={m.newNote}>
               <PlusIcon size={14} />
               {t("notes.new")}
@@ -120,11 +120,23 @@ export function ListMessages({ m }: { m: NotesModel }) {
   );
 }
 
-/** The one sentence of an empty area: "No notes in General yet.", "No notes in shop yet.". */
-function emptyAreaText(m: NotesModel): string {
-  return m.shownScope.kind === "all"
-    ? m.t("notes.emptyLead")
-    : m.t("notes.emptyProject", { folder: m.shownScopeLabel });
+/**
+ * The one sentence of an empty level: "No private notes yet.", "No notes in shop yet.", or, in
+ * the "Project" level while there is no project at all, how one gets there.
+ */
+export function emptyAreaText(m: NotesModel): string {
+  switch (m.shownScope.kind) {
+    case "all":
+      return m.t("notes.emptyLead");
+    case "general":
+      return m.t("level.emptyPrivate");
+    case "project":
+      return m.project === null
+        ? m.t("level.noProject")
+        : m.t("notes.emptyProject", { folder: m.shownScopeLabel });
+    case "team":
+      return m.t("team.needsHangar");
+  }
 }
 
 /**
@@ -539,7 +551,7 @@ export function Welcome({ m, mark }: { m: NotesModel; mark: React.ReactNode }) {
       {mark}
       <h2>{t("notes.emptyTitle")}</h2>
       {(writable || m.shownScope.kind !== "all") && <p>{emptyAreaText(m)}</p>}
-      {writable && (
+      {m.canCreate && (
         <>
           <button type="button" className="primary-button" data-focus-id="new" onClick={m.newNote}>
             <PlusIcon />

@@ -1215,6 +1215,7 @@ mod tests {
             AppError::Service(ServiceError::NotOpen),
             AppError::Settings(SettingsError::UnknownLanguage),
             AppError::Settings(SettingsError::InvalidColorName),
+            AppError::Settings(SettingsError::InvalidProject),
             AppError::Settings(SettingsError::Io {
                 path: path(),
                 source: io(),
@@ -1241,6 +1242,7 @@ mod tests {
             | AppError::Settings(
                 SettingsError::UnknownLanguage
                 | SettingsError::InvalidColorName
+                | SettingsError::InvalidProject
                 | SettingsError::Io { .. },
             )
             | AppError::Export(
@@ -1292,6 +1294,7 @@ mod tests {
             "io",
             "on-desktop",
             "not-open",
+            "invalid",
             "invalid",
             "invalid",
             "io",

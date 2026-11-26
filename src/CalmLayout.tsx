@@ -20,7 +20,6 @@ import {
   Welcome,
 } from "./NoteParts";
 import { noteKey } from "./notes";
-import { NavButton } from "./Sidebar";
 import type { NotesModel } from "./useNotesArea";
 
 export function CalmLayout({ m }: { m: NotesModel }) {
@@ -33,7 +32,6 @@ export function CalmLayout({ m }: { m: NotesModel }) {
     >
       <section className="list-pane" aria-label={t("notes.list")}>
         <header className="pane-head">
-          <NavButton m={m} />
           <AreaHeading m={m} className="area-title" />
           {!emptyMode && (
             <button
@@ -41,7 +39,7 @@ export function CalmLayout({ m }: { m: NotesModel }) {
               className="primary-button new-button"
               data-focus-id="new"
               title={`${t("notes.new")} (${m.quickKeys})`}
-              disabled={!writable}
+              disabled={!m.canCreate}
               onClick={m.newNote}
             >
               <PlusIcon />

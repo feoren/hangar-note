@@ -160,3 +160,20 @@ Ctrl+1 to Ctrl+9, the folded sidebar below 760 px, the start on "All notes", gui
 the "Read only" chip in place of the banner, and following changes outside without a click. Noted
 the new widths in pages/decisions/0004-switchable-looks.md.
 
+## [2026-11-26] update | Contract "notes-shared 1" adopted with amendments
+Hangar and the owner adopted the contract with amendments; implemented on Hangar Note's side.
+Added the section "Amendments" to pages/decisions/0005-shared-notes-folder.md: atomic writes retry
+the rename on Windows for at most 1 s while the target is held open, never in place, temp files
+`.<name>.<pid>.<n>.tmp` removed on failure and skipped with every dotfile and `*.tmp` by lister and
+watcher (2); the note version is the SHA-256 of the content, checked and written under the scope
+lock (3); untrusted index entries skipped, links and reparse points never followed, broken index
+files never rewritten, unknown fields kept on every rewrite. Updated
+pages/concepts/hangar-notes-format.md, the note on unknown fields in
+pages/decisions/0002-hangar-notes-takeover.md and index.md.
+
+## [2026-11-26] update | Levels and a sidebar that folds away
+Added the section "Levels and a sidebar that folds away" to pages/syntheses/usability-pass.md:
+the level tabs Private, Project (Hangar's project, switchable, stored as lastProject) and Team (an
+empty state until Hangar is connected), the sidebar folded away with its button or Ctrl+Shift+S
+and resized on its edge (sidebarOpen, sidebarWidth in settings.json), "New note" per level and the
+start level. Noted the new hangar-look width rule in pages/decisions/0004-switchable-looks.md.

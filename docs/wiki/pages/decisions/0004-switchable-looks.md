@@ -39,7 +39,9 @@ Option 3.
   shortcuts; the row context menu (right click, menu key, Shift+F10) exists in all three.
 - C falls back to A's narrow layout below 760 px; B shows one column below 560 px. (Changed by
   the navigation rework in [[usability-pass]]: one sidebar in every look, folded below 760 px; C
-  falls back to A below 840 px.)
+  falls back to A below 840 px. Changed again by the levels in [[usability-pass]]: the sidebar
+  can be folded away and resized, so C falls back to A when the room beside the sidebar is
+  below 608 px, and always below 760 px.)
 - Tests run the shared behaviour (saving before switching notes, leaving on the second attempt,
   read only, one editor per note) once per look.
 
