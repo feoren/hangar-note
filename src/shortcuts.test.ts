@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import { createTranslator } from "./i18n";
 import {
+  areaShortcutLabel,
   hubShortcutLabel,
   isBrowserKey,
   letterOf,
+  matchAreaShortcut,
   matchHubShortcut,
   matchNoteShortcut,
   matchRowShortcut,
   platformOf,
   shortcutLabel,
+  sidebarTarget,
   type Platform,
 } from "./shortcuts";
 
@@ -240,5 +243,52 @@ describe("row shortcuts", () => {
     expect(matchRowShortcut(press({ key: "Delete", code: "Delete", ctrl: true }))).toBeNull();
     expect(matchRowShortcut(press({ key: "Backspace", code: "Backspace" }))).toBeNull();
     expect(matchRowShortcut(press({ key: "Enter", code: "Enter" }))).toBeNull();
+  });
+});
+
+describe("sidebar shortcuts", () => {
+  it("choose an area with Ctrl+1 to Ctrl+9, by the key's position", () => {
+    expect(matchAreaShortcut(press({ key: "1", code: "Digit1", ctrl: true }), "windows")).toBe(1);
+    expect(matchAreaShortcut(press({ key: "9", code: "Digit9", ctrl: true }), "linux")).toBe(9);
+    expect(matchAreaShortcut(press({ key: "3", code: "Digit3", meta: true }), "mac")).toBe(3);
+    // French layout: the digit row types "&" without Shift; the position still counts.
+    expect(matchAreaShortcut(press({ key: "&", code: "Digit1", ctrl: true }), "windows")).toBe(1);
+  });
+
+  it("leave Ctrl+0, Ctrl+Shift+digit (the editor's lists), AltGr and plain digits alone", () => {
+    expect(
+      matchAreaShortcut(press({ key: "0", code: "Digit0", ctrl: true }), "windows"),
+    ).toBeNull();
+    expect(
+      matchAreaShortcut(press({ key: "(", code: "Digit9", ctrl: true, shift: true }), "windows"),
+    ).toBeNull();
+    expect(
+      matchAreaShortcut(press({ key: "2", code: "Digit2", ctrl: true, alt: true }), "windows"),
+    ).toBeNull();
+    expect(matchAreaShortcut(press({ key: "2", code: "Digit2" }), "windows")).toBeNull();
+    expect(matchAreaShortcut(press({ key: "2", code: "Digit2", ctrl: true }), "mac")).toBeNull();
+    expect(matchAreaShortcut(press({ key: "a", code: "KeyA", ctrl: true }), "windows")).toBeNull();
+  });
+
+  it("name their keys", () => {
+    const de = createTranslator("de");
+    expect(areaShortcutLabel(3, "windows", de)).toBe("Strg+3");
+    expect(areaShortcutLabel(1, "mac", de)).toBe("⌘1");
+  });
+
+  it("move through the entries with the arrow keys, Home and End, wrapping at the ends", () => {
+    const key = (k: string, extra: Press = {}) => press({ key: k, ...extra });
+    expect(sidebarTarget(key("ArrowDown"), 0, 4)).toBe(1);
+    expect(sidebarTarget(key("ArrowRight"), 3, 4)).toBe(0);
+    expect(sidebarTarget(key("ArrowUp"), 0, 4)).toBe(3);
+    expect(sidebarTarget(key("ArrowLeft"), 2, 4)).toBe(1);
+    expect(sidebarTarget(key("Home"), 2, 4)).toBe(0);
+    expect(sidebarTarget(key("End"), 0, 4)).toBe(3);
+    // From outside the entries the first or the last one.
+    expect(sidebarTarget(key("ArrowDown"), -1, 4)).toBe(0);
+    expect(sidebarTarget(key("ArrowUp"), -1, 4)).toBe(3);
+    expect(sidebarTarget(key("Enter"), 0, 4)).toBeNull();
+    expect(sidebarTarget(key("ArrowDown", { shift: true }), 0, 4)).toBeNull();
+    expect(sidebarTarget(key("ArrowDown"), 0, 0)).toBeNull();
   });
 });

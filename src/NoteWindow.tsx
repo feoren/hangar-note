@@ -26,6 +26,7 @@ import {
   MAX_NOTE_BYTES,
   newSticky,
   noteFlushed,
+  onChangedOutside,
   onCloseRequested,
   onDeleteRequested,
   onFlushRequested,
@@ -34,6 +35,7 @@ import {
   renameNote,
   setNoteColor,
   setNoteOnTop,
+  storageError,
   utf8Bytes,
   windowReady,
   writeSticky,
@@ -120,6 +122,8 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
    * reload drops the typed text.
    */
   const [conflict, setConflict] = useState<"changed" | "confirm" | null>(null);
+  /** The note's file was deleted outside (in Hangar); its text is still here to be copied. */
+  const [gone, setGone] = useState(false);
   /**
    * What the saver needs to know about the file, kept outside React's state (the saver reads it
    * while it writes): `version`, the version the note was read or last saved with, sent as
@@ -137,6 +141,8 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
   const closing = useRef(false);
   const noteRef = useRef<OpenedNote | null>(null);
   const textRef = useRef("");
+  /** The save state as a ref, for the change outside, which arrives between renders. */
+  const [saveNow] = useState<{ state: SaveState }>(() => ({ state: "saved" }));
   const [saver] = useState(() =>
     createSaver({
       save: async (text) => {
@@ -145,6 +151,7 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
         file.read(await writeSticky(text, file.version()));
       },
       onState: (state, error) => {
+        saveNow.state = state;
         setSaveState(state);
         if (state === "failed" && isChanged(error)) {
           file.refused();
@@ -310,6 +317,31 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
     }
   };
 
+  /**
+   * The file was changed outside: the note shows it as it is now, without a click, while nothing
+   * typed here waits for its save. With unsaved text the next save is refused as `changed`, and
+   * that notice asks before anything is replaced. A note deleted outside keeps its text here and
+   * says so, with a way to copy it.
+   */
+  const followOutside = useCallback(async () => {
+    let fresh: OpenedNote;
+    try {
+      fresh = await getSticky();
+    } catch (error) {
+      if (storageError(error) === "not-found") setGone(true);
+      return;
+    }
+    setGone(false);
+    if (fresh.version === file.version() || file.conflicted()) return;
+    if (saveNow.state !== "saved") return;
+    file.read(fresh.version);
+    noteRef.current = fresh;
+    textRef.current = fresh.text;
+    setNote(fresh);
+    editor.current?.load(fresh.text);
+    setProgress(checklistProgress(fresh.text));
+  }, [file, saveNow]);
+
   const remove = useCallback(async () => {
     setMenuOpen(false);
     // Saved first, so "Undo" in the notes area brings back every word. A failed write keeps the
@@ -345,6 +377,9 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
           .then((saved) => noteFlushed(saved))
           .catch(() => null);
       }),
+      onChangedOutside(label, () => {
+        void followOutside();
+      }),
       onLookChanged(label, (look) => {
         const open = noteRef.current;
         if (!open) return;
@@ -356,7 +391,7 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
     return () => {
       for (const listening of listeners) void listening.then((stop) => stop?.());
     };
-  }, [label, close, remove, saver]);
+  }, [label, close, remove, saver, followOutside]);
 
   const createNew = useCallback(() => {
     if (!writable) return;
@@ -636,7 +671,27 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
         </p>
       )}
 
-      {conflict !== null && !stuck && (
+      {gone && !stuck && (
+        <div key="gone" className="note-message note-stuck" role="status">
+          <p>{t("note.deletedOutside")}</p>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              void copyUnsaved();
+            }}
+          >
+            {t("notes.copyMarkdown")}
+          </button>
+          {copyResult !== null && (
+            <p role="status">
+              {copyResult === "copied" ? t("notes.copied") : t("notes.copyFailed")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {conflict !== null && !stuck && !gone && (
         <div key="changed" className="note-message note-error note-stuck" role="alert">
           <p>{conflict === "confirm" ? t("notes.reloadDiscards") : t("error.changed")}</p>
           {conflict === "confirm" ? (

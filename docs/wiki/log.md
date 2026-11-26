@@ -143,3 +143,20 @@ and answer bodies land in one wiped buffer of their exact length (L4).
 ## [2026-11-26] update | B3 log scope confirmed by Hangar
 Hangar writes no log file and will start Hangar Note with null stdio, so no Hangar path keeps
 Hangar Note's log lines; noted under B3 in pages/decisions/0002-hangar-notes-takeover.md.
+
+## [2026-11-26] update | Shared notes folder, contract "notes-shared 1"
+Owner decision: Hangar and Hangar Note both write Hangar's private notes, at once and without a
+handover. Added pages/decisions/0005-shared-notes-folder.md (options, the scope lock
+`<scope>/.lock`, version checks, the one-second poll, residual risk until Hangar adopts it). Marked
+the single writer, the handover marker and the read-only phase in
+pages/decisions/0002-hangar-notes-takeover.md as superseded (text kept). Updated
+pages/concepts/hangar-notes-format.md (layout, two writers), pages/overview.md,
+pages/syntheses/local-channel.md (exit code 3) and index.md.
+
+## [2026-11-26] update | Navigation rework of the notes area
+Added the section "Navigation rework" to pages/syntheses/usability-pass.md: one sidebar in every
+look (areas with counts, projects by folder name, colors, trash, settings), arrow keys and
+Ctrl+1 to Ctrl+9, the folded sidebar below 760 px, the start on "All notes", guiding empty areas,
+the "Read only" chip in place of the banner, and following changes outside without a click. Noted
+the new widths in pages/decisions/0004-switchable-looks.md.
+

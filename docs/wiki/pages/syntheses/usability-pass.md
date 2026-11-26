@@ -199,3 +199,35 @@ Escape back to its opener; the sticky window's title before, during and after a 
 Open points: in the hangar trash the shown scope stays marked next to "Recently deleted", since
 the trash lists that scope's notes; a note renamed outside Hangar Note (by Hangar) keeps its old
 window title until the next rename here or a change of language.
+
+## Navigation rework
+
+The owner found the notes area hard to get around in: the areas (All, General, the projects) were
+hidden behind the title menu, the start area could be an empty "General" while the only note sat
+in a project, and a two-line banner explained a read-only state that Hangar Note no longer has
+once it controls Hangar's notes ([[0002-hangar-notes-takeover]]). Reworked on 2026-11-26.
+
+| Area | Change | Reason |
+| --- | --- | --- |
+| Navigation | One sidebar in every look (`src/Sidebar.tsx`, laid out by `src/NotesArea.tsx`): "All notes" and "General" with counts, a section "Projects" with every project that has notes by its folder name (the backend's `name`, tooltip the full path and the shortcut), the eight colors as two rows of 32 px dots, and "Recently deleted" and "Settings" at the bottom. The current place carries `aria-current="page"`, a `--selected` surface and the accent on its icon. The hangar look's own sidebar, calm's title menu, paper's scope tabs and color row and calm's color button are gone; "Open notes folder" and "Always on top" moved to the sidebar's "…". A team section renders once team areas exist. | One visible way around, the same in each look; nothing that navigates hides in a menu. |
+| Keyboard | The sidebar is one Tab stop (roving tab index); arrow keys, Home and End move through its entries and wrap (`sidebarTarget` in `src/shortcuts.ts`). Ctrl+1 to Ctrl+9 (Cmd on macOS) choose the areas in the sidebar's order from anywhere, also from the trash (`matchAreaShortcut`); Ctrl+Shift+digit stays the editor's. A color chosen in the trash or the settings leads back to the notes. | No Ctrl+letter is taken; digits are free in CodeMirror. |
+| Narrow windows | Below 760 px (`NAV_MIN_WIDTH`) the sidebar folds behind a button at the start of each look's heading and opens as a modal layer over the notes (the notes are `inert`); a choice, Escape, the close button or a click beside it closes it, and the focus returns to the button. The calm look splits list and note from 600 px of room beside the sidebar (a container query on `.shell-main`, not the window); the hangar look needs 840 px (`HANGAR_MIN_WIDTH`) and shows calm's layout below. | The sidebar takes 232 px; the old window widths no longer said how much room the notes have. |
+| Heading | Each look's heading is the area's name (`AreaHeading`), with "New note" beside it (a 32 px plus in the dense hangar list). | The place you are in is the heading, as before, now without a menu. |
+| Start | Without a project folder the window starts on "All notes"; opened for a project, on that project, which the sidebar lists even while it has no notes. The chosen area is remembered while the app runs (not across restarts: `settings.json` has no field for it yet). | The first view shows every note. |
+| Empty | The whole-window invitation shows only while no area has a note. An empty area while others have notes says "No notes in shop yet." with "New note", which writes into that area. | An empty "General" must not look like an empty app. |
+| Read only | The banner is gone. While the notes are read only (another writer, or the lock could not be taken) a small "Read only" chip sits beside the heading; its one sentence is its tooltip, its `aria-describedby` and, on a click or Enter, a bubble below it (Escape closes it). | A state, not an event; it needs a word, not a box. |
+| Changes outside | The open note shows its file's new text after `notes-changed` without a click while nothing typed waits for its save (same version: nothing happens). A sticky note does the same on `note-changed-outside`; deleted outside, it keeps its text and says so with "Copy as Markdown". With unsaved text the existing `changed` flow asks first. | Hangar and Hangar Note write the same files now. |
+
+Checked in the real window (paper, dark, 996 x 699) and in a browser preview with a mocked
+backend (calm, paper and hangar; light and dark; 360, 380, 700, 760, 960 and 1100 px wide; the chip
+open; the folded sidebar open). Found and fixed there: the chip's bubble ran out of a narrow window
+(it is now bounded by the heading); between 760 and 840 px the hangar note covered its list (the
+hangar look now needs 840 px).
+
+Texts dropped as unused: the banner's title, the area menu's name, paper's scope label, the color
+filter's button labels, hangar's "Last changed", the old empty-area sentence, the project tooltip,
+the "This project" and "All" chip names and "Notes" as a heading.
+
+Open points: the last chosen area is not stored across restarts; colors in the sidebar have no
+visible names (their names are the tooltip and the accessible name).
+

@@ -51,7 +51,7 @@ import { createNoteEditor, type NoteEditor } from "./editor";
 import { errorActionLabel, errorMessage, type ErrorAction, type ErrorMessage } from "./errors";
 import { captureStamp } from "./format";
 import { DICTIONARIES, LANGUAGES, useT, type MessageKey } from "./i18n";
-import { CheckIcon, DesktopIcon, FolderIcon, GearIcon, TrashIcon } from "./icons";
+import { CheckIcon, DesktopIcon, FolderIcon } from "./icons";
 import { createLeaveAnyway } from "./leaveAnyway";
 import {
   byLastChange,
@@ -89,8 +89,10 @@ import {
 } from "./noteText";
 import { PopupMenu, type MenuItem } from "./PopupMenu";
 import {
+  areaShortcutLabel,
   currentPlatform,
   hubShortcutLabel,
+  matchAreaShortcut,
   matchHubShortcut,
   matchNoteShortcut,
   matchRowShortcut,
@@ -145,14 +147,13 @@ export interface Row extends NoteRef {
 export type View = "browse" | "trash" | "settings";
 
 /**
- * The open menu: the title menu ("area"), the "…" of the paper look ("more", without the scopes),
- * the sidebar's "…" of the hangar look ("side"), the color filter, the open note's "…" with or
- * without its colors ("note", "noteActions"), the open note's colors alone ("noteColor"), a row's
- * color tool, or a row's context menu (right click, the menu key or Shift+F10).
+ * The open menu: the sidebar's "…" ("side": notes folder, always on top), the open note's "…"
+ * with or without its colors ("note", "noteActions"), the open note's colors alone ("noteColor"),
+ * a row's color tool, or a row's context menu (right click, the menu key or Shift+F10).
  */
 export type MenuState =
   | {
-      kind: "area" | "more" | "side" | "filter" | "note" | "noteActions" | "noteColor";
+      kind: "side" | "note" | "noteActions" | "noteColor";
       anchor: HTMLElement;
     }
   | { kind: "row" | "rowColor"; anchor: HTMLElement; row: Row; at?: { x: number; y: number } };
@@ -160,15 +161,22 @@ export type MenuState =
 export type MenuKind = MenuState["kind"];
 
 /** Where the focus goes back to after the trash or the settings (`data-focus-id`). */
-export type ReturnFocus = "area" | "trash" | "settings";
+export type ReturnFocus = "trash" | "settings";
 
+/** An area of the sidebar: "All notes", "General" or one project. */
 export interface ScopeEntry {
   key: string;
   scope: NotesScope;
+  /** "main" for All and General, "project" for a working folder. */
+  group: "main" | "project";
   label: string;
+  /** The tooltip: what the area holds (a project's full path) and its shortcut, if it has one. */
   title: string;
   count: number | undefined;
 }
+
+/** The sidebar entry shown as the current place besides the areas. */
+export type Place = "trash" | "settings" | null;
 
 function current(note: OpenedNote): Current {
   return {
@@ -266,7 +274,7 @@ export function useNotesArea(app: AppSettings) {
   const taskQueue = useRef<Promise<void>>(Promise.resolve());
   const reloadRef = useRef<() => Promise<void>>(() => Promise.resolve());
   /** The control the trash or the settings were opened from, to give the focus back to. */
-  const returnFocus = useRef<ReturnFocus>("area");
+  const returnFocus = useRef<ReturnFocus>("trash");
   /** What the one button of an error does; filled once the actions below exist. */
   const errorActions = useRef<Record<ErrorAction, () => void>>({
     openFolder: () => undefined,
@@ -742,6 +750,38 @@ export function useNotesArea(app: AppSettings) {
     reloadRef.current = reloadList;
   });
 
+  /**
+   * The open note again as its file is now, after a change outside (Hangar, a sync), without a
+   * click: only while nothing typed here waits for its save and no save is on its way. With
+   * unsaved text the next save is refused as `changed`, and that notice asks first.
+   */
+  const refreshOpen = useCallback(async () => {
+    /** Typed text waits for its save, or a save was refused: the text here wins. */
+    const busy = () => pending.current !== null || conflict.current !== null;
+    const run = saving.current;
+    await run;
+    const open = noteRef.current;
+    if (open?.id == null || open.onDesktop || creating.current !== null || busy()) return;
+    const key = noteKey({ folder: open.folder, id: open.id });
+    let fresh: OpenedNote;
+    try {
+      fresh = await readNote(open.folder, open.id);
+    } catch {
+      // Deleted or unreadable: the list shows what is left, the next save says why.
+      return;
+    }
+    // A save that started while the note was read has taken its text out of `pending`; the text
+    // in the editor is newer than the file read here.
+    if (noteRef.current !== open || busy() || saving.current !== run) return;
+    if (versions.current.get(key) === fresh.version) return;
+    remember(fresh);
+    show(current(fresh), fresh.text, editorFocused.current);
+  }, [remember, show]);
+  const refreshRef = useRef(refreshOpen);
+  useEffect(() => {
+    refreshRef.current = refreshOpen;
+  });
+
   useEffect(() => {
     void Promise.resolve().then(reloadList);
   }, [reloadList]);
@@ -756,6 +796,7 @@ export function useNotesArea(app: AppSettings) {
     const unlisten = onNotesChanged(() => {
       reloadFolders();
       void reloadRef.current();
+      void refreshRef.current();
     }).catch(() => null);
     const tick = window.setInterval(() => {
       setNow(Date.now());
@@ -925,7 +966,7 @@ export function useNotesArea(app: AppSettings) {
           case "quick":
             setScope(DEFAULT_SCOPE);
             setQuery("");
-            // Read only: no draft that could never be saved; the banner says why.
+            // Read only: no draft that could never be saved; the "Read only" chip says why.
             if (writableRef.current) await startDraft(newNoteFolder(DEFAULT_SCOPE, project), true);
             break;
           case "capture": {
@@ -1401,26 +1442,8 @@ export function useNotesArea(app: AppSettings) {
   const allRows = shownHits ?? (searching ? [] : (list ?? []));
   const visible = filterByColors(allRows, colors);
   const counts = colorCounts(allRows);
-  const scopeName =
-    shownScope.kind === "project" && project?.path != null
-      ? folderName(project.path)
-      : shownScope.kind === "folder" && shownScope.folder.path !== null
-        ? folderName(shownScope.folder.path)
-        : null;
   /** Rows name their project only where notes of several projects meet: All, and the search. */
   const showProject = shownScope.kind === "all" || searching;
-  /**
-   * Nothing to find yet: the window shows one invitation to write and nothing else (no search, no
-   * filter, no second "New note").
-   */
-  const emptyMode =
-    view === "browse" &&
-    !searching &&
-    colors.size === 0 &&
-    !listFailed &&
-    list !== null &&
-    list.length === 0 &&
-    note === null;
 
   /** How many notes a scope holds, once the folders are known. */
   const knownCount = (folder: NoteFolder): number | undefined =>
@@ -1430,60 +1453,83 @@ export function useNotesArea(app: AppSettings) {
   const allCount =
     folders.length === 0 ? undefined : folders.reduce((sum, info) => sum + info.noteCount, 0);
 
-  const scopeEntries: ScopeEntry[] = [
+  /**
+   * Nothing written anywhere yet: the window shows one invitation to write and nothing else (no
+   * search, no filter, no second "New note"). An empty area while other areas hold notes is not
+   * this; its list says so and offers "New note" there.
+   */
+  const emptyMode =
+    view === "browse" &&
+    !searching &&
+    colors.size === 0 &&
+    !listFailed &&
+    list !== null &&
+    list.length === 0 &&
+    note === null &&
+    (allCount === undefined || allCount === 0);
+
+  /**
+   * The projects of the sidebar: every working folder with notes, the folder Hangar Note was
+   * opened for (even while it has none, so its empty area can be reached) and a folder opened from
+   * a search hit that the folders do not list (yet), by name.
+   */
+  const projectFolders = folders
+    .flatMap((info): { path: string; name: string | null; count: number | undefined }[] =>
+      info.path === null ||
+      info.noteCount === 0 ||
+      (project !== null && sameFolder({ path: info.path }, project))
+        ? []
+        : [{ path: info.path, name: info.name, count: info.noteCount }],
+    )
+    .concat(
+      project?.path != null ? [{ path: project.path, name: null, count: knownCount(project) }] : [],
+    )
+    .concat(
+      shownScope.kind === "folder" &&
+        shownScope.folder.path !== null &&
+        !folders.some((info) => sameFolder({ path: info.path }, shownScope.folder))
+        ? [{ path: shownScope.folder.path, name: null, count: 0 }]
+        : [],
+    )
+    .map((entry) => ({ ...entry, label: entry.name ?? folderName(entry.path) }))
+    .sort((a, b) => a.label.localeCompare(b.label, language));
+
+  /** The sidebar's areas in its order; Ctrl+1 to Ctrl+9 choose the first nine. */
+  const areas: ScopeEntry[] = [
     {
       key: "all",
       scope: { kind: "all" },
+      group: "main",
       label: t("note.allNotes"),
       title: t("notes.scopeAllTip"),
       count: allCount,
     },
-    ...(project?.path != null
-      ? [
-          {
-            key: "project",
-            scope: { kind: "project" } as const,
-            label: folderName(project.path),
-            title: t("notes.scopeProjectTip", {
-              folder: folderName(project.path),
-              path: project.path,
-            }),
-            count: knownCount(project),
-          },
-        ]
-      : []),
     {
       key: "general",
       scope: { kind: "general" },
+      group: "main",
       label: general,
       title: t("notes.scopeGeneralTip"),
       count: knownCount({ path: null }),
     },
-    ...folders
-      .flatMap((info) =>
-        info.path === null ||
-        info.noteCount === 0 ||
-        (project !== null && sameFolder({ path: info.path }, project))
-          ? []
-          : [{ path: info.path, count: info.noteCount }],
-      )
-      .concat(
-        // A scope opened from a search hit that the folders do not list (yet).
-        shownScope.kind === "folder" &&
-          shownScope.folder.path !== null &&
-          !folders.some((info) => sameFolder({ path: info.path }, shownScope.folder))
-          ? [{ path: shownScope.folder.path, count: 0 }]
-          : [],
-      )
-      .sort((a, b) => folderName(a.path).localeCompare(folderName(b.path), language))
-      .map((entry) => ({
-        key: `folder:${entry.path}`,
-        scope: { kind: "folder", folder: { path: entry.path } } as const,
-        label: folderName(entry.path),
-        title: entry.path,
-        count: entry.count,
-      })),
+    ...projectFolders.map((entry) => ({
+      key: `folder:${entry.path}`,
+      scope: scopeForFolder({ path: entry.path }, project),
+      group: "project" as const,
+      label: entry.label,
+      title: entry.path,
+      count: entry.count,
+    })),
   ];
+  const scopeEntries = areas.map((entry, index) =>
+    index < 9
+      ? {
+          ...entry,
+          title: `${entry.title}
+${areaShortcutLabel(index + 1, PLATFORM, t)}`,
+        }
+      : entry,
+  );
   const shownScopeLabel =
     scopeEntries.find((entry) => sameScope(entry.scope, shownScope))?.label ?? t("note.allNotes");
   const isShownScope = (entry: ScopeEntry) => sameScope(entry.scope, shownScope);
@@ -1880,25 +1926,49 @@ export function useNotesArea(app: AppSettings) {
     });
   };
 
-  /** Out of the trash to the notes without moving the focus (the hangar sidebar's entries). */
-  const showNotes = () => {
-    setView("browse");
-    void reloadRef.current();
+  /**
+   * An area of the sidebar: its notes in the list, from the trash or the settings too. A search
+   * ends (it spans all notes, the area would not show), and a narrow window shows the list.
+   */
+  const goTo = (next: NotesScope) => {
+    setScope(next);
+    setQuery("");
+    setPane("list");
+    if (view !== "browse") {
+      setView("browse");
+      void reloadRef.current();
+    }
   };
+  const goToRef = useRef(goTo);
+  useEffect(() => {
+    goToRef.current = goTo;
+  });
+  const entriesRef = useRef(scopeEntries);
+  useEffect(() => {
+    entriesRef.current = scopeEntries;
+  });
 
-  const scopeItems = (): MenuItem[] =>
-    scopeEntries.map((entry): MenuItem => ({
-      type: "action",
-      key: entry.key,
-      label: entry.label,
-      title: entry.title,
-      count: entry.count,
-      checked: isShownScope(entry),
-      radio: true,
-      run: () => {
-        setScope(entry.scope);
-      },
-    }));
+  // Ctrl+1 to Ctrl+9 (Cmd on macOS): the sidebar's areas in its order, from anywhere in the window.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const position = matchAreaShortcut(event, PLATFORM);
+      if (position === null) return;
+      const entry = entriesRef.current[position - 1];
+      if (entry === undefined) return;
+      event.preventDefault();
+      goToRef.current(entry.scope);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  /** The trash or the settings, from the sidebar; the focus comes back to that entry. */
+  const openPlace = (next: Exclude<View, "browse">) => {
+    if (view !== next) leaveFor(next, next);
+  };
+  const place: Place = view === "browse" ? null : view;
 
   const folderItem: MenuItem = {
     type: "action",
@@ -1916,32 +1986,6 @@ export function useNotesArea(app: AppSettings) {
     checked: onTop,
     run: toggleOnTop,
   };
-  const trashItem = (from: ReturnFocus): MenuItem => ({
-    type: "action",
-    key: "trash",
-    label: t("notes.trash"),
-    icon: <TrashIcon size={14} />,
-    run: () => {
-      leaveFor("trash", from);
-    },
-  });
-  const settingsItem = (from: ReturnFocus): MenuItem => ({
-    type: "action",
-    key: "settings",
-    label: t("notes.settings"),
-    icon: <GearIcon size={14} />,
-    run: () => {
-      leaveFor("settings", from);
-    },
-  });
-
-  const pickedColors = NOTE_COLORS.filter((color) => colors.has(color));
-  const filterLabel =
-    pickedColors.length === 0
-      ? t("notes.colorFilter")
-      : t("notes.colorFilterActive", {
-          colors: pickedColors.map((color) => colorName(color, colorNames, t)).join(", "),
-        });
   const toggleColor = (color: NoteColor) => {
     setColors((old) => {
       const next = new Set(old);
@@ -1954,51 +1998,10 @@ export function useNotesArea(app: AppSettings) {
     setColors(new Set());
   };
 
-  const filterMenu = (): MenuItem[] => [
-    ...NOTE_COLORS.map((color): MenuItem => {
-      const name = colorName(color, colorNames, t);
-      return {
-        type: "action",
-        key: color,
-        label: name,
-        title: name,
-        count: counts.get(color) ?? 0,
-        checked: colors.has(color),
-        keepOpen: true,
-        leading: <span className="color-dot" aria-hidden="true" style={dotStyle(color)} />,
-        run: () => {
-          toggleColor(color);
-        },
-      };
-    }),
-    { type: "separator", key: "sep" },
-    {
-      // Always in the same place; it only waits until a color is chosen.
-      type: "action",
-      key: "clear",
-      label: t("notes.colorFilterClear"),
-      disabled: colors.size === 0,
-      run: clearColors,
-    },
-  ];
-
   const menuItems = (open: MenuState): MenuItem[] => {
     switch (open.kind) {
-      case "area":
-        return [
-          ...scopeItems(),
-          { type: "separator", key: "sep" },
-          trashItem("area"),
-          folderItem,
-          onTopItem,
-          settingsItem("area"),
-        ];
-      case "more":
-        return [trashItem("area"), folderItem, onTopItem, settingsItem("area")];
       case "side":
         return [folderItem, onTopItem];
-      case "filter":
-        return filterMenu();
       case "note":
         return noteMenu(true);
       case "noteActions":
@@ -2022,15 +2025,10 @@ export function useNotesArea(app: AppSettings) {
 
   const menuLabel = (open: MenuState): string => {
     switch (open.kind) {
-      case "area":
-      case "more":
-        return t("notes.areaMenu");
       case "side":
       case "note":
       case "noteActions":
         return t("notes.more");
-      case "filter":
-        return t("notes.colorFilter");
       case "noteColor":
       case "rowColor":
         return t("notes.color");
@@ -2046,27 +2044,22 @@ export function useNotesArea(app: AppSettings) {
         items={() => menuItems(menu)}
         label={menuLabel(menu)}
         anchor={menu.anchor}
-        align={
-          menu.kind === "area" || menu.kind === "side" || menu.kind === "row" ? "start" : "end"
-        }
+        align={menu.kind === "side" || menu.kind === "row" ? "start" : "end"}
         at={menu.kind === "row" ? menu.at : undefined}
         onClose={closeMenu}
       />
     ) : null;
 
-  const banner: ReactNode =
-    status?.access.state === "readOnly" ? (
-      <div className="notes-banner" role="status">
-        {status.access.reason === "notHandedOver" ? (
-          <>
-            <p className="notes-banner-title">{t("notes.readOnlyTitle")}</p>
-            <p>{t("notes.readOnly")}</p>
-          </>
-        ) : (
-          <p>{t("notes.otherWriter")}</p>
-        )}
-      </div>
-    ) : null;
+  /**
+   * Why the notes are read only, as one sentence for the small "Read only" chip, `null` while
+   * they can be written. A reason this version does not know reads as another writer.
+   */
+  const readOnlyReason: MessageKey | null =
+    status?.access.state !== "readOnly"
+      ? null
+      : status.access.reason === "lockFailed"
+        ? "notes.lockFailed"
+        : "notes.otherWriter";
 
   const slotNotice = shownNotice(notices);
   const noticeShown = slotNotice !== null;
@@ -2097,7 +2090,7 @@ export function useNotesArea(app: AppSettings) {
     list,
     listFailed,
     emptyMode,
-    banner,
+    readOnlyReason,
     popup,
     noticeSlot,
     noticeShown,
@@ -2107,16 +2100,15 @@ export function useNotesArea(app: AppSettings) {
     shownScope,
     shownScopeLabel,
     isShownScope,
-    setScope,
-    scopeName,
+    goTo,
+    place,
+    openPlace,
     mixed,
     listFolders,
     showProject,
     projectLabel,
     colors,
     counts,
-    pickedColors,
-    filterLabel,
     toggleColor,
     clearColors,
     // Search and rows
@@ -2177,7 +2169,6 @@ export function useNotesArea(app: AppSettings) {
     toggleMenu,
     leaveFor,
     backToNotes,
-    showNotes,
   };
 }
 

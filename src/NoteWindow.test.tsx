@@ -47,6 +47,7 @@ const api = vi.hoisted(() => {
     onCloseRequested: listener("close"),
     onDeleteRequested: listener("delete"),
     onFlushRequested: listener("flush"),
+    onChangedOutside: listener("outside"),
     onLookChanged: vi.fn((label: string, handler: (look: { color: string }) => void) => {
       handlers.set(`look:${label}`, () => {
         handler({ color: "mint" });
@@ -71,6 +72,7 @@ vi.mock("./api", async (importOriginal) => ({
   onCloseRequested: api.onCloseRequested,
   onDeleteRequested: api.onDeleteRequested,
   onFlushRequested: api.onFlushRequested,
+  onChangedOutside: api.onChangedOutside,
   onLookChanged: api.onLookChanged,
   newSticky: vi.fn(() => Promise.resolve()),
   openHub: vi.fn(() => Promise.resolve(null)),
@@ -83,7 +85,7 @@ vi.mock("./clipboard", () => ({ copyText: api.copyText }));
 
 // The real editor needs layout; a contenteditable stands in for it and reports its changes.
 const editor = vi.hoisted(() => {
-  const state: { options: EditorOptions | null } = { options: null };
+  const state: { options: EditorOptions | null; loads: string[] } = { options: null, loads: [] };
   return state;
 });
 
@@ -100,7 +102,9 @@ vi.mock("./editor", () => ({
         content.focus();
       },
       format: vi.fn(),
-      load: vi.fn(),
+      load: (text: string) => {
+        editor.loads.push(text);
+      },
       toggleTask: vi.fn(),
       setReadOnly: vi.fn(),
       destroy: () => {
@@ -176,7 +180,7 @@ async function type(text: string) {
   });
 }
 
-async function request(event: "delete" | "flush" | "close" | "look") {
+async function request(event: "delete" | "flush" | "close" | "look" | "outside") {
   const handler = api.handlers.get(`${event}:${LABEL}`);
   expect(handler, event).toBeDefined();
   await act(async () => {
@@ -205,6 +209,7 @@ afterEach(() => {
   container.remove();
   outside.remove();
   api.handlers.clear();
+  editor.loads = [];
   vi.clearAllMocks();
 });
 
@@ -332,10 +337,10 @@ describe("note window", () => {
     expect(api.closeNote).not.toHaveBeenCalled();
   });
 
-  it("keeps a note of its own title and stays read only while Hangar keeps the notes", async () => {
+  it("keeps a note of its own title and stays read only while the notes are read only", async () => {
     api.getStatus.mockResolvedValue({
       ...writable,
-      access: { state: "readOnly", reason: "notHandedOver" },
+      access: { state: "readOnly", reason: "otherWriter" },
     });
     await render();
     expect(container.textContent).toContain(t("note.readOnly"));
@@ -557,5 +562,44 @@ describe("note window: changed outside", () => {
     await request("close");
     expect(api.closeNote).toHaveBeenCalledTimes(1);
     now.mockRestore();
+  });
+});
+
+describe("note window: a change outside without a click", () => {
+  it("shows the note as its file is now while nothing waits for its save", async () => {
+    await render();
+    api.getSticky.mockResolvedValue({ ...note, text: "Von Hangar", version: "v9" });
+    await request("outside");
+    expect(editor.loads).toEqual(["Von Hangar"]);
+    await type("Von Hangar, weiter");
+    await request("flush");
+    expect(api.writeSticky).toHaveBeenLastCalledWith("Von Hangar, weiter", "v9");
+  });
+
+  it("keeps typed text that waits for its save; that save then asks first", async () => {
+    await render();
+    await type("Meins");
+    api.getSticky.mockResolvedValue({ ...note, text: "Von Hangar", version: "v9" });
+    await request("outside");
+    expect(editor.loads).toEqual([]);
+  });
+
+  it("ignores its own save (the version did not change)", async () => {
+    await render();
+    await request("outside");
+    expect(editor.loads).toEqual([]);
+  });
+
+  it("says calmly that the note was deleted outside and keeps its text to copy", async () => {
+    await render();
+    await type("Nur hier");
+    api.getSticky.mockRejectedValue("not-found");
+    await request("outside");
+    const notice = get(".note-stuck", HTMLElement);
+    expect(notice.getAttribute("role")).toBe("status");
+    expect(notice.textContent).toContain(t("note.deletedOutside"));
+    await press(buttonNamed(t("notes.copyMarkdown")));
+    expect(api.copyText).toHaveBeenCalledWith("Nur hier");
+    expect(editor.loads).toEqual([]);
   });
 });

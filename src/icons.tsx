@@ -177,3 +177,43 @@ export function InfoIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** The sidebar, for the button that opens it in a narrow window. */
+export function SidebarIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" />
+      <path d="M6 2.75v10.5M3.5 5.5h1M3.5 7.5h1" />
+    </Svg>
+  );
+}
+
+/** "All notes": a small stack of sheets. */
+export function NotesIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2.75" y="4.25" width="8.5" height="9.5" rx="1.25" />
+      <path d="M5.25 2.25h6.5a1.5 1.5 0 0 1 1.5 1.5v8" />
+    </Svg>
+  );
+}
+
+/** "General": one sheet with lines, notes that belong to no project. */
+export function NoteIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3" y="1.75" width="10" height="12.5" rx="1.25" />
+      <path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3" />
+    </Svg>
+  );
+}
+
+/** Read only. */
+export function LockIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3.25" y="7" width="9.5" height="7" rx="1.25" />
+      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+    </Svg>
+  );
+}

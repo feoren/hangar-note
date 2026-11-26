@@ -2,7 +2,7 @@
 // list row with its menu, the open note as a page, the note on the desktop, the held draft and
 // the footer's save state. They render what useNotesArea.tsx offers and hold no logic of their own.
 
-import { useLayoutEffect, useRef } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 
 import { noteTone, type NoteColor, type Theme } from "./colors";
 import { relativeTime } from "./format";
@@ -11,6 +11,7 @@ import {
   CloseIcon,
   DesktopIcon,
   EyeIcon,
+  LockIcon,
   PaletteIcon,
   PlusIcon,
   SearchIcon,
@@ -69,7 +70,7 @@ export function SearchField({ m, placeholder }: { m: NotesModel; placeholder?: s
 
 /** What the list says instead of rows: a failed load, no hits, nothing here, no color matches. */
 export function ListMessages({ m }: { m: NotesModel }) {
-  const { t, searching, shownHits, allRows, visible, list, listFailed } = m;
+  const { t, searching, shownHits, allRows, visible, list, listFailed, writable } = m;
   return (
     <>
       {listFailed && !searching && (
@@ -95,13 +96,16 @@ export function ListMessages({ m }: { m: NotesModel }) {
           </button>
         </div>
       )}
+      {/* An empty area while others hold notes: one sentence and the way to start one here. */}
       {!searching && !listFailed && list !== null && allRows.length === 0 && (
         <div className="notes-empty">
-          <p>
-            {m.scopeName !== null
-              ? t("notes.emptyProject", { folder: m.scopeName })
-              : t("notes.empty")}
-          </p>
+          <p>{emptyAreaText(m)}</p>
+          {writable && (
+            <button type="button" className="secondary-button" onClick={m.newNote}>
+              <PlusIcon size={14} />
+              {t("notes.new")}
+            </button>
+          )}
         </div>
       )}
       {allRows.length > 0 && visible.length === 0 && (
@@ -113,6 +117,68 @@ export function ListMessages({ m }: { m: NotesModel }) {
         </div>
       )}
     </>
+  );
+}
+
+/** The one sentence of an empty area: "No notes in General yet.", "No notes in shop yet.". */
+function emptyAreaText(m: NotesModel): string {
+  return m.shownScope.kind === "all"
+    ? m.t("notes.emptyLead")
+    : m.t("notes.emptyProject", { folder: m.shownScopeLabel });
+}
+
+/**
+ * The heading of the notes: the area shown, with the small "Read only" chip beside it while the
+ * notes cannot be written. `className` is the look's own heading style.
+ */
+export function AreaHeading({ m, className }: { m: NotesModel; className: string }) {
+  return (
+    <div className="area-heading">
+      <h1 className={className}>{m.shownScopeLabel}</h1>
+      <ReadOnlyChip m={m} />
+    </div>
+  );
+}
+
+/**
+ * "Read only", small and calm, beside the heading. Its sentence says why: as the tooltip, as its
+ * description for screen readers, and on a click or Enter in a small bubble below it (touch and
+ * keyboard have no tooltip). Escape or leaving it closes the bubble.
+ */
+export function ReadOnlyChip({ m }: { m: NotesModel }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  if (m.readOnlyReason === null) return null;
+  const reason = m.t(m.readOnlyReason);
+  return (
+    <span className="ro-chip-wrap">
+      <button
+        type="button"
+        className="ro-chip"
+        title={reason}
+        aria-expanded={open}
+        aria-describedby={id}
+        onClick={() => {
+          setOpen((shown) => !shown);
+        }}
+        onBlur={() => {
+          setOpen(false);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && open) {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(false);
+          }
+        }}
+      >
+        <LockIcon size={12} />
+        {m.t("notes.readOnlyChip")}
+      </button>
+      <span id={id} className={open ? "ro-reason open" : "ro-reason"} role="note">
+        {reason}
+      </span>
+    </span>
   );
 }
 
@@ -472,13 +538,7 @@ export function Welcome({ m, mark }: { m: NotesModel; mark: React.ReactNode }) {
     <div className="notes-welcome">
       {mark}
       <h2>{t("notes.emptyTitle")}</h2>
-      {m.scopeName !== null ? (
-        <p>{t("notes.emptyProject", { folder: m.scopeName })}</p>
-      ) : m.shownScope.kind === "general" ? (
-        <p>{t("notes.empty")}</p>
-      ) : (
-        writable && <p>{t("notes.emptyLead")}</p>
-      )}
+      {(writable || m.shownScope.kind !== "all") && <p>{emptyAreaText(m)}</p>}
       {writable && (
         <>
           <button type="button" className="primary-button" data-focus-id="new" onClick={m.newNote}>

@@ -37,7 +37,9 @@ Option 3.
   format bar with the save state).
 - Every function stays reachable in every look, through the same menus and the same keyboard
   shortcuts; the row context menu (right click, menu key, Shift+F10) exists in all three.
-- C falls back to A's narrow layout below 760 px; B shows one column below 560 px.
+- C falls back to A's narrow layout below 760 px; B shows one column below 560 px. (Changed by
+  the navigation rework in [[usability-pass]]: one sidebar in every look, folded below 760 px; C
+  falls back to A below 840 px.)
 - Tests run the shared behaviour (saving before switching notes, leaving on the second attempt,
   read only, one editor per note) once per look.
 

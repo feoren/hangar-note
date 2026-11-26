@@ -9,6 +9,8 @@ import {
   LOOK_NAMES,
   LOOKS,
   lookOf,
+  NAV_MIN_WIDTH,
+  navFolded,
 } from "./looks";
 
 describe("looks", () => {
@@ -25,11 +27,18 @@ describe("looks", () => {
     expect(lookOf(7)).toBe("calm");
   });
 
-  it("fall back from hangar's three columns to calm's narrow layout below 760 px", () => {
+  it("fall back from hangar's columns to calm's layout below 840 px", () => {
     expect(layoutFor("hangar", HANGAR_MIN_WIDTH)).toBe("hangar");
     expect(layoutFor("hangar", HANGAR_MIN_WIDTH - 1)).toBe("calm");
     expect(layoutFor("paper", 320)).toBe("paper");
     expect(layoutFor("calm", 1200)).toBe("calm");
+  });
+
+  it("fold the sidebar away below 760 px, in every look", () => {
+    expect(NAV_MIN_WIDTH).toBe(760);
+    expect(navFolded(759)).toBe(true);
+    expect(navFolded(760)).toBe(false);
+    expect(navFolded(320)).toBe(true);
   });
 
   it("have a name and a hint in every language", () => {

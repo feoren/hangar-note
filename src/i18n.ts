@@ -64,8 +64,6 @@ const de = {
   "color.sand": "Sand",
   "color.slate": "Schiefer",
 
-  "hub.title": "Notizen",
-
   "settings.language": "Sprache",
   "settings.languageSystem": "Systemsprache",
   "settings.theme": "Design",
@@ -88,7 +86,6 @@ const de = {
   "notes.preview": "Vorschau",
   "notes.previewOf": "Vorschau: {title}",
   "notes.openFolder": "Notizordner öffnen",
-  "notes.empty": "In diesem Bereich gibt es noch keine Notizen.",
   "notes.editorFailed": "Der Editor konnte nicht geladen werden.",
   "notes.tooLarge": "Die Notiz ist zu groß zum Speichern (höchstens 1 MiB).",
   "notes.invalidTitle":
@@ -98,9 +95,6 @@ const de = {
   "notes.delete": "Notiz löschen",
   "notes.search": "Alle Notizen durchsuchen",
   "notes.searchClear": "Suche leeren",
-  "notes.scopeLabel": "Notizen zeigen aus",
-  "notes.scopeProject": "Dieses Projekt",
-  "notes.scopeAll": "Alle",
   "notes.scopeAllTip": "Notizen aller Projekte, neueste zuerst",
   "notes.scopeGeneralTip": "Notizen, die zu keinem Projekt gehören",
   "notes.list": "Notizen",
@@ -139,7 +133,6 @@ const de = {
   "notes.backFromDesktop": "Hier bearbeiten",
   "notes.bringToFront": "Nach vorn holen",
   "notes.color": "Farbe",
-  "notes.colorFilter": "Nach Farbe filtern",
   "notes.colorFilterClear": "Alle Farben",
   "notes.loadFailed": "Die Notizen konnten nicht geladen werden.",
   "notes.noColorMatches": "Keine Notiz hat die gewählten Farben.",
@@ -150,18 +143,15 @@ const de = {
   "notes.onDesktopHint":
     "Du bearbeitest sie in ihrer Haftnotiz. Oder hol sie vom Desktop und bearbeite sie hier.",
   "notes.otherWriter":
-    "Ein anderes Programm schreibt gerade diese Notizen. Hier sind sie nur lesbar.",
+    "Hangar Note hat diese Notizen schon in einer anderen Sitzung offen. Hier sind sie nur lesbar.",
   "notes.pick": "Wähl links eine Notiz aus oder leg eine neue an.",
   "notes.pickReadOnly": "Wähl links eine Notiz aus.",
-  "notes.readOnly":
-    "Hangar verwaltet sie gerade noch. Du kannst sie hier lesen und suchen; bearbeiten geht, sobald Hangar sie übergibt.",
-  "notes.scopeProjectTip": "{folder}, der Ordner, für den Hangar Note geöffnet wurde\n{path}",
   "notes.settings": "Einstellungen",
   "notes.sharedUnavailable":
     "Geteilte Notizen gibt es hier noch nicht. Du siehst deine privaten Notizen.",
   "notes.toDesktop": "Auf den Desktop",
   "notes.toDesktopHint": "Als Haftnotiz auf den Desktop legen",
-  "note.readOnly": "Nur lesbar, solange Hangar diese Notizen verwaltet.",
+  "note.readOnly": "Nur lesbar: Die Notizen lassen sich gerade nicht schreiben.",
   "settings.colorNameOf": "Eigener Name für {color}",
   "settings.colorNames": "Namen der Farben",
   "settings.colorNamesHint":
@@ -175,7 +165,6 @@ const de = {
   "notes.unsaved": "Nicht gespeichert",
   "notes.heldHint": "Dieser Text ist nicht gespeichert. Kopier ihn, damit er nicht verloren geht.",
   "notes.capturedFrom": "Aus {source}, {time}",
-  "notes.readOnlyTitle": "Deine Hangar-Notizen",
   "notes.leaveUnsaved": "Noch einmal wechseln verwirft die Änderung.",
   "note.closeUnsaved":
     "Nicht gespeichert. Kopier den Text als Markdown. Schließt du innerhalb von 10 Sekunden noch einmal, geht das Ungespeicherte verloren.",
@@ -183,8 +172,6 @@ const de = {
   "error.failed": "Das hat nicht geklappt. Versuch es noch einmal.",
   "error.onDesktop": "Diese Notiz liegt auf dem Desktop. Bearbeite sie in ihrer Haftnotiz.",
   "notes.searchShort": "Suchen",
-  "notes.colorFilterActive": "Nach Farbe gefiltert: {colors}",
-  "notes.areaMenu": "Bereiche und Einstellungen",
   "notes.saved": "Gespeichert",
   "notes.saving": "Speichert …",
   "notes.emptyTitle": "Noch keine Notizen",
@@ -196,7 +183,6 @@ const de = {
   "notes.closeSheet": "Schließen (Esc)",
   "notes.scopes": "Bereiche",
   "notes.colors": "Farben",
-  "notes.lastChanged": "Zuletzt geändert",
   "notes.keys": "Tastatur",
   "settings.look": "Aussehen",
   "look.calm": "Ruhig",
@@ -220,6 +206,14 @@ const de = {
   "notes.reloadDiscards": "Neu laden verwirft deine Änderung.",
   "notes.reloadConfirm": "Verwerfen und neu laden",
   "notes.reloadCancel": "Abbrechen",
+  "nav.open": "Bereiche zeigen",
+  "nav.close": "Bereiche schließen",
+  "nav.projects": "Projekte",
+  "notes.readOnlyChip": "Nur lesen",
+  "note.deletedOutside":
+    "Diese Notiz wurde außerhalb gelöscht. Dein Text steht noch hier; kopier ihn, wenn du ihn behalten willst.",
+  "notes.lockFailed":
+    "Die Notizen ließen sich gerade nicht zum Schreiben öffnen. Hier sind sie nur lesbar.",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof de;
@@ -261,8 +255,6 @@ const en: Record<MessageKey, string> = {
   "color.sand": "Sand",
   "color.slate": "Slate",
 
-  "hub.title": "Notes",
-
   "settings.language": "Language",
   "settings.languageSystem": "System language",
   "settings.theme": "Theme",
@@ -285,7 +277,6 @@ const en: Record<MessageKey, string> = {
   "notes.preview": "Preview",
   "notes.previewOf": "Preview: {title}",
   "notes.openFolder": "Open notes folder",
-  "notes.empty": "There are no notes in this area yet.",
   "notes.editorFailed": "The editor could not be loaded.",
   "notes.tooLarge": "The note is too large to save (1 MiB at most).",
   "notes.invalidTitle":
@@ -295,9 +286,6 @@ const en: Record<MessageKey, string> = {
   "notes.delete": "Delete note",
   "notes.search": "Search all notes",
   "notes.searchClear": "Clear search",
-  "notes.scopeLabel": "Show notes from",
-  "notes.scopeProject": "This project",
-  "notes.scopeAll": "All",
   "notes.scopeAllTip": "Notes of all projects, newest first",
   "notes.scopeGeneralTip": "Notes that belong to no project",
   "notes.list": "Notes",
@@ -336,7 +324,6 @@ const en: Record<MessageKey, string> = {
   "notes.backFromDesktop": "Edit here",
   "notes.bringToFront": "Bring to front",
   "notes.color": "Color",
-  "notes.colorFilter": "Filter by color",
   "notes.colorFilterClear": "All colors",
   "notes.loadFailed": "The notes could not be loaded.",
   "notes.noColorMatches": "No note has the chosen colors.",
@@ -345,17 +332,15 @@ const en: Record<MessageKey, string> = {
   "notes.onDesktop": "On the desktop",
   "notes.onDesktopHint":
     "You edit it in its sticky note. Or take it off the desktop and edit it here.",
-  "notes.otherWriter": "Another program is writing these notes. Here they are read only.",
+  "notes.otherWriter":
+    "Hangar Note already has these notes open in another session. Here they are read only.",
   "notes.pick": "Pick a note on the left or start a new one.",
   "notes.pickReadOnly": "Pick a note on the left.",
-  "notes.readOnly":
-    "Hangar still manages them for now. You can read and search them here; editing works once Hangar hands them over.",
-  "notes.scopeProjectTip": "{folder}, the folder Hangar Note was opened for\n{path}",
   "notes.settings": "Settings",
   "notes.sharedUnavailable": "Shared notes are not here yet. You see your private notes.",
   "notes.toDesktop": "To the desktop",
   "notes.toDesktopHint": "Put it on the desktop as a sticky note",
-  "note.readOnly": "Read only while Hangar keeps these notes.",
+  "note.readOnly": "Read only: the notes cannot be written just now.",
   "settings.colorNameOf": "Own name for {color}",
   "settings.colorNames": "Color names",
   "settings.colorNamesHint":
@@ -369,7 +354,6 @@ const en: Record<MessageKey, string> = {
   "notes.unsaved": "Not saved",
   "notes.heldHint": "This text is not saved. Copy it so it does not get lost.",
   "notes.capturedFrom": "From {source}, {time}",
-  "notes.readOnlyTitle": "Your Hangar notes",
   "notes.leaveUnsaved": "Switching again discards the change.",
   "note.closeUnsaved":
     "Not saved. Copy the text as Markdown. Close again within 10 seconds and the unsaved text is lost.",
@@ -377,8 +361,6 @@ const en: Record<MessageKey, string> = {
   "error.failed": "That did not work. Try again.",
   "error.onDesktop": "This note is on the desktop. Edit it in its sticky note.",
   "notes.searchShort": "Search",
-  "notes.colorFilterActive": "Filtered by color: {colors}",
-  "notes.areaMenu": "Areas and settings",
   "notes.saved": "Saved",
   "notes.saving": "Saving…",
   "notes.emptyTitle": "No notes yet",
@@ -389,7 +371,6 @@ const en: Record<MessageKey, string> = {
   "notes.closeSheet": "Close (Esc)",
   "notes.scopes": "Areas",
   "notes.colors": "Colors",
-  "notes.lastChanged": "Last changed",
   "notes.keys": "Keyboard",
   "settings.look": "Look",
   "look.calm": "Calm",
@@ -412,6 +393,14 @@ const en: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Reloading discards your change.",
   "notes.reloadConfirm": "Discard and reload",
   "notes.reloadCancel": "Cancel",
+  "nav.open": "Show areas",
+  "nav.close": "Close areas",
+  "nav.projects": "Projects",
+  "notes.readOnlyChip": "Read only",
+  "note.deletedOutside":
+    "This note was deleted elsewhere. Your text is still here; copy it if you want to keep it.",
+  "notes.lockFailed":
+    "The notes could not be opened for writing just now. Here they are read only.",
 };
 
 const el: Record<MessageKey, string> = {
@@ -451,8 +440,6 @@ const el: Record<MessageKey, string> = {
   "color.sand": "Άμμος",
   "color.slate": "Σχιστόλιθος",
 
-  "hub.title": "Σημειώσεις",
-
   "settings.language": "Γλώσσα",
   "settings.languageSystem": "Γλώσσα συστήματος",
   "settings.theme": "Θέμα",
@@ -475,7 +462,6 @@ const el: Record<MessageKey, string> = {
   "notes.preview": "Προεπισκόπηση",
   "notes.previewOf": "Προεπισκόπηση: {title}",
   "notes.openFolder": "Άνοιγμα φακέλου σημειώσεων",
-  "notes.empty": "Δεν υπάρχουν ακόμη σημειώσεις σε αυτή την περιοχή.",
   "notes.editorFailed": "Ο επεξεργαστής δεν φόρτωσε.",
   "notes.tooLarge": "Η σημείωση είναι πολύ μεγάλη για αποθήκευση (έως 1 MiB).",
   "notes.invalidTitle":
@@ -485,9 +471,6 @@ const el: Record<MessageKey, string> = {
   "notes.delete": "Διαγραφή σημείωσης",
   "notes.search": "Αναζήτηση σε όλες τις σημειώσεις",
   "notes.searchClear": "Καθαρισμός αναζήτησης",
-  "notes.scopeLabel": "Σημειώσεις από",
-  "notes.scopeProject": "Αυτό το έργο",
-  "notes.scopeAll": "Όλες",
   "notes.scopeAllTip": "Σημειώσεις όλων των έργων, οι νεότερες πρώτα",
   "notes.scopeGeneralTip": "Σημειώσεις που δεν ανήκουν σε έργο",
   "notes.list": "Σημειώσεις",
@@ -528,7 +511,6 @@ const el: Record<MessageKey, string> = {
   "notes.backFromDesktop": "Επεξεργασία εδώ",
   "notes.bringToFront": "Φέρε μπροστά",
   "notes.color": "Χρώμα",
-  "notes.colorFilter": "Φιλτράρισμα κατά χρώμα",
   "notes.colorFilterClear": "Όλα τα χρώματα",
   "notes.loadFailed": "Οι σημειώσεις δεν φορτώθηκαν.",
   "notes.noColorMatches": "Καμία σημείωση δεν έχει τα επιλεγμένα χρώματα.",
@@ -539,18 +521,15 @@ const el: Record<MessageKey, string> = {
   "notes.onDesktopHint":
     "Την επεξεργάζεσαι στο αυτοκόλλητο σημείωμά της. Ή πάρ’ την από την επιφάνεια εργασίας και επεξεργάσου τη εδώ.",
   "notes.otherWriter":
-    "Ένα άλλο πρόγραμμα γράφει αυτή τη στιγμή αυτές τις σημειώσεις. Εδώ είναι μόνο για ανάγνωση.",
+    "Το Hangar Note έχει ήδη ανοιχτές αυτές τις σημειώσεις σε άλλη συνεδρία. Εδώ είναι μόνο για ανάγνωση.",
   "notes.pick": "Διάλεξε μια σημείωση αριστερά ή ξεκίνα μια νέα.",
   "notes.pickReadOnly": "Διάλεξε μια σημείωση αριστερά.",
-  "notes.readOnly":
-    "Το Hangar τις διαχειρίζεται ακόμα. Εδώ μπορείς να τις διαβάζεις και να τις αναζητάς· την επεξεργασία θα την έχεις μόλις το Hangar τις παραδώσει.",
-  "notes.scopeProjectTip": "{folder}, ο φάκελος για τον οποίο άνοιξε το Hangar Note\n{path}",
   "notes.settings": "Ρυθμίσεις",
   "notes.sharedUnavailable":
     "Οι κοινόχρηστες σημειώσεις δεν υπάρχουν ακόμα εδώ. Βλέπεις τις ιδιωτικές σου σημειώσεις.",
   "notes.toDesktop": "Στην επιφάνεια εργασίας",
   "notes.toDesktopHint": "Βάλ’ τη στην επιφάνεια εργασίας ως αυτοκόλλητο σημείωμα",
-  "note.readOnly": "Μόνο για ανάγνωση όσο το Hangar διαχειρίζεται αυτές τις σημειώσεις.",
+  "note.readOnly": "Μόνο για ανάγνωση: οι σημειώσεις δεν μπορούν να γραφτούν αυτή τη στιγμή.",
   "settings.colorNameOf": "Δικό σου όνομα για {color}",
   "settings.colorNames": "Ονόματα χρωμάτων",
   "settings.colorNamesHint":
@@ -565,7 +544,6 @@ const el: Record<MessageKey, string> = {
   "notes.unsaved": "Δεν αποθηκεύτηκε",
   "notes.heldHint": "Αυτό το κείμενο δεν έχει αποθηκευτεί. Αντέγραψέ το για να μη χαθεί.",
   "notes.capturedFrom": "Από {source}, {time}",
-  "notes.readOnlyTitle": "Οι σημειώσεις σου από το Hangar",
   "notes.leaveUnsaved": "Αν αλλάξεις ξανά, η αλλαγή χάνεται.",
   "note.closeUnsaved":
     "Δεν αποθηκεύτηκε. Αντίγραψε το κείμενο ως Markdown. Αν την κλείσεις ξανά μέσα σε 10 δευτερόλεπτα, το μη αποθηκευμένο κείμενο χάνεται.",
@@ -574,8 +552,6 @@ const el: Record<MessageKey, string> = {
   "error.onDesktop":
     "Αυτή η σημείωση είναι στην επιφάνεια εργασίας. Επεξεργάσου τη στο αυτοκόλλητό της.",
   "notes.searchShort": "Αναζήτηση",
-  "notes.colorFilterActive": "Φιλτράρισμα κατά χρώμα: {colors}",
-  "notes.areaMenu": "Περιοχές και ρυθμίσεις",
   "notes.saved": "Αποθηκεύτηκε",
   "notes.saving": "Αποθήκευση…",
   "notes.emptyTitle": "Δεν υπάρχουν ακόμη σημειώσεις",
@@ -586,7 +562,6 @@ const el: Record<MessageKey, string> = {
   "notes.closeSheet": "Κλείσιμο (Esc)",
   "notes.scopes": "Περιοχές",
   "notes.colors": "Χρώματα",
-  "notes.lastChanged": "Τελευταία αλλαγή",
   "notes.keys": "Πληκτρολόγιο",
   "settings.look": "Εμφάνιση",
   "look.calm": "Ήρεμη",
@@ -609,6 +584,14 @@ const el: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Η επαναφόρτωση απορρίπτει την αλλαγή σου.",
   "notes.reloadConfirm": "Απόρριψη και επαναφόρτωση",
   "notes.reloadCancel": "Άκυρο",
+  "nav.open": "Εμφάνιση περιοχών",
+  "nav.close": "Κλείσιμο περιοχών",
+  "nav.projects": "Έργα",
+  "notes.readOnlyChip": "Μόνο ανάγνωση",
+  "note.deletedOutside":
+    "Αυτή η σημείωση διαγράφηκε αλλού. Το κείμενό σου είναι ακόμα εδώ· αντίγραψέ το αν θέλεις να το κρατήσεις.",
+  "notes.lockFailed":
+    "Οι σημειώσεις δεν άνοιξαν για εγγραφή αυτή τη στιγμή. Εδώ είναι μόνο για ανάγνωση.",
 };
 
 const es: Record<MessageKey, string> = {
@@ -648,8 +631,6 @@ const es: Record<MessageKey, string> = {
   "color.sand": "Arena",
   "color.slate": "Pizarra",
 
-  "hub.title": "Notas",
-
   "settings.language": "Idioma",
   "settings.languageSystem": "Idioma del sistema",
   "settings.theme": "Tema",
@@ -672,7 +653,6 @@ const es: Record<MessageKey, string> = {
   "notes.preview": "Vista previa",
   "notes.previewOf": "Vista previa: {title}",
   "notes.openFolder": "Abrir carpeta de notas",
-  "notes.empty": "Aún no hay notas en esta área.",
   "notes.editorFailed": "No se pudo cargar el editor.",
   "notes.tooLarge": "La nota es demasiado grande para guardarla (1 MiB como máximo).",
   "notes.invalidTitle":
@@ -682,9 +662,6 @@ const es: Record<MessageKey, string> = {
   "notes.delete": "Eliminar nota",
   "notes.search": "Buscar en todas las notas",
   "notes.searchClear": "Borrar búsqueda",
-  "notes.scopeLabel": "Mostrar notas de",
-  "notes.scopeProject": "Este proyecto",
-  "notes.scopeAll": "Todas",
   "notes.scopeAllTip": "Notas de todos los proyectos, las más recientes primero",
   "notes.scopeGeneralTip": "Notas que no pertenecen a ningún proyecto",
   "notes.list": "Notas",
@@ -724,7 +701,6 @@ const es: Record<MessageKey, string> = {
   "notes.backFromDesktop": "Editar aquí",
   "notes.bringToFront": "Traer al frente",
   "notes.color": "Color",
-  "notes.colorFilter": "Filtrar por color",
   "notes.colorFilterClear": "Todos los colores",
   "notes.loadFailed": "No se pudieron cargar las notas.",
   "notes.noColorMatches": "Ninguna nota tiene los colores elegidos.",
@@ -732,17 +708,15 @@ const es: Record<MessageKey, string> = {
   "notes.noteLabel": "Nota",
   "notes.onDesktop": "En el escritorio",
   "notes.onDesktopHint": "La editas en su nota adhesiva. O quítala del escritorio y edítala aquí.",
-  "notes.otherWriter": "Otro programa está escribiendo estas notas. Aquí solo se pueden leer.",
+  "notes.otherWriter":
+    "Hangar Note ya tiene estas notas abiertas en otra sesión. Aquí solo se pueden leer.",
   "notes.pick": "Elige una nota a la izquierda o crea una nueva.",
   "notes.pickReadOnly": "Elige una nota a la izquierda.",
-  "notes.readOnly":
-    "Hangar todavía las gestiona. Aquí puedes leerlas y buscarlas; podrás editarlas en cuanto Hangar te las pase.",
-  "notes.scopeProjectTip": "{folder}, la carpeta para la que se abrió Hangar Note\n{path}",
   "notes.settings": "Ajustes",
   "notes.sharedUnavailable": "Las notas compartidas aún no están aquí. Ves tus notas privadas.",
   "notes.toDesktop": "Al escritorio",
   "notes.toDesktopHint": "Ponerla en el escritorio como nota adhesiva",
-  "note.readOnly": "Solo lectura mientras Hangar gestione estas notas.",
+  "note.readOnly": "Solo lectura: ahora mismo no se pueden escribir las notas.",
   "settings.colorNameOf": "Nombre propio para {color}",
   "settings.colorNames": "Nombres de los colores",
   "settings.colorNamesHint":
@@ -756,7 +730,6 @@ const es: Record<MessageKey, string> = {
   "notes.unsaved": "Sin guardar",
   "notes.heldHint": "Este texto no está guardado. Cópialo para que no se pierda.",
   "notes.capturedFrom": "De {source}, {time}",
-  "notes.readOnlyTitle": "Tus notas de Hangar",
   "notes.leaveUnsaved": "Si cambias otra vez, se descarta el cambio.",
   "note.closeUnsaved":
     "No guardado. Copia el texto como Markdown. Si vuelves a cerrar en menos de 10 segundos, se pierde el texto sin guardar.",
@@ -764,8 +737,6 @@ const es: Record<MessageKey, string> = {
   "error.failed": "No ha funcionado. Inténtalo de nuevo.",
   "error.onDesktop": "Esta nota está en el escritorio. Edítala en su nota adhesiva.",
   "notes.searchShort": "Buscar",
-  "notes.colorFilterActive": "Filtrado por color: {colors}",
-  "notes.areaMenu": "Áreas y ajustes",
   "notes.saved": "Guardado",
   "notes.saving": "Guardando…",
   "notes.emptyTitle": "Aún no hay notas",
@@ -776,7 +747,6 @@ const es: Record<MessageKey, string> = {
   "notes.closeSheet": "Cerrar (Esc)",
   "notes.scopes": "Áreas",
   "notes.colors": "Colores",
-  "notes.lastChanged": "Último cambio",
   "notes.keys": "Teclado",
   "settings.look": "Aspecto",
   "look.calm": "Tranquilo",
@@ -799,6 +769,14 @@ const es: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Volver a cargar descarta tu cambio.",
   "notes.reloadConfirm": "Descartar y volver a cargar",
   "notes.reloadCancel": "Cancelar",
+  "nav.open": "Mostrar áreas",
+  "nav.close": "Cerrar áreas",
+  "nav.projects": "Proyectos",
+  "notes.readOnlyChip": "Solo lectura",
+  "note.deletedOutside":
+    "Esta nota se borró en otro lugar. Tu texto sigue aquí; cópialo si quieres conservarlo.",
+  "notes.lockFailed":
+    "Ahora mismo no se pudieron abrir las notas para escribir. Aquí solo se pueden leer.",
 };
 
 const fr: Record<MessageKey, string> = {
@@ -838,8 +816,6 @@ const fr: Record<MessageKey, string> = {
   "color.sand": "Sable",
   "color.slate": "Ardoise",
 
-  "hub.title": "Notes",
-
   "settings.language": "Langue",
   "settings.languageSystem": "Langue du système",
   "settings.theme": "Thème",
@@ -862,7 +838,6 @@ const fr: Record<MessageKey, string> = {
   "notes.preview": "Aperçu",
   "notes.previewOf": "Aperçu : {title}",
   "notes.openFolder": "Ouvrir le dossier des notes",
-  "notes.empty": "Il n’y a pas encore de notes dans cette zone.",
   "notes.editorFailed": "Impossible de charger l’éditeur.",
   "notes.tooLarge": "La note est trop grande pour être enregistrée (1 Mio au maximum).",
   "notes.invalidTitle":
@@ -872,9 +847,6 @@ const fr: Record<MessageKey, string> = {
   "notes.delete": "Supprimer la note",
   "notes.search": "Rechercher dans toutes les notes",
   "notes.searchClear": "Effacer la recherche",
-  "notes.scopeLabel": "Afficher les notes de",
-  "notes.scopeProject": "Ce projet",
-  "notes.scopeAll": "Toutes",
   "notes.scopeAllTip": "Notes de tous les projets, les plus récentes d’abord",
   "notes.scopeGeneralTip": "Notes qui n’appartiennent à aucun projet",
   "notes.list": "Notes",
@@ -913,7 +885,6 @@ const fr: Record<MessageKey, string> = {
   "notes.backFromDesktop": "Modifier ici",
   "notes.bringToFront": "Mettre au premier plan",
   "notes.color": "Couleur",
-  "notes.colorFilter": "Filtrer par couleur",
   "notes.colorFilterClear": "Toutes les couleurs",
   "notes.loadFailed": "Les notes n’ont pas pu être chargées.",
   "notes.noColorMatches": "Aucune note n’a les couleurs choisies.",
@@ -924,18 +895,15 @@ const fr: Record<MessageKey, string> = {
   "notes.onDesktopHint":
     "Tu la modifies dans son pense-bête. Ou retire-la du bureau et modifie-la ici.",
   "notes.otherWriter":
-    "Un autre programme écrit ces notes en ce moment. Ici, elles sont en lecture seule.",
+    "Hangar Note a déjà ces notes ouvertes dans une autre session. Ici, elles sont en lecture seule.",
   "notes.pick": "Choisis une note à gauche ou crée-en une nouvelle.",
   "notes.pickReadOnly": "Choisis une note à gauche.",
-  "notes.readOnly":
-    "Hangar les gère encore pour l’instant. Tu peux les lire et les chercher ici ; tu pourras les modifier dès que Hangar te les confie.",
-  "notes.scopeProjectTip": "{folder}, le dossier pour lequel Hangar Note a été ouvert\n{path}",
   "notes.settings": "Réglages",
   "notes.sharedUnavailable":
     "Les notes partagées ne sont pas encore là. Tu vois tes notes privées.",
   "notes.toDesktop": "Sur le bureau",
   "notes.toDesktopHint": "La poser sur le bureau comme pense-bête",
-  "note.readOnly": "Lecture seule tant que Hangar gère ces notes.",
+  "note.readOnly": "Lecture seule : les notes ne peuvent pas être modifiées pour l’instant.",
   "settings.colorNameOf": "Nom personnel pour {color}",
   "settings.colorNames": "Noms des couleurs",
   "settings.colorNamesHint":
@@ -949,7 +917,6 @@ const fr: Record<MessageKey, string> = {
   "notes.unsaved": "Non enregistré",
   "notes.heldHint": "Ce texte n’est pas enregistré. Copie-le pour ne pas le perdre.",
   "notes.capturedFrom": "De {source}, {time}",
-  "notes.readOnlyTitle": "Tes notes Hangar",
   "notes.leaveUnsaved": "Changer encore une fois abandonne la modification.",
   "note.closeUnsaved":
     "Non enregistré. Copie le texte en Markdown. Si tu fermes à nouveau dans les 10 secondes, le texte non enregistré est perdu.",
@@ -957,8 +924,6 @@ const fr: Record<MessageKey, string> = {
   "error.failed": "Ça n’a pas marché. Réessaie.",
   "error.onDesktop": "Cette note est sur le bureau. Modifie-la dans son pense-bête.",
   "notes.searchShort": "Rechercher",
-  "notes.colorFilterActive": "Filtré par couleur : {colors}",
-  "notes.areaMenu": "Zones et réglages",
   "notes.saved": "Enregistré",
   "notes.saving": "Enregistrement…",
   "notes.emptyTitle": "Pas encore de notes",
@@ -970,7 +935,6 @@ const fr: Record<MessageKey, string> = {
   "notes.closeSheet": "Fermer (Échap)",
   "notes.scopes": "Espaces",
   "notes.colors": "Couleurs",
-  "notes.lastChanged": "Dernière modification",
   "notes.keys": "Clavier",
   "settings.look": "Apparence",
   "look.calm": "Calme",
@@ -994,6 +958,14 @@ const fr: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Recharger annule ta modification.",
   "notes.reloadConfirm": "Annuler et recharger",
   "notes.reloadCancel": "Garder",
+  "nav.open": "Afficher les espaces",
+  "nav.close": "Fermer les espaces",
+  "nav.projects": "Projets",
+  "notes.readOnlyChip": "Lecture seule",
+  "note.deletedOutside":
+    "Cette note a été supprimée ailleurs. Ton texte est encore là ; copie-le si tu veux le garder.",
+  "notes.lockFailed":
+    "Les notes n’ont pas pu être ouvertes en écriture pour l’instant. Ici, elles sont en lecture seule.",
 };
 
 const it: Record<MessageKey, string> = {
@@ -1033,8 +1005,6 @@ const it: Record<MessageKey, string> = {
   "color.sand": "Sabbia",
   "color.slate": "Ardesia",
 
-  "hub.title": "Note",
-
   "settings.language": "Lingua",
   "settings.languageSystem": "Lingua di sistema",
   "settings.theme": "Tema",
@@ -1057,7 +1027,6 @@ const it: Record<MessageKey, string> = {
   "notes.preview": "Anteprima",
   "notes.previewOf": "Anteprima: {title}",
   "notes.openFolder": "Apri cartella delle note",
-  "notes.empty": "In quest’area non ci sono ancora note.",
   "notes.editorFailed": "Impossibile caricare l’editor.",
   "notes.tooLarge": "La nota è troppo grande per essere salvata (al massimo 1 MiB).",
   "notes.invalidTitle":
@@ -1067,9 +1036,6 @@ const it: Record<MessageKey, string> = {
   "notes.delete": "Elimina nota",
   "notes.search": "Cerca in tutte le note",
   "notes.searchClear": "Cancella ricerca",
-  "notes.scopeLabel": "Mostra note di",
-  "notes.scopeProject": "Questo progetto",
-  "notes.scopeAll": "Tutte",
   "notes.scopeAllTip": "Note di tutti i progetti, prima le più recenti",
   "notes.scopeGeneralTip": "Note che non appartengono a nessun progetto",
   "notes.list": "Note",
@@ -1108,7 +1074,6 @@ const it: Record<MessageKey, string> = {
   "notes.backFromDesktop": "Modifica qui",
   "notes.bringToFront": "Porta in primo piano",
   "notes.color": "Colore",
-  "notes.colorFilter": "Filtra per colore",
   "notes.colorFilterClear": "Tutti i colori",
   "notes.loadFailed": "Non è stato possibile caricare le note.",
   "notes.noColorMatches": "Nessuna nota ha i colori scelti.",
@@ -1118,18 +1083,16 @@ const it: Record<MessageKey, string> = {
   "notes.onDesktop": "Sul desktop",
   "notes.onDesktopHint":
     "La modifichi nel suo post-it. Oppure toglila dal desktop e modificala qui.",
-  "notes.otherWriter": "Un altro programma sta scrivendo queste note. Qui sono di sola lettura.",
+  "notes.otherWriter":
+    "Hangar Note ha già queste note aperte in un'altra sessione. Qui sono di sola lettura.",
   "notes.pick": "Scegli una nota a sinistra o creane una nuova.",
   "notes.pickReadOnly": "Scegli una nota a sinistra.",
-  "notes.readOnly":
-    "Per ora le gestisce ancora Hangar. Qui puoi leggerle e cercarle; potrai modificarle appena Hangar te le passa.",
-  "notes.scopeProjectTip": "{folder}, la cartella per cui è stato aperto Hangar Note\n{path}",
   "notes.settings": "Impostazioni",
   "notes.sharedUnavailable":
     "Le note condivise non sono ancora disponibili qui. Vedi le tue note private.",
   "notes.toDesktop": "Sul desktop",
   "notes.toDesktopHint": "Mettila sul desktop come post-it",
-  "note.readOnly": "Sola lettura finché Hangar gestisce queste note.",
+  "note.readOnly": "Sola lettura: al momento le note non si possono scrivere.",
   "settings.colorNameOf": "Nome personale per {color}",
   "settings.colorNames": "Nomi dei colori",
   "settings.colorNamesHint":
@@ -1143,7 +1106,6 @@ const it: Record<MessageKey, string> = {
   "notes.unsaved": "Non salvato",
   "notes.heldHint": "Questo testo non è salvato. Copialo per non perderlo.",
   "notes.capturedFrom": "Da {source}, {time}",
-  "notes.readOnlyTitle": "Le tue note di Hangar",
   "notes.leaveUnsaved": "Cambiando di nuovo, la modifica va persa.",
   "note.closeUnsaved":
     "Non salvata. Copia il testo come Markdown. Se chiudi di nuovo entro 10 secondi, il testo non salvato va perso.",
@@ -1151,8 +1113,6 @@ const it: Record<MessageKey, string> = {
   "error.failed": "Non ha funzionato. Riprova.",
   "error.onDesktop": "Questa nota è sul desktop. Modificala nel suo post-it.",
   "notes.searchShort": "Cerca",
-  "notes.colorFilterActive": "Filtrato per colore: {colors}",
-  "notes.areaMenu": "Aree e impostazioni",
   "notes.saved": "Salvato",
   "notes.saving": "Salvataggio…",
   "notes.emptyTitle": "Ancora nessuna nota",
@@ -1163,7 +1123,6 @@ const it: Record<MessageKey, string> = {
   "notes.closeSheet": "Chiudi (Esc)",
   "notes.scopes": "Aree",
   "notes.colors": "Colori",
-  "notes.lastChanged": "Ultima modifica",
   "notes.keys": "Tastiera",
   "settings.look": "Aspetto",
   "look.calm": "Calmo",
@@ -1186,6 +1145,14 @@ const it: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Ricaricare scarta la tua modifica.",
   "notes.reloadConfirm": "Scarta e ricarica",
   "notes.reloadCancel": "Annulla",
+  "nav.open": "Mostra aree",
+  "nav.close": "Chiudi aree",
+  "nav.projects": "Progetti",
+  "notes.readOnlyChip": "Sola lettura",
+  "note.deletedOutside":
+    "Questa nota è stata eliminata altrove. Il tuo testo è ancora qui; copialo se vuoi tenerlo.",
+  "notes.lockFailed":
+    "Al momento non è stato possibile aprire le note in scrittura. Qui sono di sola lettura.",
 };
 
 const ja: Record<MessageKey, string> = {
@@ -1225,8 +1192,6 @@ const ja: Record<MessageKey, string> = {
   "color.sand": "サンド",
   "color.slate": "スレート",
 
-  "hub.title": "メモ",
-
   "settings.language": "言語",
   "settings.languageSystem": "システムの言語",
   "settings.theme": "テーマ",
@@ -1249,7 +1214,6 @@ const ja: Record<MessageKey, string> = {
   "notes.preview": "プレビュー",
   "notes.previewOf": "プレビュー: {title}",
   "notes.openFolder": "メモのフォルダーを開く",
-  "notes.empty": "この領域にはまだメモがありません。",
   "notes.editorFailed": "エディターを読み込めませんでした。",
   "notes.tooLarge": "メモが大きすぎて保存できません (最大 1 MiB)。",
   "notes.invalidTitle": "タイトルは空にできず、改行を含めず、200 文字以内にしてください。",
@@ -1258,9 +1222,6 @@ const ja: Record<MessageKey, string> = {
   "notes.delete": "メモを削除",
   "notes.search": "すべてのメモを検索",
   "notes.searchClear": "検索をクリア",
-  "notes.scopeLabel": "表示するメモ",
-  "notes.scopeProject": "このプロジェクト",
-  "notes.scopeAll": "すべて",
   "notes.scopeAllTip": "すべてのプロジェクトのメモ、新しい順",
   "notes.scopeGeneralTip": "どのプロジェクトにも属さないメモ",
   "notes.list": "メモ",
@@ -1299,7 +1260,6 @@ const ja: Record<MessageKey, string> = {
   "notes.backFromDesktop": "ここで編集",
   "notes.bringToFront": "前面に表示",
   "notes.color": "色",
-  "notes.colorFilter": "色で絞り込む",
   "notes.colorFilterClear": "すべての色",
   "notes.loadFailed": "メモを読み込めませんでした。",
   "notes.noColorMatches": "選んだ色のメモはありません。",
@@ -1309,17 +1269,15 @@ const ja: Record<MessageKey, string> = {
   "notes.onDesktop": "デスクトップにあります",
   "notes.onDesktopHint":
     "付箋で編集できます。デスクトップから戻して、ここで編集することもできます。",
-  "notes.otherWriter": "別のプログラムがこれらのメモを書き込んでいます。ここでは読み取り専用です。",
+  "notes.otherWriter":
+    "Hangar Note はこれらのメモを別のセッションで既に開いています。ここでは読み取り専用です。",
   "notes.pick": "左でメモを選ぶか、新しいメモを作成してください。",
   "notes.pickReadOnly": "左でメモを選んでください。",
-  "notes.readOnly":
-    "現在は Hangar が管理しています。ここでは閲覧と検索ができます。Hangar から引き継がれると編集できるようになります。",
-  "notes.scopeProjectTip": "{folder}（Hangar Note を開いたフォルダー）\n{path}",
   "notes.settings": "設定",
   "notes.sharedUnavailable": "共有メモはまだ利用できません。個人のメモを表示しています。",
   "notes.toDesktop": "デスクトップへ",
   "notes.toDesktopHint": "付箋としてデスクトップに置く",
-  "note.readOnly": "Hangar がこれらのメモを管理している間は読み取り専用です。",
+  "note.readOnly": "読み取り専用: 現在メモに書き込めません。",
   "settings.colorNameOf": "{color} の名前",
   "settings.colorNames": "色の名前",
   "settings.colorNamesHint":
@@ -1333,7 +1291,6 @@ const ja: Record<MessageKey, string> = {
   "notes.unsaved": "未保存",
   "notes.heldHint": "このテキストは保存されていません。失われないようにコピーしてください。",
   "notes.capturedFrom": "{source} から（{time}）",
-  "notes.readOnlyTitle": "Hangar のメモ",
   "notes.leaveUnsaved": "もう一度切り替えると、変更は破棄されます。",
   "note.closeUnsaved":
     "保存されていません。テキストを Markdown としてコピーしてください。10 秒以内にもう一度閉じると、保存されていないテキストは失われます。",
@@ -1341,8 +1298,6 @@ const ja: Record<MessageKey, string> = {
   "error.failed": "うまくいきませんでした。もう一度お試しください。",
   "error.onDesktop": "このメモはデスクトップにあります。付箋で編集してください。",
   "notes.searchShort": "検索",
-  "notes.colorFilterActive": "色で絞り込み中: {colors}",
-  "notes.areaMenu": "領域と設定",
   "notes.saved": "保存済み",
   "notes.saving": "保存中…",
   "notes.emptyTitle": "まだメモはありません",
@@ -1353,7 +1308,6 @@ const ja: Record<MessageKey, string> = {
   "notes.closeSheet": "閉じる (Esc)",
   "notes.scopes": "エリア",
   "notes.colors": "色",
-  "notes.lastChanged": "最終更新",
   "notes.keys": "キーボード",
   "settings.look": "外観",
   "look.calm": "シンプル",
@@ -1377,6 +1331,13 @@ const ja: Record<MessageKey, string> = {
   "notes.reloadDiscards": "再読み込みすると変更は破棄されます。",
   "notes.reloadConfirm": "破棄して再読み込み",
   "notes.reloadCancel": "キャンセル",
+  "nav.open": "エリアを表示",
+  "nav.close": "エリアを閉じる",
+  "nav.projects": "プロジェクト",
+  "notes.readOnlyChip": "読み取り専用",
+  "note.deletedOutside":
+    "このメモは別の場所で削除されました。テキストはまだここにあります。残したい場合はコピーしてください。",
+  "notes.lockFailed": "現在、メモを書き込み用に開けませんでした。ここでは読み取り専用です。",
 };
 
 const pl: Record<MessageKey, string> = {
@@ -1416,8 +1377,6 @@ const pl: Record<MessageKey, string> = {
   "color.sand": "Piasek",
   "color.slate": "Łupek",
 
-  "hub.title": "Notatki",
-
   "settings.language": "Język",
   "settings.languageSystem": "Język systemu",
   "settings.theme": "Motyw",
@@ -1440,7 +1399,6 @@ const pl: Record<MessageKey, string> = {
   "notes.preview": "Podgląd",
   "notes.previewOf": "Podgląd: {title}",
   "notes.openFolder": "Otwórz folder notatek",
-  "notes.empty": "W tym obszarze nie ma jeszcze notatek.",
   "notes.editorFailed": "Nie udało się załadować edytora.",
   "notes.tooLarge": "Notatka jest za duża, by ją zapisać (najwyżej 1 MiB).",
   "notes.invalidTitle":
@@ -1450,9 +1408,6 @@ const pl: Record<MessageKey, string> = {
   "notes.delete": "Usuń notatkę",
   "notes.search": "Szukaj we wszystkich notatkach",
   "notes.searchClear": "Wyczyść wyszukiwanie",
-  "notes.scopeLabel": "Pokaż notatki z",
-  "notes.scopeProject": "Ten projekt",
-  "notes.scopeAll": "Wszystkie",
   "notes.scopeAllTip": "Notatki ze wszystkich projektów, najnowsze najpierw",
   "notes.scopeGeneralTip": "Notatki, które nie należą do żadnego projektu",
   "notes.list": "Notatki",
@@ -1491,7 +1446,6 @@ const pl: Record<MessageKey, string> = {
   "notes.backFromDesktop": "Edytuj tutaj",
   "notes.bringToFront": "Przenieś na wierzch",
   "notes.color": "Kolor",
-  "notes.colorFilter": "Filtruj według koloru",
   "notes.colorFilterClear": "Wszystkie kolory",
   "notes.loadFailed": "Nie udało się wczytać notatek.",
   "notes.noColorMatches": "Żadna notatka nie ma wybranych kolorów.",
@@ -1499,18 +1453,16 @@ const pl: Record<MessageKey, string> = {
   "notes.noteLabel": "Notatka",
   "notes.onDesktop": "Na pulpicie",
   "notes.onDesktopHint": "Edytujesz ją na jej karteczce. Albo zdejmij ją z pulpitu i edytuj tutaj.",
-  "notes.otherWriter": "Inny program zapisuje teraz te notatki. Tutaj są tylko do odczytu.",
+  "notes.otherWriter":
+    "Hangar Note ma już te notatki otwarte w innej sesji. Tutaj są tylko do odczytu.",
   "notes.pick": "Wybierz notatkę po lewej albo utwórz nową.",
   "notes.pickReadOnly": "Wybierz notatkę po lewej.",
-  "notes.readOnly":
-    "Na razie zarządza nimi Hangar. Tutaj możesz je czytać i przeszukiwać; edycja będzie możliwa, gdy Hangar je przekaże.",
-  "notes.scopeProjectTip": "{folder}, folder, dla którego otwarto Hangar Note\n{path}",
   "notes.settings": "Ustawienia",
   "notes.sharedUnavailable":
     "Udostępnionych notatek jeszcze tu nie ma. Widzisz swoje prywatne notatki.",
   "notes.toDesktop": "Na pulpit",
   "notes.toDesktopHint": "Połóż ją na pulpicie jako karteczkę",
-  "note.readOnly": "Tylko do odczytu, dopóki Hangar zarządza tymi notatkami.",
+  "note.readOnly": "Tylko do odczytu: notatek nie można teraz zapisać.",
   "settings.colorNameOf": "Własna nazwa dla {color}",
   "settings.colorNames": "Nazwy kolorów",
   "settings.colorNamesHint":
@@ -1524,7 +1476,6 @@ const pl: Record<MessageKey, string> = {
   "notes.unsaved": "Nie zapisano",
   "notes.heldHint": "Ten tekst nie jest zapisany. Skopiuj go, żeby nie zginął.",
   "notes.capturedFrom": "Z {source}, {time}",
-  "notes.readOnlyTitle": "Twoje notatki z Hangara",
   "notes.leaveUnsaved": "Ponowne przełączenie odrzuci zmianę.",
   "note.closeUnsaved":
     "Nie zapisano. Skopiuj tekst jako Markdown. Jeśli w ciągu 10 sekund spróbujesz ponownie zamknąć, niezapisany tekst przepadnie.",
@@ -1532,8 +1483,6 @@ const pl: Record<MessageKey, string> = {
   "error.failed": "Nie udało się. Spróbuj ponownie.",
   "error.onDesktop": "Ta notatka jest na pulpicie. Edytuj ją na jej karteczce.",
   "notes.searchShort": "Szukaj",
-  "notes.colorFilterActive": "Filtr koloru: {colors}",
-  "notes.areaMenu": "Obszary i ustawienia",
   "notes.saved": "Zapisano",
   "notes.saving": "Zapisywanie…",
   "notes.emptyTitle": "Nie ma jeszcze notatek",
@@ -1545,7 +1494,6 @@ const pl: Record<MessageKey, string> = {
   "notes.closeSheet": "Zamknij (Esc)",
   "notes.scopes": "Obszary",
   "notes.colors": "Kolory",
-  "notes.lastChanged": "Ostatnia zmiana",
   "notes.keys": "Klawiatura",
   "settings.look": "Wygląd",
   "look.calm": "Spokojny",
@@ -1568,6 +1516,13 @@ const pl: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Ponowne wczytanie odrzuci twoją zmianę.",
   "notes.reloadConfirm": "Odrzuć i wczytaj ponownie",
   "notes.reloadCancel": "Anuluj",
+  "nav.open": "Pokaż obszary",
+  "nav.close": "Zamknij obszary",
+  "nav.projects": "Projekty",
+  "notes.readOnlyChip": "Tylko do odczytu",
+  "note.deletedOutside":
+    "Ta notatka została usunięta gdzie indziej. Twój tekst nadal tu jest; skopiuj go, jeśli chcesz go zachować.",
+  "notes.lockFailed": "Nie udało się teraz otworzyć notatek do zapisu. Tutaj są tylko do odczytu.",
 };
 
 const pt: Record<MessageKey, string> = {
@@ -1607,8 +1562,6 @@ const pt: Record<MessageKey, string> = {
   "color.sand": "Areia",
   "color.slate": "Ardósia",
 
-  "hub.title": "Notas",
-
   "settings.language": "Idioma",
   "settings.languageSystem": "Idioma do sistema",
   "settings.theme": "Tema",
@@ -1631,7 +1584,6 @@ const pt: Record<MessageKey, string> = {
   "notes.preview": "Pré-visualização",
   "notes.previewOf": "Pré-visualização: {title}",
   "notes.openFolder": "Abrir pasta de notas",
-  "notes.empty": "Ainda não há notas nesta área.",
   "notes.editorFailed": "Não foi possível carregar o editor.",
   "notes.tooLarge": "A nota é grande demais para salvar (no máximo 1 MiB).",
   "notes.invalidTitle":
@@ -1641,9 +1593,6 @@ const pt: Record<MessageKey, string> = {
   "notes.delete": "Excluir nota",
   "notes.search": "Pesquisar em todas as notas",
   "notes.searchClear": "Limpar pesquisa",
-  "notes.scopeLabel": "Mostrar notas de",
-  "notes.scopeProject": "Este projeto",
-  "notes.scopeAll": "Todas",
   "notes.scopeAllTip": "Notas de todos os projetos, mais recentes primeiro",
   "notes.scopeGeneralTip": "Notas que não pertencem a nenhum projeto",
   "notes.list": "Notas",
@@ -1683,7 +1632,6 @@ const pt: Record<MessageKey, string> = {
   "notes.backFromDesktop": "Editar aqui",
   "notes.bringToFront": "Trazer para a frente",
   "notes.color": "Cor",
-  "notes.colorFilter": "Filtrar por cor",
   "notes.colorFilterClear": "Todas as cores",
   "notes.loadFailed": "Não foi possível carregar as notas.",
   "notes.noColorMatches": "Nenhuma nota tem as cores escolhidas.",
@@ -1693,18 +1641,16 @@ const pt: Record<MessageKey, string> = {
   "notes.onDesktop": "Na área de trabalho",
   "notes.onDesktopHint":
     "Você a edita na nota adesiva dela. Ou tire-a da área de trabalho e edite-a aqui.",
-  "notes.otherWriter": "Outro programa está gravando estas notas. Aqui elas são somente leitura.",
+  "notes.otherWriter":
+    "O Hangar Note já tem estas notas abertas em outra sessão. Aqui elas são somente leitura.",
   "notes.pick": "Escolha uma nota à esquerda ou crie uma nova.",
   "notes.pickReadOnly": "Escolha uma nota à esquerda.",
-  "notes.readOnly":
-    "O Hangar ainda as gerencia. Você pode lê-las e pesquisá-las aqui; a edição fica disponível assim que o Hangar as entregar.",
-  "notes.scopeProjectTip": "{folder}, a pasta para a qual o Hangar Note foi aberto\n{path}",
   "notes.settings": "Configurações",
   "notes.sharedUnavailable":
     "As notas compartilhadas ainda não estão aqui. Você vê suas notas privadas.",
   "notes.toDesktop": "Para a área de trabalho",
   "notes.toDesktopHint": "Colocar na área de trabalho como nota adesiva",
-  "note.readOnly": "Somente leitura enquanto o Hangar gerencia estas notas.",
+  "note.readOnly": "Somente leitura: não é possível gravar as notas agora.",
   "settings.colorNameOf": "Nome próprio para {color}",
   "settings.colorNames": "Nomes das cores",
   "settings.colorNamesHint":
@@ -1718,7 +1664,6 @@ const pt: Record<MessageKey, string> = {
   "notes.unsaved": "Não salvo",
   "notes.heldHint": "Este texto não está salvo. Copie-o para não perdê-lo.",
   "notes.capturedFrom": "De {source}, {time}",
-  "notes.readOnlyTitle": "Suas notas do Hangar",
   "notes.leaveUnsaved": "Trocar de novo descarta a alteração.",
   "note.closeUnsaved":
     "Não salva. Copie o texto como Markdown. Se fechar de novo em até 10 segundos, o texto não salvo será perdido.",
@@ -1726,8 +1671,6 @@ const pt: Record<MessageKey, string> = {
   "error.failed": "Não deu certo. Tente de novo.",
   "error.onDesktop": "Esta nota está na área de trabalho. Edite-a na nota adesiva dela.",
   "notes.searchShort": "Buscar",
-  "notes.colorFilterActive": "Filtrado por cor: {colors}",
-  "notes.areaMenu": "Áreas e configurações",
   "notes.saved": "Salvo",
   "notes.saving": "Salvando…",
   "notes.emptyTitle": "Ainda não há notas",
@@ -1738,7 +1681,6 @@ const pt: Record<MessageKey, string> = {
   "notes.closeSheet": "Fechar (Esc)",
   "notes.scopes": "Áreas",
   "notes.colors": "Cores",
-  "notes.lastChanged": "Última alteração",
   "notes.keys": "Teclado",
   "settings.look": "Aparência",
   "look.calm": "Calmo",
@@ -1761,6 +1703,14 @@ const pt: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Recarregar descarta sua alteração.",
   "notes.reloadConfirm": "Descartar e recarregar",
   "notes.reloadCancel": "Cancelar",
+  "nav.open": "Mostrar áreas",
+  "nav.close": "Fechar áreas",
+  "nav.projects": "Projetos",
+  "notes.readOnlyChip": "Somente leitura",
+  "note.deletedOutside":
+    "Esta nota foi excluída em outro lugar. Seu texto ainda está aqui; copie-o se quiser mantê-lo.",
+  "notes.lockFailed":
+    "Não foi possível abrir as notas para gravação agora. Aqui elas são somente leitura.",
 };
 
 const ru: Record<MessageKey, string> = {
@@ -1800,8 +1750,6 @@ const ru: Record<MessageKey, string> = {
   "color.sand": "Песок",
   "color.slate": "Сланец",
 
-  "hub.title": "Заметки",
-
   "settings.language": "Язык",
   "settings.languageSystem": "Язык системы",
   "settings.theme": "Тема",
@@ -1824,7 +1772,6 @@ const ru: Record<MessageKey, string> = {
   "notes.preview": "Предпросмотр",
   "notes.previewOf": "Предпросмотр: {title}",
   "notes.openFolder": "Открыть папку заметок",
-  "notes.empty": "В этой области пока нет заметок.",
   "notes.editorFailed": "Не удалось загрузить редактор.",
   "notes.tooLarge": "Заметка слишком большая для сохранения (не больше 1 МиБ).",
   "notes.invalidTitle":
@@ -1834,9 +1781,6 @@ const ru: Record<MessageKey, string> = {
   "notes.delete": "Удалить заметку",
   "notes.search": "Искать во всех заметках",
   "notes.searchClear": "Очистить поиск",
-  "notes.scopeLabel": "Показать заметки",
-  "notes.scopeProject": "Этот проект",
-  "notes.scopeAll": "Все",
   "notes.scopeAllTip": "Заметки всех проектов, сначала новые",
   "notes.scopeGeneralTip": "Заметки, не относящиеся ни к одному проекту",
   "notes.list": "Заметки",
@@ -1875,7 +1819,6 @@ const ru: Record<MessageKey, string> = {
   "notes.backFromDesktop": "Редактировать здесь",
   "notes.bringToFront": "Показать поверх",
   "notes.color": "Цвет",
-  "notes.colorFilter": "Фильтр по цвету",
   "notes.colorFilterClear": "Все цвета",
   "notes.loadFailed": "Не удалось загрузить заметки.",
   "notes.noColorMatches": "Нет заметок выбранных цветов.",
@@ -1885,17 +1828,14 @@ const ru: Record<MessageKey, string> = {
   "notes.onDesktopHint":
     "Ты редактируешь её в стикере. Или убери её с рабочего стола и редактируй здесь.",
   "notes.otherWriter":
-    "Эти заметки сейчас записывает другая программа. Здесь они только для чтения.",
+    "Hangar Note уже открыл эти заметки в другом сеансе. Здесь они только для чтения.",
   "notes.pick": "Выбери заметку слева или создай новую.",
   "notes.pickReadOnly": "Выбери заметку слева.",
-  "notes.readOnly":
-    "Пока ими управляет Hangar. Здесь их можно читать и искать; редактировать получится, как только Hangar их передаст.",
-  "notes.scopeProjectTip": "{folder}, папка, для которой открыт Hangar Note\n{path}",
   "notes.settings": "Настройки",
   "notes.sharedUnavailable": "Общих заметок здесь пока нет. Показаны твои личные заметки.",
   "notes.toDesktop": "На рабочий стол",
   "notes.toDesktopHint": "Положить на рабочий стол как стикер",
-  "note.readOnly": "Только чтение, пока заметками управляет Hangar.",
+  "note.readOnly": "Только чтение: заметки сейчас нельзя изменить.",
   "settings.colorNameOf": "Своё название для {color}",
   "settings.colorNames": "Названия цветов",
   "settings.colorNamesHint":
@@ -1910,7 +1850,6 @@ const ru: Record<MessageKey, string> = {
   "notes.unsaved": "Не сохранено",
   "notes.heldHint": "Этот текст не сохранён. Скопируй его, чтобы он не потерялся.",
   "notes.capturedFrom": "Из {source}, {time}",
-  "notes.readOnlyTitle": "Твои заметки из Hangar",
   "notes.leaveUnsaved": "Повторное переключение отменит изменение.",
   "note.closeUnsaved":
     "Не сохранено. Скопируй текст как Markdown. Если закроешь ещё раз в течение 10 секунд, несохранённый текст пропадёт.",
@@ -1918,8 +1857,6 @@ const ru: Record<MessageKey, string> = {
   "error.failed": "Не получилось. Попробуй ещё раз.",
   "error.onDesktop": "Эта заметка на рабочем столе. Редактируй её в стикере.",
   "notes.searchShort": "Поиск",
-  "notes.colorFilterActive": "Фильтр по цвету: {colors}",
-  "notes.areaMenu": "Области и настройки",
   "notes.saved": "Сохранено",
   "notes.saving": "Сохранение…",
   "notes.emptyTitle": "Заметок пока нет",
@@ -1930,7 +1867,6 @@ const ru: Record<MessageKey, string> = {
   "notes.closeSheet": "Закрыть (Esc)",
   "notes.scopes": "Разделы",
   "notes.colors": "Цвета",
-  "notes.lastChanged": "Последнее изменение",
   "notes.keys": "Клавиатура",
   "settings.look": "Вид",
   "look.calm": "Спокойный",
@@ -1953,6 +1889,13 @@ const ru: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Загрузка заново отменит твоё изменение.",
   "notes.reloadConfirm": "Отменить и загрузить заново",
   "notes.reloadCancel": "Отмена",
+  "nav.open": "Показать разделы",
+  "nav.close": "Закрыть разделы",
+  "nav.projects": "Проекты",
+  "notes.readOnlyChip": "Только чтение",
+  "note.deletedOutside":
+    "Эта заметка удалена в другом месте. Твой текст ещё здесь; скопируй его, если хочешь сохранить.",
+  "notes.lockFailed": "Сейчас не удалось открыть заметки для записи. Здесь они только для чтения.",
 };
 
 const tr: Record<MessageKey, string> = {
@@ -1992,8 +1935,6 @@ const tr: Record<MessageKey, string> = {
   "color.sand": "Kum",
   "color.slate": "Arduvaz",
 
-  "hub.title": "Notlar",
-
   "settings.language": "Dil",
   "settings.languageSystem": "Sistem dili",
   "settings.theme": "Tema",
@@ -2016,7 +1957,6 @@ const tr: Record<MessageKey, string> = {
   "notes.preview": "Önizleme",
   "notes.previewOf": "Önizleme: {title}",
   "notes.openFolder": "Not klasörünü aç",
-  "notes.empty": "Bu alanda henüz not yok.",
   "notes.editorFailed": "Düzenleyici yüklenemedi.",
   "notes.tooLarge": "Not kaydetmek için çok büyük (en fazla 1 MiB).",
   "notes.invalidTitle": "Başlık boş olamaz, satır sonu içeremez ve en fazla 200 karakter olabilir.",
@@ -2025,9 +1965,6 @@ const tr: Record<MessageKey, string> = {
   "notes.delete": "Notu sil",
   "notes.search": "Tüm notlarda ara",
   "notes.searchClear": "Aramayı temizle",
-  "notes.scopeLabel": "Notları göster",
-  "notes.scopeProject": "Bu proje",
-  "notes.scopeAll": "Tümü",
   "notes.scopeAllTip": "Tüm projelerin notları, en yeniler önce",
   "notes.scopeGeneralTip": "Hiçbir projeye ait olmayan notlar",
   "notes.list": "Notlar",
@@ -2066,7 +2003,6 @@ const tr: Record<MessageKey, string> = {
   "notes.backFromDesktop": "Burada düzenle",
   "notes.bringToFront": "Öne getir",
   "notes.color": "Renk",
-  "notes.colorFilter": "Renge göre filtrele",
   "notes.colorFilterClear": "Tüm renkler",
   "notes.loadFailed": "Notlar yüklenemedi.",
   "notes.noColorMatches": "Seçilen renklerde not yok.",
@@ -2075,17 +2011,15 @@ const tr: Record<MessageKey, string> = {
   "notes.onDesktop": "Masaüstünde",
   "notes.onDesktopHint":
     "Onu yapışkan notunda düzenlersin. Ya da masaüstünden al ve burada düzenle.",
-  "notes.otherWriter": "Bu notları şu anda başka bir program yazıyor. Burada yalnızca okunabilir.",
+  "notes.otherWriter":
+    "Hangar Note bu notları başka bir oturumda zaten açık tutuyor. Burada yalnızca okunabilir.",
   "notes.pick": "Soldan bir not seç ya da yeni bir not oluştur.",
   "notes.pickReadOnly": "Soldan bir not seç.",
-  "notes.readOnly":
-    "Şimdilik onları Hangar yönetiyor. Burada okuyabilir ve arayabilirsin; Hangar devrettiğinde düzenleyebileceksin.",
-  "notes.scopeProjectTip": "{folder}, Hangar Note’un açıldığı klasör\n{path}",
   "notes.settings": "Ayarlar",
   "notes.sharedUnavailable": "Paylaşılan notlar henüz burada yok. Özel notlarını görüyorsun.",
   "notes.toDesktop": "Masaüstüne",
   "notes.toDesktopHint": "Yapışkan not olarak masaüstüne koy",
-  "note.readOnly": "Hangar bu notları yönettiği sürece yalnızca okunabilir.",
+  "note.readOnly": "Salt okunur: Notlar şu anda yazılamıyor.",
   "settings.colorNameOf": "{color} için kendi adın",
   "settings.colorNames": "Renk adları",
   "settings.colorNamesHint":
@@ -2099,7 +2033,6 @@ const tr: Record<MessageKey, string> = {
   "notes.unsaved": "Kaydedilmedi",
   "notes.heldHint": "Bu metin kaydedilmedi. Kaybolmaması için kopyala.",
   "notes.capturedFrom": "{source} klasöründen, {time}",
-  "notes.readOnlyTitle": "Hangar notların",
   "notes.leaveUnsaved": "Yeniden geçersen değişiklik silinir.",
   "note.closeUnsaved":
     "Kaydedilmedi. Metni Markdown olarak kopyala. 10 saniye içinde yeniden kapatırsan kaydedilmemiş metin kaybolur.",
@@ -2107,8 +2040,6 @@ const tr: Record<MessageKey, string> = {
   "error.failed": "Olmadı. Tekrar dene.",
   "error.onDesktop": "Bu not masaüstünde. Onu yapışkan notunda düzenle.",
   "notes.searchShort": "Ara",
-  "notes.colorFilterActive": "Renge göre süzüldü: {colors}",
-  "notes.areaMenu": "Alanlar ve ayarlar",
   "notes.saved": "Kaydedildi",
   "notes.saving": "Kaydediliyor…",
   "notes.emptyTitle": "Henüz not yok",
@@ -2119,7 +2050,6 @@ const tr: Record<MessageKey, string> = {
   "notes.closeSheet": "Kapat (Esc)",
   "notes.scopes": "Alanlar",
   "notes.colors": "Renkler",
-  "notes.lastChanged": "Son değişiklik",
   "notes.keys": "Klavye",
   "settings.look": "Görünüm",
   "look.calm": "Sakin",
@@ -2142,6 +2072,13 @@ const tr: Record<MessageKey, string> = {
   "notes.reloadDiscards": "Yeniden yüklemek değişikliğini siler.",
   "notes.reloadConfirm": "Sil ve yeniden yükle",
   "notes.reloadCancel": "Vazgeç",
+  "nav.open": "Alanları göster",
+  "nav.close": "Alanları kapat",
+  "nav.projects": "Projeler",
+  "notes.readOnlyChip": "Salt okunur",
+  "note.deletedOutside":
+    "Bu not başka bir yerde silindi. Metnin hâlâ burada; saklamak istersen kopyala.",
+  "notes.lockFailed": "Notlar şu anda yazmak için açılamadı. Burada yalnızca okunabilir.",
 };
 
 const zh: Record<MessageKey, string> = {
@@ -2181,8 +2118,6 @@ const zh: Record<MessageKey, string> = {
   "color.sand": "沙色",
   "color.slate": "石板",
 
-  "hub.title": "笔记",
-
   "settings.language": "语言",
   "settings.languageSystem": "系统语言",
   "settings.theme": "主题",
@@ -2205,7 +2140,6 @@ const zh: Record<MessageKey, string> = {
   "notes.preview": "预览",
   "notes.previewOf": "预览：{title}",
   "notes.openFolder": "打开笔记文件夹",
-  "notes.empty": "此区域还没有笔记。",
   "notes.editorFailed": "无法加载编辑器。",
   "notes.tooLarge": "笔记太大，无法保存（最多 1 MiB）。",
   "notes.invalidTitle": "标题不能为空，不能包含换行，且不能超过 200 个字符。",
@@ -2214,9 +2148,6 @@ const zh: Record<MessageKey, string> = {
   "notes.delete": "删除笔记",
   "notes.search": "搜索所有笔记",
   "notes.searchClear": "清除搜索",
-  "notes.scopeLabel": "显示笔记",
-  "notes.scopeProject": "此项目",
-  "notes.scopeAll": "全部",
   "notes.scopeAllTip": "所有项目的笔记，最新的在前",
   "notes.scopeGeneralTip": "不属于任何项目的笔记",
   "notes.list": "笔记",
@@ -2255,7 +2186,6 @@ const zh: Record<MessageKey, string> = {
   "notes.backFromDesktop": "在这里编辑",
   "notes.bringToFront": "移到前面",
   "notes.color": "颜色",
-  "notes.colorFilter": "按颜色筛选",
   "notes.colorFilterClear": "所有颜色",
   "notes.loadFailed": "无法加载笔记。",
   "notes.noColorMatches": "没有所选颜色的笔记。",
@@ -2263,16 +2193,14 @@ const zh: Record<MessageKey, string> = {
   "notes.noteLabel": "笔记",
   "notes.onDesktop": "在桌面上",
   "notes.onDesktopHint": "请在它的便笺中编辑。也可以把它从桌面取回，在这里编辑。",
-  "notes.otherWriter": "另一个程序正在写入这些笔记。此处为只读。",
+  "notes.otherWriter": "Hangar Note 已在另一个会话中打开这些笔记。此处为只读。",
   "notes.pick": "请在左侧选择一条笔记，或新建一条。",
   "notes.pickReadOnly": "请在左侧选择一条笔记。",
-  "notes.readOnly": "目前仍由 Hangar 管理。可以在这里阅读和搜索；Hangar 交接后即可编辑。",
-  "notes.scopeProjectTip": "{folder}，打开 Hangar Note 时指定的文件夹\n{path}",
   "notes.settings": "设置",
   "notes.sharedUnavailable": "这里还没有共享笔记。显示的是你的私人笔记。",
   "notes.toDesktop": "放到桌面",
   "notes.toDesktopHint": "作为便笺放到桌面上",
-  "note.readOnly": "在 Hangar 管理这些笔记期间为只读。",
+  "note.readOnly": "只读：暂时无法写入这些笔记。",
   "settings.colorNameOf": "{color} 的自定义名称",
   "settings.colorNames": "颜色名称",
   "settings.colorNamesHint": "可以给颜色起自己的名字，例如“工作”。留空则保留颜色名称。",
@@ -2285,15 +2213,12 @@ const zh: Record<MessageKey, string> = {
   "notes.unsaved": "未保存",
   "notes.heldHint": "此文本尚未保存。请复制它，以免丢失。",
   "notes.capturedFrom": "来自 {source}，{time}",
-  "notes.readOnlyTitle": "Hangar 笔记",
   "notes.leaveUnsaved": "再次切换将丢弃此更改。",
   "note.closeUnsaved": "未保存。请将文本复制为 Markdown。10 秒内再次关闭，未保存的文本将丢失。",
   "notes.reloadList": "重新加载列表",
   "error.failed": "操作未成功。请重试。",
   "error.onDesktop": "这条笔记在桌面上。请在它的便笺中编辑。",
   "notes.searchShort": "搜索",
-  "notes.colorFilterActive": "按颜色筛选：{colors}",
-  "notes.areaMenu": "区域和设置",
   "notes.saved": "已保存",
   "notes.saving": "正在保存…",
   "notes.emptyTitle": "还没有笔记",
@@ -2304,7 +2229,6 @@ const zh: Record<MessageKey, string> = {
   "notes.closeSheet": "关闭 (Esc)",
   "notes.scopes": "区域",
   "notes.colors": "颜色",
-  "notes.lastChanged": "最近修改",
   "notes.keys": "键盘",
   "settings.look": "外观",
   "look.calm": "简洁",
@@ -2327,6 +2251,12 @@ const zh: Record<MessageKey, string> = {
   "notes.reloadDiscards": "重新加载会丢弃你的修改。",
   "notes.reloadConfirm": "丢弃并重新加载",
   "notes.reloadCancel": "取消",
+  "nav.open": "显示区域",
+  "nav.close": "关闭区域",
+  "nav.projects": "项目",
+  "notes.readOnlyChip": "只读",
+  "note.deletedOutside": "此笔记已在别处删除。文本仍在这里；如需保留，请复制。",
+  "notes.lockFailed": "暂时无法以写入方式打开这些笔记。此处为只读。",
 };
 
 export const DICTIONARIES: Record<Language, Record<MessageKey, string>> = {

@@ -5,7 +5,7 @@
 //
 // The note's shortcuts (Ctrl+B and friends) are not bound here: they live in shortcuts.ts and the
 // windows call the formatting functions below. The same editor serves the sticky notes and the
-// notes area; `load` puts another note in, `setReadOnly` locks it while Hangar keeps the notes.
+// notes area; `load` puts another note in, `setReadOnly` locks it while the notes are read only.
 
 import {
   defaultKeymap,

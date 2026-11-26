@@ -13,9 +13,9 @@ import {
 const shop = { path: "C:\\p\\shop" };
 const web = { path: "C:\\p\\web" };
 const folders = [
-  { folderKey: "general", path: null, noteCount: 0, updatedAt: null },
-  { folderKey: "a".repeat(32), path: "C:\\p\\web", noteCount: 2, updatedAt: 1 },
-  { folderKey: "b".repeat(32), path: "C:\\p\\old", noteCount: 0, updatedAt: 1 },
+  { folderKey: "general", path: null, name: null, noteCount: 0, updatedAt: null },
+  { folderKey: "a".repeat(32), path: "C:\\p\\web", name: "web", noteCount: 2, updatedAt: 1 },
+  { folderKey: "b".repeat(32), path: "C:\\p\\old", name: "old", noteCount: 0, updatedAt: 1 },
 ];
 
 describe("notes scope", () => {

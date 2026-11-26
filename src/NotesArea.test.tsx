@@ -50,6 +50,7 @@ const api = vi.hoisted(() => ({
   handlers: new Map<string, () => void>(),
   getStatus: vi.fn(),
   takeHubRequests: vi.fn(),
+  listNoteFolders: vi.fn(),
   listNotes: vi.fn(),
   readNote: vi.fn(),
   writeNote: vi.fn(),
@@ -75,7 +76,7 @@ vi.mock("./api", async (importOriginal) => ({
   isReadOnly: (error: unknown) => error === "read-only",
   getStatus: api.getStatus,
   takeHubRequests: api.takeHubRequests,
-  listNoteFolders: vi.fn(() => Promise.resolve([])),
+  listNoteFolders: api.listNoteFolders,
   listNotes: api.listNotes,
   searchNotes: vi.fn(() => Promise.resolve([])),
   readNote: api.readNote,
@@ -93,7 +94,10 @@ vi.mock("./api", async (importOriginal) => ({
   revealNote: vi.fn(),
   revealNotesFolder: vi.fn(),
   noteFlushed: api.noteFlushed,
-  onNotesChanged: vi.fn(() => Promise.resolve(() => undefined)),
+  onNotesChanged: vi.fn((handler: () => void) => {
+    api.handlers.set("notes-changed", handler);
+    return Promise.resolve(() => undefined);
+  }),
   onHubRequests: vi.fn((handler: () => void) => {
     api.handlers.set("hub-requests", handler);
     return Promise.resolve(() => undefined);
@@ -234,11 +238,34 @@ function menuItem(label: string): HTMLButtonElement {
   return found;
 }
 
-/** Opens the title menu ("All notes"), which holds the scopes and the former list menu. */
-async function openAreaMenu() {
-  const scope = container.querySelector<HTMLButtonElement>(".scope-button");
-  if (!scope) throw new Error("title menu missing");
-  await click(scope);
+/** An entry of the sidebar by its visible name (the count aside). */
+function navItem(label: string): HTMLButtonElement {
+  const found = Array.from(container.querySelectorAll<HTMLButtonElement>(".nav button")).find(
+    (element) => element.querySelector(".nav-label")?.textContent === label,
+  );
+  if (!found) throw new Error(`sidebar entry ${label} missing`);
+  return found;
+}
+
+/** A color of the sidebar's filter by its name. */
+function navColor(name: string): HTMLButtonElement {
+  const found = Array.from(container.querySelectorAll<HTMLButtonElement>(".nav-dot")).find(
+    (element) => element.getAttribute("aria-label")?.startsWith(`${name} (`),
+  );
+  if (!found) throw new Error(`color ${name} missing`);
+  return found;
+}
+
+/** The area heading of the notes (the shown area's name). */
+function heading(): string {
+  return container.querySelector(".area-heading h1")?.textContent ?? "";
+}
+
+/** The sidebar entries marked as the current place. */
+function currentPlaces(): string[] {
+  return Array.from(container.querySelectorAll('.nav [aria-current="page"]')).map(
+    (element) => element.querySelector(".nav-label")?.textContent ?? "",
+  );
 }
 
 function button(text: string): HTMLButtonElement {
@@ -261,6 +288,7 @@ beforeEach(() => {
   Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
   api.getStatus.mockResolvedValue(writable);
   api.takeHubRequests.mockResolvedValue([]);
+  api.listNoteFolders.mockResolvedValue([]);
   api.listNotes.mockResolvedValue([row(A, "Einkaufen", "mint"), row(B, "Projekt", "sky")]);
   api.readNote.mockImplementation((_folder: unknown, id: string) =>
     Promise.resolve(opened(id, id === A ? "Einkaufen" : "Projekt")),
@@ -296,30 +324,30 @@ describe("notes area", () => {
 
   it("filters by one or more colors and names a color by its own name", async () => {
     await render();
-    // Direction A: the filter sits behind one button; its menu stays open while choosing.
-    await click(button(t("notes.colorFilter")));
-    await click(menuItem("Arbeit"));
+    // The sidebar's colors: each dot names its color (the own name) and how many notes have it.
+    expect(navColor("Arbeit").getAttribute("aria-label")).toBe("Arbeit (1)");
+    await click(navColor("Arbeit"));
     expect(titles()).toEqual(["Projekt"]);
-    expect(menuItem("Arbeit").getAttribute("aria-checked")).toBe("true");
-    await click(menuItem(t("color.mint")));
+    expect(navColor("Arbeit").getAttribute("aria-pressed")).toBe("true");
+    await click(navColor(t("color.mint")));
     expect(titles()).toEqual(["Einkaufen", "Projekt"]);
-    // The button names what is filtered, and "All colors" keeps its place in the menu.
-    const filter = container.querySelector(".color-button");
-    expect(filter?.getAttribute("aria-label")).toBe(
-      t("notes.colorFilterActive", { colors: `${t("color.mint")}, Arbeit` }),
-    );
-    await click(menuItem(t("notes.colorFilterClear")));
+    // "All colors" keeps its place and shows once a color is chosen.
+    const clear = button(t("notes.colorFilterClear"));
+    expect(clear.hidden).toBe(false);
+    await click(clear);
     expect(titles()).toEqual(["Einkaufen", "Projekt"]);
-    expect(container.querySelector(".color-button.on")).toBeNull();
+    expect(container.querySelector('.nav-dot[aria-pressed="true"]')).toBeNull();
+    expect(button(t("notes.colorFilterClear")).hidden).toBe(true);
   });
 
-  it("shows the calm read-only hint and offers no new note while Hangar keeps the notes", async () => {
+  it("shows a small read-only chip with its reason and offers no new note", async () => {
     api.getStatus.mockResolvedValue({
       ...writable,
-      access: { state: "readOnly", reason: "notHandedOver" },
+      access: { state: "readOnly", reason: "otherWriter" },
     });
     await render();
-    expect(container.textContent).toContain(t("notes.readOnly"));
+    expect(container.querySelector(".ro-chip")?.textContent).toBe(t("notes.readOnlyChip"));
+    expect(container.textContent).toContain(t("notes.otherWriter"));
     expect(button(t("notes.new")).disabled).toBe(true);
     // The empty note pane does not suggest starting a note that cannot be written.
     expect(container.textContent).toContain(t("notes.pickReadOnly"));
@@ -383,7 +411,7 @@ describe("notes area", () => {
   });
 });
 
-const readOnly: Status = { ...writable, access: { state: "readOnly", reason: "notHandedOver" } };
+const readOnly: Status = { ...writable, access: { state: "readOnly", reason: "otherWriter" } };
 const capture: HubRequest = { kind: "capture", folder: "C:/p/Demo Projekt", text: "Ausgabe" };
 
 function rowButton(title: string): HTMLButtonElement {
@@ -423,7 +451,7 @@ describe("notes area: requests and quick note", () => {
     expect(api.listNotes.mock.calls.length).toBeGreaterThan(1);
   });
 
-  it("opens a captured note read only, without a draft, while Hangar keeps the notes", async () => {
+  it("opens a captured note read only, without a draft, while the notes are read only", async () => {
     api.getStatus.mockResolvedValue(readOnly);
     api.takeHubRequests.mockResolvedValue([{ kind: "openNote", folder: null, id: A }]);
     await render();
@@ -563,8 +591,7 @@ describe("notes area: trash and back", () => {
     await render();
     await click(rowButton("Einkaufen"));
     await type("Einkaufen\nneu");
-    await openAreaMenu();
-    await click(menuItem(t("notes.trash")));
+    await click(navItem(t("notes.trash")));
     expect(container.querySelector(".note-editor")).toBeNull();
     await click(button(t("notes.back")));
     const content = container.querySelector(".note-editor .cm-content");
@@ -583,19 +610,21 @@ describe("notes area: trash and back", () => {
 describe("notes area: list", () => {
   it("shows All on a start without a project, and new notes still go to General", async () => {
     await render();
-    expect(container.querySelector(".scope-button")?.textContent).toBe(t("note.allNotes"));
-    await openAreaMenu();
-    const on = container.querySelector('.popup-menu [role="menuitemradio"][aria-checked="true"]');
-    expect(on?.querySelector(".menu-label")?.textContent).toBe(t("note.allNotes"));
-    await openAreaMenu();
+    expect(heading()).toBe(t("note.allNotes"));
+    expect(currentPlaces()).toEqual([t("note.allNotes")]);
     await click(button(t("notes.new")));
     await type("Neu");
     expect(api.createNote).toHaveBeenCalledWith(GENERAL, "Notiz");
   });
 
-  it("switches the window on top from the title menu", async () => {
+  it("switches the window on top from the sidebar's menu", async () => {
     await render();
-    await openAreaMenu();
+    const more = () => {
+      const found = container.querySelector<HTMLButtonElement>(".nav-head .icon-button");
+      if (!found) throw new Error("sidebar menu missing");
+      return found;
+    };
+    await click(more());
     const item = Array.from(
       container.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"]'),
     ).find((element) => element.textContent.includes(t("note.keepOnTop")));
@@ -603,7 +632,7 @@ describe("notes area: list", () => {
     if (!item) throw new Error("on-top switch missing");
     await click(item);
     expect(api.setHubOnTop).toHaveBeenCalledWith(true);
-    await openAreaMenu();
+    await click(more());
     const again = container.querySelector('[role="menuitemcheckbox"]');
     expect(again?.getAttribute("aria-checked")).toBe("true");
   });
@@ -636,7 +665,7 @@ describe("notes area: list", () => {
     api.listNotes.mockRejectedValueOnce("broken");
     await render();
     expect(container.textContent).toContain(t("notes.loadFailed"));
-    expect(container.textContent).not.toContain(t("notes.empty"));
+    expect(container.textContent).not.toContain(t("notes.emptyLead"));
     await click(button(t("notes.retry")));
     expect(titles()).toEqual(["Einkaufen", "Projekt"]);
   });
@@ -651,7 +680,7 @@ describe("notes area: direction A", () => {
     );
     expect(news).toHaveLength(1);
     expect(container.querySelector('input[type="search"]')).toBeNull();
-    expect(container.querySelector(".color-button")).toBeNull();
+    expect(container.querySelector(".nav-dot")).toBeNull();
     expect(container.textContent).toContain(t("notes.emptyTitle"));
   });
 
@@ -775,18 +804,16 @@ describe("notes area: rework of the calm look", () => {
     expect(container.querySelector<HTMLInputElement>(".note-rename")?.value).toBe("Projekt");
   });
 
-  it("gives the focus back to the title menu after the trash and the settings", async () => {
+  it("gives the focus back to the sidebar's entry after the trash and the settings", async () => {
     await render();
-    await openAreaMenu();
-    await click(menuItem(t("notes.trash")));
+    await click(navItem(t("notes.trash")));
     await click(button(t("notes.back")));
     await frames();
-    expect(document.activeElement).toBe(container.querySelector(".scope-button"));
-    await openAreaMenu();
-    await click(menuItem(t("notes.settings")));
+    expect(document.activeElement).toBe(navItem(t("notes.trash")));
+    await click(navItem(t("notes.settings")));
     await click(button(t("notes.back")));
     await frames();
-    expect(document.activeElement).toBe(container.querySelector(".scope-button"));
+    expect(document.activeElement).toBe(navItem(t("notes.settings")));
   });
 
   it("moves the focus to the editor when a notice goes while its button has it", async () => {
@@ -841,9 +868,8 @@ describe("notes area: rework of the calm look", () => {
     expect(
       Array.from(container.querySelectorAll(".note-row-project")).map((e) => e.textContent),
     ).toEqual([t("notes.general"), t("notes.general")]);
-    await openAreaMenu();
-    await click(menuItem(t("notes.general")));
-    expect(container.querySelector(".scope-button")?.textContent).toBe(t("notes.general"));
+    await click(navItem(t("notes.general")));
+    expect(heading()).toBe(t("notes.general"));
     expect(container.querySelector(".note-row-project")).toBeNull();
   });
 });
@@ -899,7 +925,8 @@ describe.each(ALL_LOOKS)("notes area, shared behaviour in the look %s", (look) =
   it("offers no new note and says why while the notes are read only", async () => {
     api.getStatus.mockResolvedValue(readOnly);
     await render(look);
-    expect(container.textContent).toContain(t("notes.readOnly"));
+    expect(container.querySelector(".ro-chip")?.textContent).toBe(t("notes.readOnlyChip"));
+    expect(container.textContent).toContain(t("notes.otherWriter"));
     const create = container.querySelector<HTMLButtonElement>('[data-focus-id="new"]');
     expect(create?.disabled).toBe(true);
   });
@@ -930,25 +957,17 @@ describe.each(ALL_LOOKS)("notes area, shared behaviour in the look %s", (look) =
   });
 });
 
-/** Opens the trash the way each look offers it; returns the control it was opened from. */
-async function openTrash(look: Look): Promise<HTMLElement> {
-  if (look === "hangar") {
-    const entry = container.querySelector<HTMLElement>('[data-focus-id="trash"]');
-    if (!entry) throw new Error("trash entry missing");
-    await click(entry);
-    return entry;
-  }
-  const opener = container.querySelector<HTMLElement>('[data-focus-id="area"]');
-  if (!opener) throw new Error("area menu missing");
-  await click(opener);
-  await click(menuItem(t("notes.trash")));
-  return opener;
+/** Opens the trash from the sidebar, the same in every look; returns that entry. */
+async function openTrash(): Promise<HTMLElement> {
+  const entry = navItem(t("notes.trash"));
+  await click(entry);
+  return entry;
 }
 
 describe.each(ALL_LOOKS)("notes area, the trash in the look %s", (look) => {
   it("leaves the trash with Escape and gives the focus back to where it was opened", async () => {
     await render(look);
-    const opener = await openTrash(look);
+    const opener = await openTrash();
     expect(container.querySelector(".trash-list")).not.toBeNull();
     const active = document.activeElement ?? document.body;
     await press(active, "Escape");
@@ -995,8 +1014,7 @@ describe("notes area: switching the look", () => {
 
   it("offers the three looks as a radio group and saves the choice at once", async () => {
     await render();
-    await openAreaMenu();
-    await click(menuItem(t("notes.settings")));
+    await click(navItem(t("notes.settings")));
     const radios = Array.from(
       container.querySelectorAll<HTMLInputElement>('input[type="radio"][name="look"]'),
     );
@@ -1164,7 +1182,7 @@ describe("notes area: paper look", () => {
 
   it("lays the trash on the table", async () => {
     await render("paper");
-    await openTrash("paper");
+    await openTrash();
     expect(container.querySelector(".notes-area.single.on-table .trash-list")).not.toBeNull();
   });
 
@@ -1183,12 +1201,9 @@ describe("notes area: paper look", () => {
 });
 
 describe("notes area: hangar look", () => {
-  it("filters by the color rows of the sidebar and says notices in the status bar", async () => {
+  it("filters by the colors of the sidebar and says notices in the status bar", async () => {
     await render("hangar");
-    const sky = Array.from(container.querySelectorAll<HTMLButtonElement>(".side-item")).find(
-      (element) => element.textContent.includes("Arbeit"),
-    );
-    if (!sky) throw new Error("color row missing");
+    const sky = navColor("Arbeit");
     await click(sky);
     expect(sky.getAttribute("aria-pressed")).toBe("true");
     expect(titles()).toEqual(["Projekt"]);
@@ -1224,39 +1239,20 @@ describe("notes area: hangar look", () => {
     }
   });
 
-  it("shows the trash in the place of the list and the note, beside the sidebar", async () => {
+  it("shows the trash beside the sidebar, and a color there leads back to the notes", async () => {
     await render("hangar");
-    const sky = Array.from(container.querySelectorAll<HTMLButtonElement>(".side-item")).find(
-      (element) => element.textContent.includes("Arbeit"),
-    );
-    if (!sky) throw new Error("color row missing");
     // The chosen colors outlive a window; start without one.
-    if (sky.getAttribute("aria-pressed") === "true") await click(sky);
-    await openTrash("hangar");
-    expect(container.querySelector(".layout-hangar .hangar-trash .trash-list")).not.toBeNull();
+    if (navColor("Arbeit").getAttribute("aria-pressed") === "true") await click(navColor("Arbeit"));
+    const area = currentPlaces();
+    await openTrash();
+    expect(container.querySelector(".notes-shell .shell-main .trash-list")).not.toBeNull();
     expect(container.querySelector(".hangar-list")).toBeNull();
-    expect(container.querySelector(".hangar-editor")).toBeNull();
-    expect(container.querySelector(".hangar-status")).not.toBeNull();
-    const entry = container.querySelector('[data-focus-id="trash"]');
-    expect(entry?.getAttribute("aria-current")).toBe("page");
-    // A color in the sidebar leads back to the notes, filtered by it.
-    await click(sky);
+    expect(currentPlaces()).toEqual([t("notes.trash")]);
+    await click(navColor("Arbeit"));
     expect(container.querySelector(".trash-list")).toBeNull();
     expect(titles()).toEqual(["Projekt"]);
-    expect(container.querySelector('[data-focus-id="trash"]')?.getAttribute("aria-current")).toBe(
-      null,
-    );
-    await click(sky);
-  });
-
-  it("gives the focus back to the sidebar's entry after the trash", async () => {
-    await render("hangar");
-    const trash = container.querySelector<HTMLButtonElement>('[data-focus-id="trash"]');
-    if (!trash) throw new Error("trash entry missing");
-    await click(trash);
-    await click(button(t("notes.back")));
-    await frames();
-    expect(document.activeElement).toBe(container.querySelector('[data-focus-id="trash"]'));
+    expect(currentPlaces()).toEqual(area);
+    await click(navColor("Arbeit"));
   });
 });
 
@@ -1423,27 +1419,10 @@ describe.each(ALL_LOOKS)("notes area, a row after a change outside in the look %
 });
 
 describe("notes area: small fixes", () => {
-  it("marks only the trash in the hangar sidebar while the trash is shown", async () => {
-    await render("hangar");
-    const pressed = () =>
-      Array.from(container.querySelectorAll<HTMLButtonElement>(".side-list button")).filter(
-        (element) =>
-          element.getAttribute("aria-pressed") === "true" && !element.querySelector(".color-dot"),
-      );
-    // One scope is the place shown while the notes are.
-    expect(pressed()).toHaveLength(1);
-    await openTrash("hangar");
-    expect(pressed()).toEqual([]);
-    expect(container.querySelector('[data-focus-id="trash"]')?.getAttribute("aria-current")).toBe(
-      "page",
-    );
-  });
-
   it("says why start with the system could not be changed, in its own sentence", async () => {
     api.setAutostart.mockRejectedValue("autostart");
     await render();
-    await openAreaMenu();
-    await click(menuItem(t("notes.settings")));
+    await click(navItem(t("notes.settings")));
     const box = Array.from(container.querySelectorAll<HTMLLabelElement>("label")).find((label) =>
       label.textContent.includes(t("settings.autostart")),
     );
@@ -1452,5 +1431,256 @@ describe("notes area: small fixes", () => {
     await click(input);
     expect(container.textContent).toContain(t("error.autostart"));
     expect(container.textContent).not.toContain(t("settings.failed"));
+  });
+});
+
+const SHOP = "C:\\Projekte\\shop";
+const WEB = "C:\\Projekte\\hangar.feoren.com";
+const IDEAS = "c3d4e5f6-0000-4000-8000-000000000001";
+
+/** General with two notes and the project "shop" with one; empty projects are not listed. */
+function withProjects() {
+  api.listNoteFolders.mockResolvedValue([
+    { folderKey: "general", path: null, name: null, noteCount: 2, updatedAt: 3 },
+    { folderKey: "s", path: SHOP, name: "shop", noteCount: 1, updatedAt: 2 },
+  ]);
+  api.listNotes.mockImplementation((folder: { path: string | null }) =>
+    Promise.resolve(
+      folder.path === null
+        ? [row(A, "Einkaufen", "mint"), row(IDEAS, "Ideen", "sky")]
+        : folder.path === SHOP
+          ? [row(B, "Kunden", "rose", { path: SHOP, folderKey: "s" })]
+          : [],
+    ),
+  );
+}
+
+/** Presses a key on the window, as a person does from anywhere in it. */
+async function pressWindow(key: string, init: KeyboardEventInit = {}) {
+  await press(document.body, key, init);
+}
+
+describe.each(ALL_LOOKS)("notes area, the sidebar in the look %s", (look) => {
+  it("lists All, General and every project by its name, with counts, and marks the place", async () => {
+    withProjects();
+    await render(look);
+    const nav = container.querySelector("nav.nav");
+    expect(nav?.getAttribute("aria-label")).toBe(t("notes.scopes"));
+    expect(
+      Array.from(container.querySelectorAll(".nav-list .nav-item")).map((item) => [
+        item.querySelector(".nav-label")?.textContent,
+        item.querySelector(".nav-count")?.textContent ?? null,
+      ]),
+    ).toEqual([
+      [t("note.allNotes"), "3"],
+      [t("notes.general"), "2"],
+      ["shop", "1"],
+      [t("notes.trash"), null],
+      [t("notes.settings"), null],
+    ]);
+    // The tooltip names the full path and the shortcut.
+    expect(navItem("shop").title).toBe(`${SHOP}\nStrg+3`);
+    await click(navItem(t("note.allNotes")));
+    expect(currentPlaces()).toEqual([t("note.allNotes")]);
+    expect(heading()).toBe(t("note.allNotes"));
+    await click(navItem("shop"));
+    expect(currentPlaces()).toEqual(["shop"]);
+    expect(heading()).toBe("shop");
+    expect(titles()).toEqual(["Kunden"]);
+    expect(api.listNotes).toHaveBeenLastCalledWith({ path: SHOP });
+  });
+
+  it("moves through the entries with the arrow keys, one Tab stop for all of them", async () => {
+    withProjects();
+    await render(look);
+    await click(navItem(t("note.allNotes")));
+    const stops = Array.from(container.querySelectorAll<HTMLElement>(".nav [data-nav]")).filter(
+      (element) => element.tabIndex === 0,
+    );
+    expect(stops).toEqual([navItem(t("note.allNotes"))]);
+    await press(navItem(t("note.allNotes")), "ArrowDown");
+    expect(document.activeElement).toBe(navItem(t("notes.general")));
+    await press(navItem(t("notes.general")), "ArrowDown");
+    expect(document.activeElement).toBe(navItem("shop"));
+    await press(navItem("shop"), "End");
+    expect(document.activeElement).toBe(navItem(t("notes.settings")));
+    await press(navItem(t("notes.settings")), "ArrowDown");
+    expect(document.activeElement).toBe(navItem(t("note.allNotes")));
+  });
+
+  it("chooses an area with Ctrl+1 to Ctrl+9, from the trash too", async () => {
+    withProjects();
+    await render(look);
+    await pressWindow("3", { code: "Digit3", ctrlKey: true });
+    expect(heading()).toBe("shop");
+    await click(navItem(t("notes.trash")));
+    await pressWindow("1", { code: "Digit1", ctrlKey: true });
+    expect(container.querySelector(".trash-list")).toBeNull();
+    expect(heading()).toBe(t("note.allNotes"));
+    // Ctrl+Shift+9 stays the editor's checklist; an area that does not exist does nothing.
+    await pressWindow("(", { code: "Digit9", ctrlKey: true, shiftKey: true });
+    await pressWindow("9", { code: "Digit9", ctrlKey: true });
+    expect(heading()).toBe(t("note.allNotes"));
+  });
+});
+
+describe("notes area: start and empty areas", () => {
+  it("starts on the project Hangar Note was opened for, listed even without notes", async () => {
+    withProjects();
+    api.getStatus.mockResolvedValue({ ...writable, project: WEB });
+    api.takeHubRequests.mockResolvedValue([{ kind: "showProject" }]);
+    await render();
+    expect(heading()).toBe("hangar.feoren.com");
+    expect(navItem("hangar.feoren.com").getAttribute("aria-current")).toBe("page");
+    expect(navItem("hangar.feoren.com").querySelector(".nav-count")?.textContent).toBe("0");
+    // An empty area with notes elsewhere: one sentence and "New note", which writes here.
+    expect(container.textContent).toContain(
+      t("notes.emptyProject", { folder: "hangar.feoren.com" }),
+    );
+    expect(container.querySelector('input[type="search"]')).not.toBeNull();
+    const create = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".notes-empty button"),
+    ).find((element) => element.textContent === t("notes.new"));
+    if (!create) throw new Error("new note in the empty area missing");
+    await click(create);
+    await type("Neu");
+    expect(api.createNote).toHaveBeenCalledWith({ path: WEB }, "Notiz");
+  });
+});
+
+describe("notes area: the read-only chip", () => {
+  it("names its reason as description and opens it on a click, Escape closes it", async () => {
+    api.getStatus.mockResolvedValue({
+      ...writable,
+      access: { state: "readOnly", reason: "lockFailed" },
+    });
+    await render();
+    const chip = container.querySelector<HTMLButtonElement>(".ro-chip");
+    if (!chip) throw new Error("chip missing");
+    const reason = document.getElementById(chip.getAttribute("aria-describedby") ?? "");
+    expect(reason?.textContent).toBe(t("notes.lockFailed"));
+    expect(chip.title).toBe(t("notes.lockFailed"));
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    await click(chip);
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    expect(reason?.classList.contains("open")).toBe(true);
+    await press(chip, "Escape");
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("is not there while the notes can be written", async () => {
+    await render();
+    expect(container.querySelector(".ro-chip")).toBeNull();
+  });
+});
+
+describe("notes area: a narrow window", () => {
+  it("folds the sidebar behind a button and closes it after a choice", async () => {
+    const width = vi.spyOn(window, "innerWidth", "get").mockReturnValue(500);
+    try {
+      withProjects();
+      await render();
+      expect(container.querySelector(".nav")).toBeNull();
+      const opener = container.querySelector<HTMLButtonElement>(".nav-button");
+      if (!opener) throw new Error("sidebar button missing");
+      expect(opener.getAttribute("aria-label")).toBe(t("nav.open"));
+      await click(opener);
+      const dialog = container.querySelector('[role="dialog"]');
+      expect(dialog?.getAttribute("aria-modal")).toBe("true");
+      expect(container.querySelector(".shell-main")?.hasAttribute("inert")).toBe(true);
+      await click(navItem("shop"));
+      expect(container.querySelector(".nav")).toBeNull();
+      expect(heading()).toBe("shop");
+      expect(document.activeElement).toBe(container.querySelector(".nav-button"));
+      // Escape closes it as well.
+      await click(opener);
+      const nav = container.querySelector(".nav");
+      if (!nav) throw new Error("sidebar missing");
+      await press(nav, "Escape");
+      expect(container.querySelector(".nav")).toBeNull();
+    } finally {
+      width.mockRestore();
+    }
+  });
+});
+
+async function notesChanged() {
+  await act(async () => {
+    api.handlers.get("notes-changed")?.();
+    await Promise.resolve();
+  });
+  await settle();
+}
+
+describe("notes area: a change outside", () => {
+  it("shows the open note's new text without a click while nothing waits for its save", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    api.readNote.mockResolvedValue(
+      opened(A, "Einkaufen", { text: "Einkaufen\nvon Hangar", version: "v-outside" }),
+    );
+    await notesChanged();
+    expect(editor.text).toBe("Einkaufen\nvon Hangar");
+    // The next save sends the version it now shows.
+    await type("Einkaufen\nvon Hangar\nund hier");
+    await flushHub();
+    expect(api.writeNote).toHaveBeenLastCalledWith(
+      GENERAL,
+      A,
+      "Einkaufen\nvon Hangar\nund hier",
+      "v-outside",
+    );
+  });
+
+  it("keeps typed text that waits for its save", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    const shown = editor.text;
+    await type("Einkaufen\nmeins");
+    api.readNote.mockResolvedValue(
+      opened(A, "Einkaufen", { text: "Einkaufen\nvon Hangar", version: "v-outside" }),
+    );
+    await notesChanged();
+    expect(editor.text).toBe(shown);
+  });
+
+  it("keeps typed text whose save is still on its way", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    const shown = editor.text;
+    let refuse: (reason: unknown) => void = () => undefined;
+    api.writeNote.mockReturnValueOnce(
+      new Promise<string>((_, reject) => {
+        refuse = reject;
+      }),
+    );
+    await type("Einkaufen\nmeins");
+    // The save starts and waits for the disk; meanwhile Hangar's change arrives.
+    await act(async () => {
+      api.handlers.get("flush:hub")?.();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(api.writeNote).toHaveBeenCalledTimes(1);
+    api.readNote.mockResolvedValue(
+      opened(A, "Einkaufen", { text: "Einkaufen\nvon Hangar", version: "v-outside" }),
+    );
+    await notesChanged();
+    expect(editor.text).toBe(shown);
+    await act(async () => {
+      refuse("changed");
+      await Promise.resolve();
+    });
+    await settle();
+    expect(editor.text).toBe(shown);
+  });
+
+  it("does nothing when the version did not change (its own save)", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    const shown = editor.text;
+    api.readNote.mockResolvedValue(opened(A, "Einkaufen", { text: "anders", version: `v-${A}` }));
+    await notesChanged();
+    expect(editor.text).toBe(shown);
   });
 });

@@ -13,6 +13,10 @@
 // The notes area (Hangar's notes panel) has two of its own: Ctrl+Shift+N starts a quick note and
 // F2 renames the open note, as in Hangar.
 //
+// The sidebar's areas have Ctrl+1 to Ctrl+9 (Cmd on macOS): 1 "All notes", 2 "General", 3 to 9
+// the projects in the order the sidebar lists them. No editor command uses Ctrl+digit; with Shift
+// the digits stay the editor's (Ctrl+Shift+8 and 9).
+//
 // A row of the notes list has two more: Delete puts the note into the trash, and the context menu
 // key or Shift+F10 opens the row's menu, the keyboard's way to what a right click shows.
 
@@ -87,6 +91,46 @@ export function matchHubShortcut(event: KeyInfo, platform: Platform): HubAction 
   if (event.key === "F2" && plain) return "rename";
   if (commandKey(event, platform) && event.shiftKey && letterOf(event) === "n") return "quickNote";
   return null;
+}
+
+/** The sidebar area (1 to 9) a key press chooses, or `null`. */
+export function matchAreaShortcut(event: KeyInfo, platform: Platform): number | null {
+  if (!commandKey(event, platform) || event.shiftKey) return null;
+  const digit = digitOf(event);
+  return digit === null || digit === "0" ? null : Number(digit);
+}
+
+/** "Strg+3" or "⌘3", for the sidebar's tooltips. */
+export function areaShortcutLabel(position: number, platform: Platform, t: Translate): string {
+  if (platform === "mac") return `⌘${String(position)}`;
+  return `${t("key.ctrl")}+${String(position)}`;
+}
+
+/**
+ * Where the arrow keys, Home and End move the focus inside the sidebar: the index of the entry to
+ * focus among `count` entries, or `null` for any other key. Up and Left go back, Down and Right go
+ * on; the ends wrap, as in a menu.
+ */
+export function sidebarTarget(
+  event: Pick<KeyInfo, "key" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey">,
+  index: number,
+  count: number,
+): number | null {
+  if (count === 0 || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return null;
+  switch (event.key) {
+    case "ArrowDown":
+    case "ArrowRight":
+      return index < 0 ? 0 : (index + 1) % count;
+    case "ArrowUp":
+    case "ArrowLeft":
+      return index < 0 ? count - 1 : (index - 1 + count) % count;
+    case "Home":
+      return 0;
+    case "End":
+      return count - 1;
+    default:
+      return null;
+  }
 }
 
 export type RowAction = "delete" | "menu";

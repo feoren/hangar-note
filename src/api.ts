@@ -17,6 +17,8 @@ export interface NoteFolder {
 export interface FolderInfo {
   folderKey: string;
   path: string | null;
+  /** The folder's name (the last part of its path), `null` for General. */
+  name: string | null;
   noteCount: number;
   updatedAt: number | null;
 }
@@ -75,8 +77,7 @@ export interface TrashRow {
 }
 
 export type Access =
-  | { state: "writable" }
-  | { state: "readOnly"; reason: "notHandedOver" | "otherWriter" | "lockFailed" };
+  { state: "writable" } | { state: "readOnly"; reason: "otherWriter" | "lockFailed" };
 
 export interface Status {
   access: Access;
@@ -138,6 +139,8 @@ export const CLOSE_REQUESTED_EVENT = "note-close-requested";
 export const DELETE_REQUESTED_EVENT = "note-delete-requested";
 export const FLUSH_REQUESTED_EVENT = "note-flush-requested";
 export const LOOK_CHANGED_EVENT = "note-look-changed";
+/** To one sticky note: its file was changed outside (Hangar, another program). */
+export const CHANGED_OUTSIDE_EVENT = "note-changed-outside";
 
 /** Fixed error codes of the backend (windows.rs, notes.rs). */
 export const NOT_SAVED_ERROR = "not-saved";
@@ -304,6 +307,8 @@ export const onDeleteRequested = (label: string, handler: () => void) =>
   listenTo(DELETE_REQUESTED_EVENT, label, handler);
 export const onFlushRequested = (label: string, handler: () => void) =>
   listenTo(FLUSH_REQUESTED_EVENT, label, handler);
+export const onChangedOutside = (label: string, handler: () => void) =>
+  listenTo(CHANGED_OUTSIDE_EVENT, label, handler);
 
 export function onLookChanged(
   label: string,

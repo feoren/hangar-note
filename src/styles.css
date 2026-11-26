@@ -218,10 +218,7 @@ kbd {
 .icon-button:active,
 .primary-button:active,
 .secondary-button:active,
-.ghost-button:active,
-.color-button:active,
-.scope-button:active,
-.paper-tab:active {
+.ghost-button:active {
   transform: scale(0.97);
 }
 
@@ -572,6 +569,398 @@ kbd {
   text-decoration: line-through;
 }
 
+/* ---- The window: the one sidebar beside the notes, in every look ---- */
+
+.notes-shell {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  height: 100%;
+  background: var(--bg);
+}
+
+.notes-shell[data-nav="folded"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.shell-side,
+.shell-main {
+  min-width: 0;
+  min-height: 0;
+}
+
+.shell-main {
+  container: main / inline-size;
+}
+
+/* Quiet: the panel tone, small type, one accent only on the current place. */
+.nav {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 12px 10px 10px;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.nav-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  margin-bottom: 10px;
+  padding-inline-start: 10px;
+}
+
+.nav-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-head .icon-button {
+  color: var(--muted);
+}
+
+.nav-head .icon-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* Everything scrolls as one; the trash and the settings sit at the bottom while there is room. */
+.nav-scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0 -4px;
+  padding: 2px 4px;
+  overflow: auto;
+}
+
+.nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: start;
+  transition: background-color 120ms var(--ease-out);
+}
+
+.nav-item:hover {
+  background: var(--hover);
+}
+
+.nav-item[aria-current="page"] {
+  background: var(--selected);
+  font-weight: 600;
+}
+
+.nav-item:focus-visible,
+.nav-dot:focus-visible {
+  outline-offset: -2px;
+}
+
+.nav-item > svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.nav-item[aria-current="page"] > svg {
+  color: var(--accent);
+}
+
+.nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-count {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+.nav-section,
+.nav-section-row {
+  margin: 20px 0 6px;
+}
+
+.nav-section {
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.nav-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+}
+
+.nav-section-row .nav-section {
+  margin: 0;
+}
+
+.nav-clear {
+  min-height: 28px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+/* Kept in place while nothing is chosen, so choosing a color moves nothing. */
+.nav-clear[hidden] {
+  display: inline-block;
+  visibility: hidden;
+}
+
+/* Two calm rows of four; the chosen dots carry a ring and a check mark. */
+.nav-colors {
+  display: grid;
+  grid-template-columns: repeat(4, 32px);
+  justify-content: space-between;
+  gap: 4px;
+  margin: 0;
+  padding: 0 14px 0 6px;
+  list-style: none;
+}
+
+.nav-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.nav-dot .swatch-dot {
+  width: 18px;
+  height: 18px;
+  transition:
+    box-shadow 120ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+
+.nav-dot:hover .swatch-dot {
+  transform: scale(1.1);
+}
+
+.nav-dot[aria-pressed="true"] .swatch-dot {
+  box-shadow:
+    0 0 0 2px var(--panel),
+    0 0 0 4px var(--text);
+}
+
+.nav-fill {
+  flex: 1 1 auto;
+  min-height: 20px;
+}
+
+.nav-foot {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* A narrow window: the sidebar slides in over the notes, which wait behind a veil. */
+.nav-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+}
+
+.nav-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  animation: fade-in 160ms var(--ease-out);
+}
+
+.nav-dialog {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: min(288px, calc(100vw - 48px));
+  box-shadow: 0 0 32px var(--shadow);
+  animation: nav-in 200ms var(--ease-out);
+}
+
+.nav-overlay {
+  border-right: 0;
+}
+
+@keyframes nav-in {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
+.nav-button {
+  margin-inline-start: -4px;
+  color: var(--muted);
+}
+
+.nav-button:hover {
+  color: var(--text);
+}
+
+/* The area's name as the heading, with the small "Read only" chip beside it. */
+/* The heading holds the bubble of the chip, so the bubble never runs out of the window. */
+.area-heading {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.area-heading h1 {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-head .area-title {
+  flex: 0 1 auto;
+  padding-inline-start: 2px;
+  font-size: 18px;
+  letter-spacing: -0.005em;
+}
+
+/* Read only is a state, not a fault: a quiet outline, no warning color. */
+.ro-chip-wrap {
+  display: inline-flex;
+  flex: none;
+}
+
+.ro-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+/* The chip looks small; its target is 32 px high. */
+.ro-chip::before {
+  position: absolute;
+  inset: -3px 0;
+  content: "";
+}
+
+.ro-chip:hover,
+.ro-chip[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.ro-reason {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: min(320px, 100%);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  box-shadow: 0 8px 24px var(--shadow);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 120ms var(--ease-out),
+    visibility 0ms linear 120ms;
+}
+
+.ro-reason.open {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 120ms var(--ease-out);
+}
+
+/* ---- Hangar look: the list's heading with "New note" ---- */
+
+.hangar-list-top {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 10px 10px 2px 14px;
+}
+
+.hangar-area {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Dense like Hangar: "New note" is a 32 px plus; its name is the tooltip and the label. */
+.hangar-new {
+  width: 32px;
+  padding: 0;
+}
+
+.hangar-new-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.hangar-empty .primary-button {
+  margin-top: 14px;
+}
+
 /* ---- The notes area (direction A) ---- */
 
 .sr-only {
@@ -647,72 +1036,6 @@ kbd {
   font-weight: 600;
 }
 
-/* The title menu: the shown scope, large, with everything the list menu had. */
-.scope-heading {
-  display: flex;
-}
-
-.scope-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 100%;
-  min-height: 36px;
-  margin-inline-start: -2px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  font-size: 18px;
-  font-weight: 600;
-  transition:
-    background-color 120ms var(--ease-out),
-    transform 120ms var(--ease-out);
-}
-
-.scope-button:hover {
-  background: var(--hover);
-}
-
-.scope-button svg {
-  flex: none;
-  color: var(--muted);
-}
-
-.scope-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Read only is a state, not a fault: calm, without a warning color. */
-.notes-banner {
-  flex: none;
-  margin: 0 12px 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--muted);
-  line-height: 1.4;
-}
-
-.is-empty .notes-banner {
-  align-self: center;
-  max-width: 520px;
-}
-
-.notes-banner p {
-  margin: 0;
-}
-
-.notes-banner .notes-banner-title {
-  margin-bottom: 2px;
-  color: var(--text);
-  font-weight: 600;
-}
-
 /* Search and the color filter, one row. */
 .find {
   display: flex;
@@ -756,58 +1079,6 @@ kbd {
 
 .search input::-webkit-search-cancel-button {
   display: none;
-}
-
-/* One button of fixed width: choosing colors never moves anything. */
-.color-button {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  width: 52px;
-  height: 34px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: var(--panel);
-  color: var(--muted);
-  transition:
-    background-color 120ms var(--ease-out),
-    transform 120ms var(--ease-out);
-}
-
-.color-button:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.color-button.on {
-  border-color: var(--accent);
-  color: var(--text);
-}
-
-.picked {
-  display: inline-flex;
-  align-items: center;
-}
-
-.picked i {
-  width: 14px;
-  height: 14px;
-  margin-inline-start: -5px;
-  border: 2px solid var(--panel);
-  border-radius: 50%;
-  background: var(--dot);
-  box-shadow: 0 0 0 1px var(--swatch-border);
-}
-
-.picked i:first-child {
-  margin-inline-start: 0;
-}
-
-.picked-more {
-  margin-inline-start: 3px;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
 }
 
 .list-wrap {
@@ -1846,10 +2117,13 @@ kbd {
 }
 
 .paper-title {
-  margin: 0;
   font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+.paper-top .area-heading {
+  flex: 0 1 auto;
 }
 
 .layout-paper .search {
@@ -1877,122 +2151,6 @@ kbd {
   padding: 0 18px 0 14px;
   border-radius: 999px;
   font-size: 14px;
-}
-
-.paper-top > .icon-button {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  color: var(--muted);
-}
-
-.paper-top > .icon-button:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.layout-paper .notes-banner {
-  margin: 0 24px 10px;
-}
-
-.paper-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  padding: 4px 24px 12px;
-}
-
-/* Its own width first: when the scopes and the colors do not fit in one line, the colors take the
-   next one, instead of the scopes breaking into a column beside them. */
-.paper-scopes {
-  display: flex;
-  flex: 1 1 auto;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-width: 0;
-}
-
-.paper-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  min-height: 32px;
-  padding: 0 12px;
-  overflow: hidden;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition:
-    background-color 120ms var(--ease-out),
-    transform 120ms var(--ease-out);
-}
-
-.paper-tab:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.paper-tab[aria-pressed="true"] {
-  background: var(--text);
-  color: var(--table);
-  font-weight: 600;
-}
-
-.paper-count {
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-}
-
-.paper-colors {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.paper-swatch {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-}
-
-.paper-swatch .swatch-dot {
-  width: 22px;
-  height: 22px;
-  transition: box-shadow 120ms var(--ease-out);
-}
-
-.paper-swatch[aria-pressed="true"] .swatch-dot {
-  box-shadow:
-    0 0 0 2px var(--table),
-    0 0 0 4px var(--text);
-}
-
-/* "All colors" keeps its place while nothing is chosen, so choosing moves nothing. */
-.paper-clear {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 96px;
-}
-
-.paper-clear svg {
-  display: none;
-}
-
-.paper-clear[hidden],
-.side-clear[hidden] {
-  display: inline-block;
-  visibility: hidden;
 }
 
 .paper-board {
@@ -2484,7 +2642,7 @@ kbd {
     padding: 12px 16px 8px;
   }
 
-  .paper-title {
+  .paper-top .area-heading {
     flex: 1;
   }
 
@@ -2507,37 +2665,6 @@ kbd {
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
-  }
-
-  .paper-bar {
-    padding: 4px 16px 10px;
-  }
-
-  .paper-clear {
-    width: 32px;
-    min-width: 0;
-    padding: 0;
-  }
-
-  .paper-clear svg {
-    display: block;
-  }
-
-  .paper-clear-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
-  .paper-colors {
-    flex-wrap: nowrap;
-  }
-
-  .layout-paper .notes-banner {
-    margin-inline: 16px;
   }
 
   .paper-board {
@@ -2575,174 +2702,21 @@ kbd {
   }
 }
 
-/* ---- Look "hangar" (direction C): Hangar's window, three columns and a status bar ---- */
+/* ---- Look "hangar" (direction C): Hangar's window, list and note beside the sidebar ---- */
 
 .layout-hangar {
   display: grid;
   grid-template-areas:
-    "side list note"
-    "foot foot foot";
-  grid-template-columns: 208px minmax(240px, 296px) minmax(0, 1fr);
+    "list note"
+    "foot foot";
+  grid-template-columns: minmax(240px, 296px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
   height: 100%;
   background: var(--bg);
 }
 
-.hangar-side {
-  display: flex;
-  flex-direction: column;
-  grid-area: side;
-  min-width: 0;
-  min-height: 0;
-  padding: 10px 8px;
-  border-right: 1px solid var(--border);
-  background: var(--panel);
-}
-
-.side-head {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 0 10px 8px;
-}
-
-.side-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.side-head .icon-button {
-  color: var(--muted);
-}
-
-.side-head .icon-button:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.side-new {
-  justify-content: flex-start;
-  width: 100%;
-  margin-bottom: 14px;
-}
-
-.side-new-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-align: start;
-  text-overflow: ellipsis;
-}
-
-.side-scroll {
-  flex: 0 1 auto;
-  min-height: 0;
-  overflow: auto;
-}
-
-.side-label {
-  margin: 0;
-  padding: 0 8px 4px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.side-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.side-clear {
-  font-size: 12px;
-}
-
-.side-list {
-  margin: 0 0 12px;
-  padding: 0;
-  list-style: none;
-}
-
-.side-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 32px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text);
-  text-align: start;
-  transition: background-color 100ms var(--ease-out);
-}
-
-.side-item:hover {
-  background: var(--hover);
-}
-
-.side-item[aria-pressed="true"],
-.side-item[aria-current="page"] {
-  background: var(--selected);
-}
-
-.side-item[aria-pressed="true"] .side-item-label,
-.side-item[aria-current="page"] .side-item-label {
-  font-weight: 600;
-}
-
-.side-item:focus-visible {
-  outline-offset: -2px;
-}
-
-.side-item > svg {
-  flex: none;
-  color: var(--muted);
-}
-
-.side-item-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.side-count {
-  color: var(--muted);
-  font: 11.5px var(--mono);
-  font-variant-numeric: tabular-nums;
-}
-
-.side-tick {
-  display: inline-flex;
-  justify-content: center;
-  width: 16px;
-  color: var(--accent);
-}
-
-.side-fill {
-  flex: 1 1 0;
-}
-
-.side-foot {
-  margin: 0;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-}
-
 .layout-hangar .list-pane {
   background: var(--bg);
-}
-
-.layout-hangar .notes-banner {
-  margin: 10px 10px 0;
 }
 
 .layout-hangar .find {
@@ -2754,22 +2728,6 @@ kbd {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg);
-}
-
-.hangar-list-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 14px 6px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.hangar-list-head span:first-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .layout-hangar .list-wrap {
@@ -2828,16 +2786,6 @@ kbd {
   color: var(--text);
   font-size: 14px;
   font-weight: 600;
-}
-
-/* The trash in the place of the list and the note. */
-.hangar-trash {
-  display: flex;
-  flex-direction: column;
-  grid-column: list / note;
-  grid-row: 1;
-  min-width: 0;
-  min-height: 0;
 }
 
 .hangar-editor {
@@ -3055,7 +3003,7 @@ kbd {
   white-space: nowrap;
 }
 
-@media (max-width: 960px) {
+@container main (max-width: 720px) {
   .status-keys {
     display: none;
   }
@@ -3184,9 +3132,10 @@ kbd {
   font-weight: 600;
 }
 
-/* ---- Narrow windows: the list or the note, as Hangar's notes panel does ---- */
+/* ---- Narrow windows: the list or the note, as Hangar's notes panel does ----
+   Measured on the room beside the sidebar (`.shell-main`), not on the window. */
 
-@media (max-width: 720px) {
+@container main (max-width: 600px) {
   .notes-area {
     grid-template-areas:
       "list"
@@ -3298,9 +3247,6 @@ kbd {
   .primary-button:active,
   .secondary-button:active,
   .ghost-button:active,
-  .color-button:active,
-  .scope-button:active,
-  .paper-tab:active,
   .menu-swatch:hover .swatch-dot {
     transform: none;
   }

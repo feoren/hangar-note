@@ -1,6 +1,6 @@
 // Look "paper" (direction B, ADR 0004): every note is a card in its own soft color, laid out in a
-// grid like slips on a table; checklists can be ticked right on the card. Scopes and the color
-// filter sit in one row above the grid, "New note" is the main button. A note opens as a sheet
+// grid like slips on a table; checklists can be ticked right on the card. Beside the sidebar
+// (Sidebar.tsx) the area's name, the search and "New note", the main button. A note opens as a sheet
 // over the grid (a modal dialog): Escape or the close button closes it, and the focus goes back
 // to its card. The one notice place is the sheet's footer, or a toast above the grid while no
 // sheet is open. One column below 560 px (styles.css).
@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { colorName, NOTE_COLORS, noteTone, toneVariables } from "./colors";
 import { CheckIcon, CloseIcon, DesktopIcon, MoreIcon, PlusIcon } from "./icons";
 import {
+  AreaHeading,
   FootStatus,
   HeldPanel,
   ListMessages,
@@ -23,6 +24,7 @@ import {
 } from "./NoteParts";
 import { noteKey } from "./notes";
 import { cardLines } from "./noteText";
+import { NavButton } from "./Sidebar";
 import { dotStyle, type NotesModel, type Row } from "./useNotesArea";
 
 /**
@@ -100,7 +102,8 @@ export function PaperLayout({ m }: { m: NotesModel }) {
     <div className={emptyMode ? "notes-area layout-paper is-empty" : "notes-area layout-paper"}>
       <div className="paper-room" inert={note !== null}>
         <header className="paper-top">
-          <h1 className="paper-title">{t("hub.title")}</h1>
+          <NavButton m={m} />
+          <AreaHeading m={m} className="paper-title" />
           {!emptyMode && <SearchField m={m} placeholder={t("notes.search")} />}
           {!emptyMode && (
             <button
@@ -116,89 +119,19 @@ export function PaperLayout({ m }: { m: NotesModel }) {
               <span className="paper-new-label">{t("notes.new")}</span>
             </button>
           )}
-          <button
-            type="button"
-            className="icon-button"
-            data-focus-id="area"
-            aria-label={t("notes.areaMenu")}
-            title={t("notes.areaMenu")}
-            aria-haspopup="menu"
-            aria-expanded={m.menuOpen("more")}
-            onClick={(event) => {
-              m.toggleMenu("more", event);
-            }}
-          >
-            <MoreIcon />
-          </button>
         </header>
-        {m.banner}
         {emptyMode ? (
           <Welcome m={m} mark={<PaperStack m={m} />} />
         ) : (
           <>
-            <div className="paper-bar">
-              <div className="paper-scopes" role="group" aria-label={t("notes.scopeLabel")}>
-                {m.scopeEntries.map((entry) => (
-                  <button
-                    key={entry.key}
-                    type="button"
-                    className="paper-tab"
-                    aria-pressed={m.isShownScope(entry)}
-                    title={entry.title}
-                    onClick={() => {
-                      m.setScope(entry.scope);
-                    }}
-                  >
-                    {entry.label}
-                    {entry.count !== undefined && (
-                      <span className="paper-count">{entry.count}</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-              <div className="paper-colors" role="group" aria-label={t("notes.colorFilter")}>
-                {NOTE_COLORS.map((color) => {
-                  const name = colorName(color, m.colorNames, t);
-                  const on = m.colors.has(color);
-                  return (
-                    <button
-                      key={color}
-                      type="button"
-                      className="paper-swatch"
-                      aria-pressed={on}
-                      aria-label={name}
-                      title={`${name} (${String(m.counts.get(color) ?? 0)})`}
-                      onClick={() => {
-                        m.toggleColor(color);
-                      }}
-                    >
-                      <span className="swatch-dot" style={dotStyle(color)}>
-                        {on && <CheckIcon size={12} />}
-                      </span>
-                    </button>
-                  );
-                })}
-                {/* A place of its own, kept while nothing is chosen: choosing moves nothing. */}
-                <button
-                  type="button"
-                  className="link-button paper-clear"
-                  hidden={m.colors.size === 0}
-                  onClick={m.clearColors}
-                >
-                  {/* Narrow windows show only the cross, so the row keeps its one line. */}
-                  <CloseIcon size={14} />
-                  <span className="paper-clear-label">{t("notes.colorFilterClear")}</span>
-                </button>
-              </div>
-            </div>
-            <main className="paper-board" aria-label={t("notes.list")}>
+            <section className="paper-board" aria-label={t("notes.list")}>
               <ListMessages m={m} />
               <ul className="paper-grid">
                 {m.visible.map((row, index) => (
                   <Card key={noteKey(row)} m={m} row={row} index={index} />
                 ))}
               </ul>
-            </main>
+            </section>
           </>
         )}
         {note === null && <div className="paper-toast">{m.noticeSlot}</div>}
@@ -295,8 +228,6 @@ export function PaperLayout({ m }: { m: NotesModel }) {
           </section>
         </>
       )}
-
-      {m.popup}
     </div>
   );
 }

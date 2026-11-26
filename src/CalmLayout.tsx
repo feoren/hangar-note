@@ -1,11 +1,12 @@
-// Look "calm" (direction A, ADR 0004): a title menu ("All notes") holds the scopes with their
-// counts and the rest of the list menu; below it a search, a color filter behind one button and
-// the list, where each row shows its color as a thin edge and its tools on hover, on keyboard
-// focus and in a context menu. The open note reads like a page. One notice place sits in the
-// footer. Wide windows show list and note side by side, narrow ones one at a time.
+// Look "calm" (direction A, ADR 0004): beside the sidebar (Sidebar.tsx) the area's name as the
+// heading with "New note", a search and the list, where each row shows its color as a thin edge
+// and its tools on hover, on keyboard focus and in a context menu. The open note reads like a
+// page. One notice place sits in the footer. Wide windows show list and note side by side, narrow
+// ones one at a time.
 
-import { BackIcon, ChevronDownIcon, DesktopIcon, MoreIcon, PaletteIcon, PlusIcon } from "./icons";
+import { BackIcon, DesktopIcon, MoreIcon, PlusIcon } from "./icons";
 import {
+  AreaHeading,
   edgeStyle,
   FootStatus,
   HeldPanel,
@@ -19,13 +20,11 @@ import {
   Welcome,
 } from "./NoteParts";
 import { noteKey } from "./notes";
-import { dotStyle, type NotesModel } from "./useNotesArea";
-
-/** Dots the color filter's button shows for the chosen colors; more would not fit its width. */
-const PICKED_DOTS = 3;
+import { NavButton } from "./Sidebar";
+import type { NotesModel } from "./useNotesArea";
 
 export function CalmLayout({ m }: { m: NotesModel }) {
-  const { t, note, writable, emptyMode, pickedColors } = m;
+  const { t, note, writable, emptyMode } = m;
   return (
     <div
       className={emptyMode ? "notes-area layout-calm is-empty" : "notes-area layout-calm"}
@@ -34,22 +33,8 @@ export function CalmLayout({ m }: { m: NotesModel }) {
     >
       <section className="list-pane" aria-label={t("notes.list")}>
         <header className="pane-head">
-          <h1 className="scope-heading">
-            <button
-              type="button"
-              className="scope-button"
-              data-focus-id="area"
-              title={t("notes.areaMenu")}
-              aria-haspopup="menu"
-              aria-expanded={m.menuOpen("area")}
-              onClick={(event) => {
-                m.toggleMenu("area", event);
-              }}
-            >
-              <span className="scope-name">{m.shownScopeLabel}</span>
-              <ChevronDownIcon />
-            </button>
-          </h1>
+          <NavButton m={m} />
+          <AreaHeading m={m} className="area-title" />
           {!emptyMode && (
             <button
               type="button"
@@ -64,37 +49,12 @@ export function CalmLayout({ m }: { m: NotesModel }) {
             </button>
           )}
         </header>
-        {m.banner}
         {emptyMode ? (
           <Welcome m={m} mark={<div className="welcome-mark" aria-hidden="true" />} />
         ) : (
           <>
             <div className="find">
-              <SearchField m={m} />
-              <button
-                type="button"
-                className={pickedColors.length > 0 ? "color-button on" : "color-button"}
-                aria-label={m.filterLabel}
-                title={m.filterLabel}
-                aria-haspopup="menu"
-                aria-expanded={m.menuOpen("filter")}
-                onClick={(event) => {
-                  m.toggleMenu("filter", event);
-                }}
-              >
-                {pickedColors.length === 0 ? (
-                  <PaletteIcon />
-                ) : (
-                  <span className="picked" aria-hidden="true">
-                    {pickedColors.slice(0, PICKED_DOTS).map((color) => (
-                      <i key={color} style={dotStyle(color)} />
-                    ))}
-                    {pickedColors.length > PICKED_DOTS && (
-                      <span className="picked-more">+{pickedColors.length - PICKED_DOTS}</span>
-                    )}
-                  </span>
-                )}
-              </button>
+              <SearchField m={m} placeholder={t("notes.search")} />
             </div>
             <div className="list-wrap">
               <ListMessages m={m} />
@@ -181,8 +141,6 @@ export function CalmLayout({ m }: { m: NotesModel }) {
         <UnsavedMark m={m} />
         <PreviewToggle m={m} />
       </footer>
-
-      {m.popup}
     </div>
   );
 }
