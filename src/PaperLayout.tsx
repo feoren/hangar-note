@@ -5,7 +5,7 @@
 // to its card. The one notice place is the sheet's footer, or a toast above the grid while no
 // sheet is open. One column below 560 px (styles.css).
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { colorName, NOTE_COLORS, noteTone, toneVariables } from "./colors";
 import { CheckIcon, CloseIcon, DesktopIcon, MoreIcon, PlusIcon } from "./icons";
@@ -31,6 +31,29 @@ import { dotStyle, type NotesModel, type Row } from "./useNotesArea";
  */
 const FOCUSABLE =
   'button:not([disabled]), input:not([disabled]):not([type="radio"]), input[type="radio"]:checked, [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+
+/** Where a cut card body starts to fade out, in px from its top (`.card-body.is-cut`). */
+const CARD_FADE_START = 156;
+
+/**
+ * The first line of a card body that lies beyond its edge, or `null` while everything fits. Only
+ * a body that really overflows is cut (and fades out); in it, a line whose middle lies in the fade
+ * or below is no longer shown, so its checkbox is no Tab stop.
+ */
+function firstCutLine(body: HTMLElement): number | null {
+  if (body.scrollHeight <= body.clientHeight) return null;
+  const lines = Array.from(body.children).filter((line) => line instanceof HTMLElement);
+  const at = lines.findIndex((line) => line.offsetTop + line.offsetHeight / 2 > CARD_FADE_START);
+  return at === -1 ? lines.length : at;
+}
+
+/** How many columns the card grid shows now, from its resolved tracks. */
+function gridColumns(element: Element): number {
+  const grid = element.closest(".paper-grid");
+  if (grid === null) return 1;
+  const tracks = getComputedStyle(grid).gridTemplateColumns.trim();
+  return tracks === "" || tracks === "none" ? 1 : tracks.split(/\s+/).length;
+}
 
 export function PaperLayout({ m }: { m: NotesModel }) {
   const { t, note, writable, emptyMode } = m;
@@ -289,6 +312,27 @@ function Card({ m, row, index }: { m: NotesModel; row: Row; index: number }) {
   const tabStop = key === m.rovingKey ? 0 : -1;
   const lines = row.preview === null ? [] : cardLines(row.preview, row.title);
   const canTick = writable && !row.onDesktop;
+  const body = useRef<HTMLDivElement>(null);
+  const [cutAt, setCutAt] = useState<number | null>(null);
+
+  // Measured before the paint and again whenever the body changes its size (another width wraps
+  // the lines differently); the fade itself changes no size, so measuring never loops.
+  useLayoutEffect(() => {
+    const element = body.current;
+    if (element === null) return;
+    const measure = () => {
+      setCutAt(firstCutLine(element));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [row.preview, row.excerpt]);
+
+  const bodyClass = cutAt === null ? "card-body" : "card-body is-cut";
   return (
     <li
       className="card"
@@ -309,14 +353,14 @@ function Card({ m, row, index }: { m: NotesModel; row: Row; index: number }) {
           }}
           onClick={() => void m.openNote(row, !row.onDesktop)}
           onKeyDown={(event) => {
-            m.onRowKeyDown(row, index, event);
+            m.onRowKeyDown(row, index, event, gridColumns(event.currentTarget));
           }}
         >
           <span className="note-row-title">{row.title}</span>
         </button>
       </h2>
       {lines.length > 0 ? (
-        <div className="card-body">
+        <div ref={body} className={bodyClass}>
           {lines.map((line, at) =>
             line.kind === "task" ? (
               <label
@@ -328,7 +372,7 @@ function Card({ m, row, index }: { m: NotesModel; row: Row; index: number }) {
                   type="checkbox"
                   checked={line.done}
                   disabled={!canTick}
-                  tabIndex={tabStop}
+                  tabIndex={cutAt !== null && at >= cutAt ? -1 : tabStop}
                   onChange={() => {
                     m.toggleRowTask(row, line.line, line.source);
                   }}
@@ -352,7 +396,7 @@ function Card({ m, row, index }: { m: NotesModel; row: Row; index: number }) {
         </div>
       ) : (
         row.excerpt !== "" && (
-          <div className="card-body">
+          <div ref={body} className={bodyClass}>
             <p className="card-text">{row.excerpt}</p>
           </div>
         )

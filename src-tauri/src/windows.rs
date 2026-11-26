@@ -34,12 +34,15 @@ use crate::replies::{self, Asked, DeleteStep, NoteReply, QuitMemory, QuitStep, R
 use crate::requests::{HubRequest, Requests};
 use crate::service::{NoteKey, NotesService, OpenedNote, ServiceError};
 use crate::settings::{SettingsError, SettingsStore, Theme};
+use crate::tray::untitled_label;
 
 pub const HUB_LABEL: &str = "hub";
 pub const NOTE_PREFIX: &str = "note-";
 /// The one app URL; `src/main.tsx` picks the view by the window's label.
 const APP_URL: &str = "index.html";
 const TITLE: &str = "Hangar Note";
+/// The longest note title a sticky window's title carries; the taskbar shows little more.
+const MAX_TITLE_CHARS: usize = 60;
 const HUB_WIDTH: f64 = 980.0;
 const HUB_HEIGHT: f64 = 660.0;
 const HUB_MIN_WIDTH: f64 = 420.0;
@@ -495,16 +498,79 @@ pub fn sticky_note(service: &NotesService, label: &str) -> Result<OpenedNote, Ap
     Ok(service.open_note(&folder, &key.id)?)
 }
 
+/// The title of a sticky window, for the taskbar and Alt+Tab: "<title> · Hangar Note", or
+/// "`untitled` · Hangar Note" without a title. Only the note's title, never its text, so the
+/// taskbar or a shared screen shows no more than the notes area's list does. Direction
+/// characters are dropped (they could reorder what the taskbar shows), control characters and
+/// runs of white space become one space, and a title longer than [`MAX_TITLE_CHARS`] characters
+/// is cut to that length, its last one an ellipsis.
+pub fn sticky_title(title: &str, untitled: &str) -> String {
+    let clean = |text: &str| -> String {
+        let kept: String = text
+            .chars()
+            .filter(|c| !is_bidi_control(*c))
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
+        kept.split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    let mut name = clean(title);
+    if name.is_empty() {
+        name = clean(untitled);
+    }
+    if name.chars().count() > MAX_TITLE_CHARS {
+        let cut: String = name.chars().take(MAX_TITLE_CHARS - 1).collect();
+        name = format!("{}…", cut.trim_end());
+    }
+    if name.is_empty() {
+        TITLE.to_owned()
+    } else {
+        format!("{name} · {TITLE}")
+    }
+}
+
+/// The invisible characters that change the direction of the text around them (Bidi_Control).
+fn is_bidi_control(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+    )
+}
+
+/// Sets the title of the sticky window of `key`, if it is open, from the note's current title.
+pub fn retitle_sticky<R: Runtime>(app: &AppHandle<R>, service: &NotesService, key: &NoteKey) {
+    let Some(window) = app.get_webview_window(&sticky_label(key)) else {
+        return;
+    };
+    // A title that cannot be read right now is no reason to keep an old one: it reads as untitled.
+    let title = folder_of(service, key)
+        .ok()
+        .and_then(|folder| service.store().title(&folder, &key.id).ok())
+        .unwrap_or_default();
+    if let Err(error) = window.set_title(&sticky_title(&title, &untitled_label(app))) {
+        eprintln!("hangar-note: window title not changed: {error}");
+    }
+}
+
+/// Every sticky window's title again, after the language changed.
+pub fn retitle_stickies<R: Runtime>(app: &AppHandle<R>, service: &NotesService) {
+    for label in app.webview_windows().keys() {
+        if let Some(key) = sticky_of(label) {
+            retitle_sticky(app, service, &key);
+        }
+    }
+}
+
 fn build_sticky<R: Runtime>(
     app: &AppHandle<R>,
     look: &NoteLook,
     label: &str,
+    title: &str,
 ) -> Result<(), AppError> {
     let (all, primary) = monitors(app);
     let placement = bounds::place(look.bounds, &all, primary);
     let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(APP_URL.into()));
     let mut builder = with_navigation_filter(app, builder)
-        .title(TITLE)
+        .title(sticky_title(title, &untitled_label(app)))
         .decorations(false)
         .resizable(true)
         .maximizable(false)
@@ -541,13 +607,13 @@ pub fn open_sticky<R: Runtime>(
 ) -> Result<(), AppError> {
     let key = NotesService::key(folder, id)?;
     // Only a note that exists goes onto the desktop.
-    service.store().title(folder, &key.id)?;
+    let title = service.store().title(folder, &key.id)?;
     let label = sticky_label(&key);
     let look = service.meta().get(&key.scope, &key.id);
     if let Some(window) = app.get_webview_window(&label) {
         show_and_focus(&window);
     } else {
-        build_sticky(app, &look, &label)?;
+        build_sticky(app, &look, &label, &title)?;
     }
     if !look.open {
         service
@@ -583,7 +649,7 @@ pub fn create_sticky<R: Runtime>(
         look.open = true;
         look.bounds = near.map(|b| bounds::cascade(b, &all));
     })?;
-    build_sticky(app, &look, &sticky_label(&key))?;
+    build_sticky(app, &look, &sticky_label(&key), &note.title)?;
     notify_hub(app);
     Ok(note)
 }
@@ -800,18 +866,18 @@ pub fn restore<R: Runtime>(
     let mut opened = 0usize;
     for (scope, id, look) in service.meta().open_notes() {
         let key = NoteKey { scope, id };
-        let exists = service
+        let title = service
             .store()
             .folder_for_key(&key.scope)
-            .is_some_and(|folder| service.store().title(&folder, &key.id).is_ok());
-        if !exists {
+            .and_then(|folder| service.store().title(&folder, &key.id).ok());
+        let Some(title) = title else {
             // Deleted or moved from outside meanwhile: it is no longer on the desktop.
             let _ = service
                 .meta()
                 .update(&key.scope, &key.id, |look| look.open = false);
             continue;
-        }
-        match build_sticky(app, &look, &sticky_label(&key)) {
+        };
+        match build_sticky(app, &look, &sticky_label(&key), &title) {
             Ok(()) => opened += 1,
             Err(error) => eprintln!("hangar-note: sticky note not reopened: {error}"),
         }
@@ -969,6 +1035,33 @@ mod tests {
             true,
             Some(&dev)
         ));
+    }
+
+    #[test]
+    fn a_sticky_window_is_titled_after_its_note_only() {
+        assert_eq!(
+            sticky_title("Einkaufen", "Notiz"),
+            "Einkaufen · Hangar Note"
+        );
+        // Without a title the window is named in the chosen language.
+        assert_eq!(sticky_title("", "Notiz"), "Notiz · Hangar Note");
+        assert_eq!(sticky_title(" \t\r\n", "Note"), "Note · Hangar Note");
+        assert_eq!(sticky_title("", ""), "Hangar Note");
+        // Direction characters go, control characters part words like spaces.
+        assert_eq!(
+            sticky_title("Plan\r\nB\u{7}\u{202E}gnp.txt\u{2069}", "Note"),
+            "Plan B gnp.txt · Hangar Note"
+        );
+        // A long title is cut to 60 characters, the last one an ellipsis.
+        let long = sticky_title(&"x".repeat(200), "Note");
+        let name = long.strip_suffix(" · Hangar Note").unwrap();
+        assert_eq!(name.chars().count(), MAX_TITLE_CHARS);
+        assert!(name.ends_with('…'));
+        let exact = "ä".repeat(MAX_TITLE_CHARS);
+        assert_eq!(
+            sticky_title(&exact, "Note"),
+            format!("{exact} · Hangar Note")
+        );
     }
 
     #[test]

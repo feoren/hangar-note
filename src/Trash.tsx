@@ -1,7 +1,8 @@
 // "Recently deleted": the trash of the shown scopes, newest first, with "Restore" per note. While
 // the notes are read only it says why nothing can be restored instead of hiding the buttons
 // silently; a failed load offers "Try again"; an empty trash says what it is for. Its rows look
-// like the list's: the color as a 3 px edge, the time as the list says it.
+// like the list's: the color as a 3 px edge, the time as the list says it. Escape goes back,
+// wherever the focus is.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -34,6 +35,18 @@ export function Trash(props: TrashProps) {
   const back = useRef<HTMLButtonElement>(null);
   const retryButton = useRef<HTMLButtonElement>(null);
   const key = folders.map((folder) => folder.path ?? "").join("|");
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      onBack();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onBack]);
 
   useEffect(() => {
     let live = true;

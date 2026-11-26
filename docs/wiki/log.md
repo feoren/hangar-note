@@ -103,3 +103,8 @@ pages/syntheses/usability-pass.md. Index entry updated.
 Added what the acceptance review found and fixed in the real window (a tick on a card racing the
 opening of its note, the paper scopes breaking into a column, the hangar note header overflowing
 between 760 and about 1000 px, the sheet's focus trap) to pages/syntheses/usability-pass.md.
+
+## [2026-11-26] query | Rework of looks B and C
+Added the section "Rework of looks B and C" (the card fade only on overflow, the hangar progress
+shown once, the trash per look with Escape back, grid keys by column, the sticky window titled
+after its note) to pages/syntheses/usability-pass.md.

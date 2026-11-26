@@ -604,6 +604,11 @@ kbd {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* The paper look lays its trash on its table. */
+.notes-area.single.on-table {
+  background: var(--table);
+}
+
 .layout-calm.is-empty .note-pane {
   display: none;
 }
@@ -2090,6 +2095,10 @@ kbd {
   line-height: 1.5;
   overflow-wrap: anywhere;
   pointer-events: none;
+}
+
+/* Only a body that overflows fades out at its edge (CARD_FADE_START in PaperLayout.tsx). */
+.card-body.is-cut {
   mask-image: linear-gradient(#000 156px, transparent 200px);
 }
 
@@ -2670,11 +2679,13 @@ kbd {
   background: var(--hover);
 }
 
-.side-item[aria-pressed="true"] {
+.side-item[aria-pressed="true"],
+.side-item[aria-current="page"] {
   background: var(--selected);
 }
 
-.side-item[aria-pressed="true"] .side-item-label {
+.side-item[aria-pressed="true"] .side-item-label,
+.side-item[aria-current="page"] .side-item-label {
   font-weight: 600;
 }
 
@@ -2811,6 +2822,16 @@ kbd {
   font-weight: 600;
 }
 
+/* The trash in the place of the list and the note. */
+.hangar-trash {
+  display: flex;
+  flex-direction: column;
+  grid-column: list / note;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 .hangar-editor {
   container-type: inline-size;
   background: var(--note-bg);
@@ -2906,7 +2927,7 @@ kbd {
 
 /* A narrow note column (760 to about 1000 px wide windows) keeps the title readable and "…" in
    reach: "On the desktop" shows only its icon (its name stays for screen readers and in the
-   tooltip), and the progress, which the status bar also shows, steps aside. */
+   tooltip). Below 320 px the progress moves to the status bar (NARROW_NOTE, HangarLayout.tsx). */
 @container (max-width: 460px) {
   .hangar-desktop {
     justify-content: center;
@@ -2921,12 +2942,6 @@ kbd {
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
-  }
-}
-
-@container (max-width: 320px) {
-  .hangar-progress {
-    display: none;
   }
 }
 

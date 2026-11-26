@@ -891,6 +891,37 @@ describe.each(ALL_LOOKS)("notes area, shared behaviour in the look %s", (look) =
   });
 });
 
+/** Opens the trash the way each look offers it; returns the control it was opened from. */
+async function openTrash(look: Look): Promise<HTMLElement> {
+  if (look === "hangar") {
+    const entry = container.querySelector<HTMLElement>('[data-focus-id="trash"]');
+    if (!entry) throw new Error("trash entry missing");
+    await click(entry);
+    return entry;
+  }
+  const opener = container.querySelector<HTMLElement>('[data-focus-id="area"]');
+  if (!opener) throw new Error("area menu missing");
+  await click(opener);
+  await click(menuItem(t("notes.trash")));
+  return opener;
+}
+
+describe.each(ALL_LOOKS)("notes area, the trash in the look %s", (look) => {
+  it("leaves the trash with Escape and gives the focus back to where it was opened", async () => {
+    await render(look);
+    const opener = await openTrash(look);
+    expect(container.querySelector(".trash-list")).not.toBeNull();
+    const active = document.activeElement ?? document.body;
+    await press(active, "Escape");
+    await frames();
+    expect(container.querySelector(".trash-list")).toBeNull();
+    expect(titles()).toEqual(["Einkaufen", "Projekt"]);
+    expect(document.activeElement).toBe(
+      container.querySelector(`[data-focus-id="${opener.dataset.focusId ?? ""}"]`),
+    );
+  });
+});
+
 describe("notes area: switching the look", () => {
   it("keeps the open note and its unsaved text when the look changes", async () => {
     await render("calm");
@@ -999,6 +1030,103 @@ describe("notes area: paper look", () => {
     expect(container.querySelector(".paper-sheet")).not.toBeNull();
   });
 
+  it("fades a card out only when its lines overflow, and leaves the cut lines out of Tab", async () => {
+    const tasks = (count: number) =>
+      Array.from({ length: count }, (_, at) => `- [ ] Punkt ${String(at + 1)}`).join("\n");
+    api.listNotes.mockResolvedValue([
+      row(B, "Projekt", "sky", { preview: `Projekt\n${tasks(8)}` }),
+      row(A, "Einkaufen", "mint", { preview: `Einkaufen\n${tasks(6)}` }),
+    ]);
+    // Layout as the stylesheet makes it: 32 px per checklist line, a body of at most 200 px.
+    const LINE = 32;
+    const linesOf = (element: Element) =>
+      element.classList.contains("card-body") ? element.children.length * LINE : 0;
+    const scroll = vi.spyOn(Element.prototype, "scrollHeight", "get").mockImplementation(function (
+      this: Element,
+    ) {
+      return linesOf(this);
+    });
+    const client = vi
+      .spyOn(HTMLElement.prototype, "clientHeight", "get")
+      .mockImplementation(function (this: Element) {
+        return Math.min(linesOf(this), 200);
+      });
+    const top = vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const parent = this.parentElement;
+      return parent?.classList.contains("card-body") === true
+        ? Array.from(parent.children).indexOf(this) * LINE
+        : 0;
+    });
+    const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(LINE);
+    try {
+      await render("paper");
+      const body = (title: string) =>
+        rowButton(title).closest(".card")?.querySelector(".card-body");
+      // Six lines fit: every one is shown in full, nothing fades.
+      expect(body("Einkaufen")?.classList.contains("is-cut")).toBe(false);
+      // Eight do not: the body fades out, and the lines in the fade or below it are no Tab stops.
+      expect(body("Projekt")?.classList.contains("is-cut")).toBe(true);
+      await act(async () => {
+        rowButton("Projekt").focus();
+        await Promise.resolve();
+      });
+      expect(rowButton("Projekt").tabIndex).toBe(0);
+      const stops = Array.from(
+        body("Projekt")?.querySelectorAll<HTMLInputElement>(".card-task input") ?? [],
+      ).map((box) => box.tabIndex);
+      expect(stops).toEqual([0, 0, 0, 0, 0, -1, -1, -1]);
+    } finally {
+      scroll.mockRestore();
+      client.mockRestore();
+      top.mockRestore();
+      height.mockRestore();
+    }
+  });
+
+  it("moves through the grid by its columns, and to the ends with Home and End", async () => {
+    const ids = Array.from(
+      { length: 7 },
+      (_, at) => `00000000-0000-4000-8000-00000000000${String(at + 1)}`,
+    );
+    api.listNotes.mockResolvedValue(
+      ids.map((id, at) => row(id, `Karte ${String(at + 1)}`, "mint")),
+    );
+    await render("paper");
+    const grid = container.querySelector<HTMLElement>(".paper-grid");
+    if (!grid) throw new Error("grid missing");
+    grid.style.gridTemplateColumns = "240px 240px 240px";
+    const card = (n: number) => rowButton(`Karte ${String(n)}`);
+    const step = async (key: string) => {
+      await press(document.activeElement ?? document.body, key);
+    };
+    card(1).focus();
+    await step("ArrowDown");
+    expect(document.activeElement).toBe(card(4));
+    await step("ArrowDown");
+    expect(document.activeElement).toBe(card(7));
+    await step("ArrowUp");
+    expect(document.activeElement).toBe(card(4));
+    await step("ArrowRight");
+    expect(document.activeElement).toBe(card(5));
+    // Down onto the shorter last row: its last card.
+    await step("ArrowDown");
+    expect(document.activeElement).toBe(card(7));
+    await step("ArrowLeft");
+    expect(document.activeElement).toBe(card(6));
+    await step("Home");
+    expect(document.activeElement).toBe(card(1));
+    await step("End");
+    expect(document.activeElement).toBe(card(7));
+  });
+
+  it("lays the trash on the table", async () => {
+    await render("paper");
+    await openTrash("paper");
+    expect(container.querySelector(".notes-area.single.on-table .trash-list")).not.toBeNull();
+  });
+
   it("closes the sheet with Escape and gives the focus back to the card", async () => {
     await render("paper");
     await click(rowButton("Projekt"));
@@ -1028,6 +1156,56 @@ describe("notes area: hangar look", () => {
     expect(container.querySelector(".hangar-status")?.textContent).toContain(
       t("notes.deleted", { title: "Projekt" }),
     );
+  });
+
+  it.each([
+    [500, "the note's header"],
+    [300, "the status bar"],
+  ])("shows the progress once, at a note column of %i px in %s", async (width) => {
+    api.readNote.mockResolvedValue(
+      opened(B, "Projekt", { text: "Projekt\n- [x] eins\n- [ ] zwei" }),
+    );
+    const client = vi
+      .spyOn(HTMLElement.prototype, "clientWidth", "get")
+      .mockImplementation(function (this: Element) {
+        return this.classList.contains("hangar-editor") ? width : 0;
+      });
+    try {
+      // "Projekt" is shown with or without the color the tests before may have left chosen.
+      await render("hangar");
+      await click(rowButton("Projekt"));
+      const inHead = container.querySelectorAll(".hangar-head .note-progress").length;
+      const inStatus = container.querySelectorAll(".hangar-status .note-progress").length;
+      expect(inHead + inStatus).toBe(1);
+      expect(inHead).toBe(width > 320 ? 1 : 0);
+    } finally {
+      client.mockRestore();
+    }
+  });
+
+  it("shows the trash in the place of the list and the note, beside the sidebar", async () => {
+    await render("hangar");
+    const sky = Array.from(container.querySelectorAll<HTMLButtonElement>(".side-item")).find(
+      (element) => element.textContent.includes("Arbeit"),
+    );
+    if (!sky) throw new Error("color row missing");
+    // The chosen colors outlive a window; start without one.
+    if (sky.getAttribute("aria-pressed") === "true") await click(sky);
+    await openTrash("hangar");
+    expect(container.querySelector(".layout-hangar .hangar-trash .trash-list")).not.toBeNull();
+    expect(container.querySelector(".hangar-list")).toBeNull();
+    expect(container.querySelector(".hangar-editor")).toBeNull();
+    expect(container.querySelector(".hangar-status")).not.toBeNull();
+    const entry = container.querySelector('[data-focus-id="trash"]');
+    expect(entry?.getAttribute("aria-current")).toBe("page");
+    // A color in the sidebar leads back to the notes, filtered by it.
+    await click(sky);
+    expect(container.querySelector(".trash-list")).toBeNull();
+    expect(titles()).toEqual(["Projekt"]);
+    expect(container.querySelector('[data-focus-id="trash"]')?.getAttribute("aria-current")).toBe(
+      null,
+    );
+    await click(sky);
   });
 
   it("gives the focus back to the sidebar's entry after the trash", async () => {

@@ -383,15 +383,26 @@ export function HeldPanel({ m }: { m: NotesModel }) {
   );
 }
 
-/** Words, progress and "Saved" of the open note; it fades while a notice holds the place. */
-export function FootStatus({ m, scope = false }: { m: NotesModel; scope?: boolean }) {
+/**
+ * Words, progress and "Saved" of the open note; it fades while a notice holds the place.
+ * `progress`: false where the note's header shows the progress already (the hangar look).
+ */
+export function FootStatus({
+  m,
+  scope = false,
+  progress = true,
+}: {
+  m: NotesModel;
+  scope?: boolean;
+  progress?: boolean;
+}) {
   const { t, openText, stats } = m;
   if (openText === null) return null;
   return (
     <div className={m.noticeShown ? "foot-status away" : "foot-status"}>
       {scope && <span className="foot-scope">{m.projectLabel(openText.folder)}</span>}
       <span className="note-words">{t("notes.words", { count: stats.words })}</span>
-      {stats.progress.total > 0 && (
+      {progress && stats.progress.total > 0 && (
         <span className="foot-progress">
           <TaskIcon size={14} />
           <Progress m={m} done={stats.progress.done} total={stats.progress.total} />

@@ -194,8 +194,10 @@ pub async fn rename_note(
     title: String,
     by_person: bool,
 ) -> Result<(), AppError> {
-    checked_key(window.label(), &folder, &id)?;
+    let key = checked_key(window.label(), &folder, &id)?;
     service.rename(&folder, &id, &title, by_person)?;
+    // The sticky window's title follows, also when the title follows the first line.
+    windows::retitle_sticky(&app, &service, &key);
     notify_hub(&app);
     Ok(())
 }
@@ -492,8 +494,15 @@ pub async fn set_autostart(
 }
 
 #[tauri::command]
-pub async fn set_tray_labels(app: AppHandle, labels: TrayLabels) -> Result<(), AppError> {
-    Ok(tray::set_labels(&app, &labels)?)
+pub async fn set_tray_labels(
+    app: AppHandle,
+    service: Service<'_>,
+    labels: TrayLabels,
+) -> Result<(), AppError> {
+    tray::set_labels(&app, &labels)?;
+    // An untitled sticky window is named in the language these texts come in.
+    windows::retitle_stickies(&app, &service);
+    Ok(())
 }
 
 /// The calling window has rendered its view: show it.

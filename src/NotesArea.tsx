@@ -45,21 +45,24 @@ export function NotesArea({ app }: { app: AppSettings }) {
   }
 
   if (m.view === "trash") {
+    const trash = (
+      <Trash
+        folders={m.listFolders}
+        mixed={m.mixed}
+        language={m.language}
+        now={m.now}
+        theme={m.theme}
+        writable={m.writable}
+        projectLabel={m.projectLabel}
+        onRestore={m.restore}
+        onBack={m.backToNotes}
+      />
+    );
+    // Hangar keeps its sidebar and status bar around the trash; paper lays it on its table.
+    if (layout === "hangar") return <HangarLayout m={m} trash={trash} />;
     return (
-      <div className="notes-area single">
-        <div className="single-main">
-          <Trash
-            folders={m.listFolders}
-            mixed={m.mixed}
-            language={m.language}
-            now={m.now}
-            theme={m.theme}
-            writable={m.writable}
-            projectLabel={m.projectLabel}
-            onRestore={m.restore}
-            onBack={m.backToNotes}
-          />
-        </div>
+      <div className={layout === "paper" ? "notes-area single on-table" : "notes-area single"}>
+        <div className="single-main">{trash}</div>
         <footer className="area-foot">{m.noticeSlot}</footer>
       </div>
     );

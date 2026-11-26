@@ -85,6 +85,13 @@ impl TrayLabels {
 #[derive(Debug, Default)]
 pub struct CurrentLabels(Mutex<TrayLabels>);
 
+/// The provisional title of a new note in the language the windows chose ("Note" until then).
+pub fn untitled_label<R: Runtime>(app: &AppHandle<R>) -> String {
+    app.try_state::<CurrentLabels>()
+        .map(|labels| lock(&labels.0).untitled.clone())
+        .unwrap_or_else(|| TrayLabels::default().untitled)
+}
+
 pub fn present<R: Runtime>(app: &AppHandle<R>) -> bool {
     app.tray_by_id(TRAY_ID).is_some()
 }
@@ -102,10 +109,7 @@ fn on_menu<R: Runtime>(app: &AppHandle<R>, item: &str) {
     let result = match item {
         HUB_ITEM => windows::open_hub(app),
         NEW_ITEM => {
-            let base = app
-                .try_state::<CurrentLabels>()
-                .map(|labels| lock(&labels.0).untitled.clone())
-                .unwrap_or_else(|| TrayLabels::default().untitled);
+            let base = untitled_label(app);
             windows::create_sticky(
                 app,
                 &app.state::<Arc<NotesService>>(),
@@ -159,13 +163,14 @@ pub fn create<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 
 /// Replaces the menu and the tooltip with translated texts. Harmless to call again.
 pub fn set_labels<R: Runtime>(app: &AppHandle<R>, labels: &TrayLabels) -> tauri::Result<()> {
-    let Some(tray) = app.tray_by_id(TRAY_ID) else {
-        return Ok(());
-    };
     let labels = labels.cleaned();
+    // Kept without a tray as well: untitled sticky windows take their name from it.
     if let Some(current) = app.try_state::<CurrentLabels>() {
         *lock(&current.0) = labels.clone();
     }
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return Ok(());
+    };
     tray.set_menu(Some(menu(app, &labels)?))?;
     tray.set_tooltip(Some(&labels.tooltip))?;
     Ok(())

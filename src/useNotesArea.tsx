@@ -1420,13 +1420,21 @@ export function useNotesArea(app: AppSettings) {
         ? activeKey
         : (visibleKeys[0] ?? null);
 
-  const moveRowFocus = (index: number, step: 1 | -1) => {
-    const ordered = [...rows.current.values()]
+  /** The rows as they stand on the page, in reading order. */
+  const orderedRows = () =>
+    [...rows.current.values()]
       .filter((row) => row.isConnected)
       .sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+
+  const moveRowFocus = (index: number, step: number) => {
+    const ordered = orderedRows();
     const next = ordered[index + step];
     if (next) next.focus();
     else if (index + step < 0) searchInput.current?.focus();
+    else if (step > 1 && Math.floor(index / step) < Math.floor((ordered.length - 1) / step)) {
+      // Down from a full row onto a shorter last one: its last card is the nearest.
+      ordered[ordered.length - 1]?.focus();
+    }
   };
 
   /** The element of a row that opens it, for the roving focus and the menus' anchor. */
@@ -1435,17 +1443,37 @@ export function useNotesArea(app: AppSettings) {
     else rows.current.delete(key);
   };
 
-  /** Arrow keys, Delete and the menu key on a row (or a card's title), in every look. */
-  const onRowKeyDown = (row: Row, index: number, event: React.KeyboardEvent<HTMLElement>) => {
+  /**
+   * Arrow keys, Delete and the menu key on a row (or a card's title), in every look. `columns`:
+   * the rows stand in a grid of that many columns (the paper look's cards); up and down then move
+   * by a whole row, Home and End go to the first and the last card.
+   */
+  const onRowKeyDown = (
+    row: Row,
+    index: number,
+    event: React.KeyboardEvent<HTMLElement>,
+    columns?: number,
+  ) => {
+    const across = Math.max(1, columns ?? 1);
     const step =
-      event.key === "ArrowDown" || event.key === "ArrowRight"
+      event.key === "ArrowRight"
         ? 1
-        : event.key === "ArrowUp" || event.key === "ArrowLeft"
+        : event.key === "ArrowLeft"
           ? -1
-          : 0;
+          : event.key === "ArrowDown"
+            ? across
+            : event.key === "ArrowUp"
+              ? -across
+              : 0;
     if (step !== 0) {
       event.preventDefault();
       moveRowFocus(index, step);
+      return;
+    }
+    if (columns !== undefined && (event.key === "Home" || event.key === "End")) {
+      event.preventDefault();
+      const ordered = orderedRows();
+      (event.key === "Home" ? ordered[0] : ordered[ordered.length - 1])?.focus();
       return;
     }
     const action = matchRowShortcut(event);
@@ -1747,6 +1775,12 @@ export function useNotesArea(app: AppSettings) {
     });
   };
 
+  /** Out of the trash to the notes without moving the focus (the hangar sidebar's entries). */
+  const showNotes = () => {
+    setView("browse");
+    void reloadRef.current();
+  };
+
   const scopeItems = (): MenuItem[] =>
     scopeEntries.map((entry): MenuItem => ({
       type: "action",
@@ -2038,6 +2072,7 @@ export function useNotesArea(app: AppSettings) {
     toggleMenu,
     leaveFor,
     backToNotes,
+    showNotes,
   };
 }
 

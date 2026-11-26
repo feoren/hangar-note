@@ -177,3 +177,25 @@ color instead of the chosen one.
 
 Open points: the paper grid is row by row, not masonry, so short cards leave gaps beside taller
 ones; the sheet closes without motion, as the menus do.
+
+## Rework of looks B and C
+
+Findings of the acceptance review of B and C, fixed on 2026-11-26.
+
+| Finding | Change | Reason |
+| --- | --- | --- |
+| Paper: every card body faded out at its bottom, so the last lines of a card that fit ("Einkaufen" with six tasks) were half gone. | The fade (`.card-body.is-cut`) is set only when the body really overflows (`scrollHeight > clientHeight`), measured before the paint and again on every size change (`ResizeObserver`). In a cut body, a line whose middle lies in the fade or below is no Tab stop. | A list that fits must be read in full; a checkbox nobody can see must not take the focus. |
+| Hangar: the checklist progress stood in the note's header and in the status bar. | The header shows it; the status bar only while the note column is 320 px or narrower, where the header has no room (`NARROW_NOTE`, measured on the column, in place of the container rule). | Shown once, never twice and never not at all. |
+| The trash was calm's single column in every look. | Hangar shows it in the place of the list and the note; the sidebar stays with "Recently deleted" marked (`aria-current="page"`), a scope or a color there leads back to the notes, and the status bar says where you are. Paper lays it on its table (`--table`). Escape leaves it in every look, wherever the focus is, and the focus returns to the control it was opened from. | The trash is a place inside the look, not a different app. |
+| Paper: up and down in the grid moved one card, like left and right. | Up and down move by the grid's current column count (read from `grid-template-columns`), down onto a shorter last row lands on its last card; Home and End go to the first and the last card. | The grid reads in rows and columns, so the keys should too. |
+| Every sticky window was called "Hangar Note" in the taskbar and in Alt+Tab. | A sticky window is titled "<note title> · Hangar Note" (`sticky_title` in `src-tauri/src/windows.rs`), set when it opens and again after every rename, by the person or by the title following the first line; without a title it reads "Note · Hangar Note" in the chosen language (the provisional title the windows hand over with the tray texts, also where there is no tray). Only the title, never the text; control characters become spaces, direction characters go, and the title is cut to 60 characters with an ellipsis. | Several sticky notes must be told apart where windows are switched, without the taskbar showing more than the note list does. |
+
+Checked in the real window (debug build against a copy of the sample notes with a sixth task in
+"Einkaufen" and eight in "Release 1.4"): six tasks shown in full without a fade, eight cut with the
+last three out of Tab; three columns at 1000 px and the keys moving by three; the progress in the
+hangar header at a 496 px column and in the status bar at 296 px; the trash in all three looks and
+Escape back to its opener; the sticky window's title before, during and after a rename.
+
+Open points: in the hangar trash the shown scope stays marked next to "Recently deleted", since
+the trash lists that scope's notes; a note renamed outside Hangar Note (by Hangar) keeps its old
+window title until the next rename here or a change of language.
