@@ -70,3 +70,33 @@ anti-goals). Each entry: finding, change, reason.
   `src/NotesArea.test.tsx`). Found in the real window, not in the preview.
 - A read-only editor carries `aria-readonly="true"`; CodeMirror keeps `contenteditable` either way.
 - With no note of the chosen colors, "All colors" shows once (in the empty state), not twice.
+
+## Direction A as built
+
+The calm direction ("Ruhig") of the design study, built on 2026-11-26. Same flows, fewer controls.
+
+| Area | Change | Reason |
+| --- | --- | --- |
+| Header | One title menu ("All notes" with a chevron) holds the scopes with their note counts, "Recently deleted", "Open notes folder", "Always on top" and "Settings". Next to it one primary button "New note". The scope chips and the list menu "…" are gone. | Two rows above the list instead of four; the scope a person is in is the heading. |
+| Color filter | One button of fixed width next to the search. Its menu lists the eight colors as fixed rows (dot, own name, count, check mark, a ring around the chosen dot) and keeps "All colors" in a fixed place, disabled while nothing is chosen. It stays open while choosing. The button shows up to three chosen dots and names them for screen readers. | The old filter jumped when a color was chosen. Costs one click more than before (see open points). |
+| Rows | The color is a thin edge (`edge` in `src/colors.ts`, at least 3 : 1 on `--bg`, `--panel`, `--panel-raised` and `--hover` in both themes; Mint and Sand were darkened for the hover surface). Tools (color, on the desktop, delete) show on hover and on keyboard focus. A right click, the menu key or Shift+F10 opens a menu with every action of the row (color, on the desktop, rename, copy as Markdown, export, show in Explorer, delete). Only the current row is a Tab stop (roving tab index); arrow keys move between rows. | Coloring, putting on the desktop and deleting work without opening the note; nothing depends on hover alone. |
+| Open note | Reads like a page: crumb (scope), "On the desktop" and "…" at the top, the title large, the text at 15 px in a column of at most 620 px. The note menu starts with the colors. | Long notes read best; the note color no longer fills the pane, it is a 3 px edge on top. |
+| Notices | One place in the footer (`src/notices.ts`, `src/NoticeSlot.tsx`): a new notice replaces the old one of its kind, "not saved" ranks before an error before an info, an info goes after 6 s (paused on hover and focus), errors stay until fixed or dismissed. The notice crossfades with the word count; it never floats over text. An always present polite live region carries infos, an alert carries errors. | Notices used to stack and cover the footer. |
+| Errors | `src/errors.ts` turns every code into one sentence of `i18n.ts` (the `storage.*` sentences for storage codes) and at most one button ("Open notes folder", "Reload the list", "Try again"). `errorText` is gone; no path, code or English backend text reaches a window. The sticky note says the same sentences. | A raw backend text helps nobody. |
+| Empty | With no notes the window shows one invitation: a title, one line, one "New note" and the shortcut. Search, filter and the second button appear once there are notes. | Three "New note" buttons were two too many. |
+| Sticky note | At rest only the text and a 10 px color strip at the top, which is always the drag region (cursor "grab"). On hover or focus the header (new, menu, close) and the formatting bar fade in; their places stay free, so the text never moves. | Calm on the desktop, still movable without a visible header. |
+| Motion | Row tools 120 ms opacity; sticky header and bar 140 ms; menus 150 ms opacity plus scale from 0.97, growing from their button; notices 150 ms; a press scales to 0.97 for 120 ms; keyboard actions without motion. With reduced motion only opacity, at most 80 ms. Menus close without motion. | As in the study's table for A. |
+
+Checked in the real window (debug build against a copy of the sample notes): wide and narrow,
+light and dark, the title menu, the color filter, the note menu with a storage error in the footer,
+the empty state, the sticky note at rest and on hover. At 320 and 360 px the document is exactly as
+wide as the window. Every target is at least 32 x 32 px.
+
+Fixed in the review of the build: on hover the row's meta (progress, time) peeked out beside the
+tools; it now fades out under them, and the tools cover the full row height. At 320 px a notice
+next to "Not saved" broke into single letters and pushed the note's text out; a notice now wraps
+its button under the sentence and takes the footer's full width below 480 px. Every scroll area
+has the slim scrollbar Hangar uses (`scrollbar-width: thin`, thumb in `--muted`).
+
+Open points: filtering by color costs one click more than the old row of dots; menus have no
+closing animation.

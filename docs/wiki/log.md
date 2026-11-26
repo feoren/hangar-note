@@ -76,3 +76,13 @@ the release script. Updated index.md and pages/overview.md.
 Recorded the five conditions agreed with Hangar for `team/open` and `team/seal` (verdict with the
 plaintext, exact write rule without fallback, size and rate limits, known vaults only, separate
 token on one connection) in pages/decisions/0002-hangar-notes-takeover.md.
+
+## [2026-11-26] query | Direction A as built
+Added the section "Direction A as built" to pages/syntheses/usability-pass.md: title menu, color
+filter behind one button, row tools and row context menu, the note as a page, one notice place in
+the footer (src/notices.ts), error sentences per code (src/errors.ts), the calm sticky note with its
+drag strip, the motion table. Recorded the changed windows in pages/decisions/0001-foundation.md.
+
+## [2026-11-26] query | Review of direction A
+Recorded three fixes from the review of the build (row meta under the tools, notices at 320 px,
+slim scrollbars) in pages/syntheses/usability-pass.md.

@@ -166,11 +166,6 @@ export function storageErrorText(error: unknown): MessageKey | null {
   return code === null ? null : STORAGE_ERROR_TEXTS[code];
 }
 
-/** The backend's text of an error (always a string), for a message in the window. */
-export function errorText(error: unknown): string {
-  return typeof error === "string" ? error : error instanceof Error ? error.message : "";
-}
-
 /** The backend's limit per note (`MAX_NOTE_BYTES` in notes.rs). */
 export const MAX_NOTE_BYTES = 1024 * 1024;
 

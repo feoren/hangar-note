@@ -63,6 +63,12 @@
   box-sizing: border-box;
 }
 
+/* A slim scrollbar without arrow buttons wherever something scrolls, as in Hangar. */
+* {
+  scrollbar-color: var(--muted) transparent;
+  scrollbar-width: thin;
+}
+
 html,
 body,
 #root {
@@ -100,18 +106,32 @@ button {
   color: var(--error);
 }
 
+kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  font: inherit;
+}
+
+/* ---- Buttons ---- */
+
+/* At least 32 x 32 px to hit. A press answers with a slight squeeze (direction A, 120 ms). */
 .icon-button {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: inherit;
-  transition: background-color 120ms var(--ease-out);
+  transition:
+    background-color 120ms var(--ease-out),
+    transform 120ms var(--ease-out);
 }
 
 .icon-button:hover {
@@ -119,11 +139,14 @@ button {
 }
 
 .link-button {
-  padding: 4px 6px;
+  min-height: 32px;
+  padding: 4px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .link-button:hover {
@@ -131,22 +154,31 @@ button {
 }
 
 .primary-button,
-.secondary-button {
+.secondary-button,
+.ghost-button {
   display: inline-flex;
+  flex: none;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 12px;
+  min-height: 32px;
+  padding: 0 12px;
   border-radius: 6px;
   white-space: nowrap;
+  transition:
+    background-color 120ms var(--ease-out),
+    transform 120ms var(--ease-out);
 }
 
 .primary-button {
-  border: 0;
+  border: 1px solid var(--primary);
   background: var(--primary);
   color: var(--on-primary);
+  font-weight: 600;
 }
 
 .primary-button:hover {
+  border-color: var(--primary-hover);
   background: var(--primary-hover);
 }
 
@@ -160,25 +192,72 @@ button {
   background: color-mix(in srgb, var(--note-text, var(--text)) 10%, transparent);
 }
 
-/* The sticky note's menu. */
+.ghost-button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.ghost-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.icon-button:active,
+.primary-button:active,
+.secondary-button:active,
+.ghost-button:active,
+.color-button:active,
+.scope-button:active {
+  transform: scale(0.97);
+}
+
+.icon-button:disabled,
+.primary-button:disabled,
+.secondary-button:disabled,
+.ghost-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+  transform: none;
+}
+
+/* ---- Menus ---- */
+
+/* Menus grow from the side they opened from (PopupMenu.tsx sets --menu-origin). Closing has no
+   motion: it is mostly Escape or a choice, and the focus is back at once. */
+.popup-menu,
 .note-menu {
-  position: absolute;
-  z-index: 10;
-  min-width: 200px;
+  z-index: 30;
+  min-width: 232px;
+  max-width: calc(100vw - 16px);
   padding: 6px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 10px;
   background: var(--panel-raised);
   color: var(--text);
-  box-shadow: 0 8px 24px var(--shadow);
+  box-shadow: 0 12px 32px var(--shadow);
+  transform-origin: var(--menu-origin, top left);
+  animation: menu-in 150ms var(--ease-out);
+}
+
+.popup-menu {
+  position: fixed;
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
 }
 
 .menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  padding: 6px 8px;
+  min-height: 34px;
+  padding: 0 10px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -190,21 +269,132 @@ button {
   background: var(--hover);
 }
 
+.menu-item:focus-visible {
+  outline-offset: -2px;
+}
+
+.menu-item:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.menu-item:disabled:hover {
+  background: transparent;
+}
+
 .menu-item.danger {
   color: var(--danger);
 }
 
 .menu-check {
   display: inline-flex;
-  width: 14px;
+  flex: none;
+  justify-content: center;
+  width: 16px;
+  color: var(--accent);
+}
+
+.menu-item:not([aria-checked]) .menu-check {
+  color: var(--muted);
+}
+
+.menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-count,
+.menu-shortcut {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .menu-separator {
   height: 1px;
-  margin: 4px 2px;
+  margin: 6px 4px;
   background: var(--border);
 }
 
+.menu-heading {
+  margin: 0;
+  padding: 6px 10px 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Eight fixed 32 px targets; the chosen color has a ring and a check mark, never a wider label,
+   so nothing moves when the choice changes. */
+.menu-swatches {
+  display: grid;
+  grid-template-columns: repeat(8, 32px);
+  padding: 2px 4px 4px;
+}
+
+.menu-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.menu-swatch:focus-visible {
+  outline-offset: -1px;
+  border-radius: 50%;
+}
+
+.swatch-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--swatch-border);
+  border-radius: 50%;
+  background: var(--dot);
+  /* The dots show the light tone in both themes, so the check mark is the dark text color. */
+  color: #1f2328;
+}
+
+.menu-swatch:hover .swatch-dot {
+  transform: scale(1.08);
+}
+
+.menu-swatch.on .swatch-dot {
+  box-shadow:
+    0 0 0 2px var(--panel-raised),
+    0 0 0 4px var(--text);
+}
+
+.color-dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--swatch-border);
+  border-radius: 50%;
+  background: var(--dot);
+}
+
+.menu-item[aria-checked="true"] .color-dot {
+  box-shadow:
+    0 0 0 2px var(--panel-raised),
+    0 0 0 3px var(--text);
+}
+
+/* Swatches in the settings: a radio group of 32 px circles. */
 .swatches {
   display: flex;
   flex-wrap: wrap;
@@ -212,8 +402,6 @@ button {
   padding: 4px 2px 8px;
 }
 
-/* Swatches show the light tone of each color in both themes (colors.ts, swatchColor), so the
-   check mark is always the dark text color. */
 .swatch {
   display: inline-flex;
   align-items: center;
@@ -226,7 +414,13 @@ button {
   color: #1f2328;
 }
 
-/* ---- Note window ---- */
+.swatch.small {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+/* ---- Sticky note ---- */
 
 :root[data-window="note"] body {
   background: transparent;
@@ -242,16 +436,41 @@ button {
   font-size: 14px;
 }
 
-.note-head {
-  display: flex;
+/* Always there: the window has no frame, so this strip is where it is grabbed and moved. */
+.note-strip {
   flex: none;
+  height: 10px;
+  background: var(--note-head);
+  cursor: grab;
+}
+
+.note-strip:active {
+  cursor: grabbing;
+}
+
+/* At rest only the text. The header fades in on hover and with the focus; its place below the
+   strip stays free (and draggable), so the text never moves. */
+.note-head {
+  position: absolute;
+  top: 10px;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
   align-items: center;
   gap: 2px;
-  height: 32px;
-  padding: 0 4px;
-  background: var(--note-head);
+  height: 36px;
+  padding: 2px 4px;
   color: var(--note-muted);
+  opacity: 0;
   user-select: none;
+  transition: opacity 140ms var(--ease-out);
+}
+
+.note:hover .note-head,
+.note.hovered .note-head,
+.note:focus-within .note-head {
+  opacity: 1;
 }
 
 .note-head .icon-button:hover {
@@ -264,34 +483,49 @@ button {
 }
 
 .note-menu {
-  top: 34px;
+  position: absolute;
+  top: 46px;
   right: 6px;
+  min-width: 0;
+  transform-origin: top right;
 }
 
-.note-body {
+/* A sticky note can be 200 px narrow: its colors form two rows of four. */
+.note-menu .menu-swatches {
+  grid-template-columns: repeat(4, 32px);
+}
+
+.note > .note-body {
   flex: 1;
   min-height: 0;
+  margin-top: 36px;
 }
 
 .note-message {
+  flex: none;
   margin: 0;
   padding: 8px 14px;
   font-size: 12.5px;
+  line-height: 1.4;
 }
 
 .note-error {
-  flex: none;
   color: var(--note-text);
   background: color-mix(in srgb, var(--note-head) 70%, transparent);
 }
 
+/* The bar's place is kept while it is hidden, so the text does not jump when it shows. */
+.format-slot {
+  flex: none;
+  height: 38px;
+}
+
 .format-bar {
   display: flex;
-  flex: none;
   gap: 2px;
-  padding: 2px 6px;
-  background: var(--note-head);
+  padding: 3px 8px;
   color: var(--note-muted);
+  animation: fade-in 140ms var(--ease-out);
 }
 
 .format-bar .icon-button:hover {
@@ -303,6 +537,12 @@ button {
 .format-bar s {
   font-size: 14px;
   line-height: 1;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .cm-task {
@@ -319,7 +559,7 @@ button {
   text-decoration: line-through;
 }
 
-/* ---- The notes area ---- */
+/* ---- The notes area (direction A) ---- */
 
 .sr-only {
   position: absolute;
@@ -330,53 +570,119 @@ button {
   white-space: nowrap;
 }
 
+/* List and note side by side; the footer with the one notice place sits under the note. */
 .notes-area {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(280px, 360px) 1fr;
+  grid-template-areas:
+    "list note"
+    "list foot";
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   height: 100%;
   background: var(--bg);
 }
 
+.notes-area.is-empty,
 .notes-area.single {
+  grid-template-areas:
+    "list"
+    "foot";
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.notes-area.is-empty .note-pane {
+  display: none;
+}
+
+.list-pane,
+.single-main {
   display: flex;
   flex-direction: column;
+  grid-area: list;
+  min-width: 0;
+  min-height: 0;
 }
 
 .list-pane {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
   border-right: 1px solid var(--border);
-  background: var(--panel);
+}
+
+.is-empty .list-pane {
+  border-right: 0;
 }
 
 .pane-head {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 4px;
-  padding: 12px 10px 8px 16px;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 14px 12px 10px;
 }
 
 .pane-head h1 {
   flex: 1;
+  min-width: 0;
   margin: 0;
   font-size: 16px;
   font-weight: 600;
 }
 
+/* The title menu: the shown scope, large, with everything the list menu had. */
+.scope-heading {
+  display: flex;
+}
+
+.scope-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 36px;
+  margin-inline-start: -2px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 18px;
+  font-weight: 600;
+  transition:
+    background-color 120ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+
+.scope-button:hover {
+  background: var(--hover);
+}
+
+.scope-button svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.scope-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Read only is a state, not a fault: calm, without a warning color. */
 .notes-banner {
   flex: none;
-  margin: 0 12px 8px;
+  margin: 0 12px 10px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--panel-raised);
+  background: var(--panel);
   color: var(--muted);
   line-height: 1.4;
+}
+
+.is-empty .notes-banner {
+  align-self: center;
+  max-width: 520px;
 }
 
 .notes-banner p {
@@ -389,124 +695,101 @@ button {
   font-weight: 600;
 }
 
-.search {
-  position: relative;
+/* Search and the color filter, one row. */
+.find {
   display: flex;
   flex: none;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+
+.search {
+  display: flex;
+  flex: 1;
   align-items: center;
   gap: 8px;
-  margin: 0 12px 8px;
-  padding: 0 4px 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+  min-width: 0;
+  height: 34px;
+  padding: 0 1px 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--panel);
   color: var(--muted);
 }
 
 .search:focus-within {
   border-color: var(--accent);
+  background: var(--bg);
 }
 
 .search input {
   flex: 1;
   min-width: 0;
-  height: 30px;
+  height: 100%;
   border: 0;
   outline: none;
   background: transparent;
   color: var(--text);
 }
 
+.search input::placeholder {
+  color: var(--muted);
+}
+
 .search input::-webkit-search-cancel-button {
   display: none;
 }
 
-.search-clear {
-  width: 22px;
-  height: 22px;
-}
-
-.chips,
-.color-filter {
-  display: flex;
+/* One button of fixed width: choosing colors never moves anything. */
+.color-button {
+  display: inline-grid;
   flex: none;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 12px 8px;
-}
-
-.chip {
-  max-width: 100%;
-  overflow: hidden;
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: transparent;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chip:hover {
-  background: var(--hover);
-}
-
-.chip.on {
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  font-weight: 600;
-}
-
-.color-filter {
-  align-items: center;
-  gap: 0;
-}
-
-.color-filter-label {
-  margin-inline-end: 4px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-/* At least 32 x 32 px to hit, however small the dot. */
-.color-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-width: 32px;
-  height: 32px;
-  padding: 0 8px;
+  place-items: center;
+  width: 52px;
+  height: 34px;
+  padding: 0;
   border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
+  border-radius: var(--radius);
+  background: var(--panel);
   color: var(--muted);
-  font-size: 12px;
+  transition:
+    background-color 120ms var(--ease-out),
+    transform 120ms var(--ease-out);
 }
 
-.color-chip:hover {
-  border-color: var(--border);
-}
-
-.color-chip.on {
-  border-color: color-mix(in srgb, var(--text) 35%, transparent);
+.color-button:hover {
   background: var(--hover);
   color: var(--text);
 }
 
-.color-dot {
-  flex: none;
-  width: 14px;
-  height: 14px;
-  border: 1px solid var(--swatch-border);
-  border-radius: 50%;
-  background: var(--dot);
+.color-button.on {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
-.color-chip-name {
-  max-width: 90px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.picked {
+  display: inline-flex;
+  align-items: center;
+}
+
+.picked i {
+  width: 14px;
+  height: 14px;
+  margin-inline-start: -5px;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: var(--dot);
+  box-shadow: 0 0 0 1px var(--swatch-border);
+}
+
+.picked i:first-child {
+  margin-inline-start: 0;
+}
+
+.picked-more {
+  margin-inline-start: 3px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .list-wrap {
@@ -529,44 +812,6 @@ button {
   color: var(--error);
 }
 
-/* Errors and toasts sit at the bottom of the window, so they show in the list and in the note
-   alike, also when a narrow window shows only one of them. */
-.notices {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-  width: min(520px, calc(100% - 32px));
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
-.notices > * {
-  pointer-events: auto;
-}
-
-.notes-error {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 6px 6px 6px 14px;
-  border: 1px solid color-mix(in srgb, var(--error) 55%, var(--border));
-  border-radius: var(--radius);
-  background: var(--panel-raised);
-  color: var(--text);
-  box-shadow: 0 8px 24px var(--shadow);
-  line-height: 1.4;
-}
-
-.notes-error span {
-  flex: 1;
-}
-
 .notes-empty {
   display: flex;
   flex-direction: column;
@@ -586,8 +831,72 @@ button {
 }
 
 .notes-empty-hint {
+  color: var(--muted);
   font-size: 12px;
 }
+
+/* Nothing written yet: one invitation, nothing else. */
+.notes-welcome {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px 16px 48px;
+  text-align: center;
+}
+
+.notes-welcome h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.notes-welcome p {
+  max-width: 340px;
+  margin: 0 0 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.notes-welcome .notes-empty-hint {
+  margin-top: 14px;
+}
+
+.welcome-mark {
+  position: relative;
+  width: 48px;
+  height: 56px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  border-top: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.welcome-mark::before,
+.welcome-mark::after {
+  position: absolute;
+  left: 10px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--border);
+  content: "";
+}
+
+.welcome-mark::before {
+  top: 15px;
+  right: 14px;
+  box-shadow: 0 9px 0 var(--border);
+}
+
+.welcome-mark::after {
+  top: 33px;
+  right: 20px;
+}
+
+/* ---- The list ---- */
 
 .note-list,
 .trash-list {
@@ -599,31 +908,54 @@ button {
   list-style: none;
 }
 
+.note-item {
+  position: relative;
+  border-radius: var(--radius);
+}
+
+/* The note's color as a thin edge (colors.ts keeps it at 3 : 1 on every surface). */
+.note-item::before {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--note-edge);
+  content: "";
+  pointer-events: none;
+}
+
 .note-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  padding: 8px 10px 8px 12px;
+  min-height: 56px;
+  padding: 9px 10px 9px 16px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: transparent;
-  box-shadow: inset 3px 0 0 var(--note-head);
   text-align: start;
+  transition: background-color 120ms var(--ease-out);
 }
 
-.note-row:hover {
+.note-row:focus-visible {
+  outline-offset: -2px;
+}
+
+.note-item:hover .note-row {
+  background: var(--panel);
+}
+
+.note-item.active .note-row {
   background: var(--hover);
-}
-
-.note-row.active {
-  background: color-mix(in srgb, var(--note-head) 45%, var(--panel));
 }
 
 .note-row-head {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -631,66 +963,140 @@ button {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  font-size: 14px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.note-row-meta {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .note-row-mark {
   display: inline-flex;
-  color: var(--muted);
 }
 
 .note-row-excerpt {
-  display: -webkit-box;
   overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
   color: var(--muted);
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.note-row-meta {
-  color: var(--muted);
-  font-size: 11.5px;
+/* The trash and the settings use the same type as a list row. */
+.trash-text .note-row-meta {
+  display: block;
 }
 
 .note-progress {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   color: var(--muted);
-  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
 }
 
 .note-progress.complete {
-  color: var(--note-accent, var(--accent));
+  color: var(--accent);
 }
 
-/* The note pane takes the open note's colors. */
+/* The row's tools: on hover and on keyboard focus, never the only way (the row also has its
+   context menu, the menu key and Shift+F10). */
+.row-tools {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: -16px 0 12px -4px var(--panel);
+  color: var(--muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms var(--ease-out);
+}
+
+.note-item:hover .row-tools,
+.note-item:focus-within .row-tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* The tools take the place of the row's meta; it fades out under them (its width stays, so the
+   title does not move) instead of peeking out beside them. */
+.note-row-meta {
+  transition: opacity 120ms var(--ease-out);
+}
+
+.note-item:hover .note-row-meta,
+.note-item:focus-within .note-row-meta {
+  opacity: 0;
+}
+
+.note-item.active .row-tools {
+  background: var(--hover);
+  box-shadow: -16px 0 12px -4px var(--hover);
+}
+
+.row-tools .icon-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.note-item.active .row-tools .icon-button:hover {
+  background: var(--bg);
+}
+
+/* ---- The open note, read like a page ---- */
+
 .note-pane {
+  --note-bg: var(--bg);
+  --note-head: var(--hover);
+  --note-text: var(--text);
+  --note-muted: var(--muted);
+  --note-accent: var(--accent);
   position: relative;
   display: flex;
   flex-direction: column;
+  grid-area: note;
   min-width: 0;
   min-height: 0;
-  background: var(--note-bg, var(--bg));
-  color: var(--note-text, var(--text));
+  color: var(--text);
+}
+
+.note-pane[style]::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--note-edge);
+  content: "";
 }
 
 .note-placeholder {
   display: flex;
   flex: 1;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
   padding: 24px;
   color: var(--muted);
   text-align: center;
+}
+
+.note-placeholder p {
+  max-width: 320px;
+  margin: 0;
+  line-height: 1.5;
 }
 
 .note-bar {
@@ -698,37 +1104,57 @@ button {
   flex: none;
   align-items: center;
   gap: 4px;
-  min-height: 44px;
-  padding: 6px 8px 6px 10px;
-  background: var(--note-head);
-  color: var(--note-text);
+  min-height: 52px;
+  padding: 12px 16px 0 28px;
 }
 
-.note-bar .note-progress {
-  color: var(--note-muted);
+.note-crumb {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .note-back {
   display: none;
 }
 
-.note-title {
+.note-pane > .note-body {
   flex: 1;
-  min-width: 0;
-  padding: 4px 6px;
-  overflow: hidden;
+  min-height: 0;
+  overflow: auto;
+}
+
+.note-page {
+  max-width: 676px;
+  padding: 4px 28px 32px;
+}
+
+.note-heading {
+  margin: 4px 0 14px;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.note-title {
+  max-width: 100%;
+  margin-inline-start: -6px;
+  padding: 2px 6px;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  font-size: 15px;
-  font-weight: 600;
+  font: inherit;
+  letter-spacing: inherit;
   text-align: start;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .note-title:not(:disabled):hover {
-  background: color-mix(in srgb, currentColor 10%, transparent);
+  background: var(--panel);
 }
 
 .note-title:disabled {
@@ -736,50 +1162,52 @@ button {
 }
 
 .note-title .muted {
-  color: var(--note-muted);
+  color: var(--muted);
 }
 
 .note-rename {
-  flex: 1;
-  min-width: 0;
-  height: 30px;
-  padding: 0 8px;
+  width: 100%;
+  margin: 4px 0 14px -7px;
+  padding: 1px 6px;
   border: 1px solid var(--accent);
   border-radius: 6px;
   outline: none;
-  background: var(--note-bg);
-  color: var(--note-text);
-  font-size: 15px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 24px;
   font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
 }
 
-.notes-area .note-body {
-  position: relative;
-  flex: 1;
-  min-height: 0;
+/* The editor grows with its text; the page scrolls as one, title included. */
+.notes-area .note-editor .cm-editor {
+  height: auto;
+  font-size: 15px;
 }
 
-.notes-area .note-editor {
-  height: 100%;
+.notes-area .note-editor .cm-scroller {
+  overflow: visible;
+  line-height: 1.6;
 }
 
 .notes-area .note-editor .cm-content {
-  max-width: 760px;
-  padding: 14px 20px 40px;
+  min-height: 200px;
+  padding: 0 0 40px;
 }
 
 .note-preview {
-  height: 100%;
-  overflow: auto;
-  padding: 10px 20px 40px;
-  line-height: 1.55;
+  padding: 0 0 40px;
+  font-size: 15px;
+  line-height: 1.6;
   outline: none;
   overflow-wrap: anywhere;
   user-select: text;
 }
 
-.note-preview > * {
-  max-width: 760px;
+.note-preview:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
 }
 
 .note-preview h1,
@@ -825,17 +1253,17 @@ button {
   padding: 8px 10px;
   overflow: auto;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--note-text) 8%, transparent);
+  background: var(--panel);
 }
 
 .note-preview blockquote {
   padding-inline-start: 10px;
-  border-inline-start: 3px solid var(--note-head);
-  color: var(--note-muted);
+  border-inline-start: 3px solid var(--border);
+  color: var(--muted);
 }
 
 .note-preview .md-link {
-  color: var(--note-accent);
+  color: var(--accent);
   text-decoration: underline;
 }
 
@@ -852,28 +1280,6 @@ button {
   cursor: default;
 }
 
-.note-footer {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-top: 1px solid color-mix(in srgb, var(--note-text) 12%, transparent);
-  color: var(--note-muted);
-}
-
-.note-words {
-  flex: 1;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.note-unsaved {
-  color: var(--note-text);
-  font-size: 12px;
-  font-weight: 600;
-}
-
 /* A captured text that could not become a note: it stays in the draft with a way to copy it. */
 .note-held {
   display: flex;
@@ -881,27 +1287,16 @@ button {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  padding: 8px 12px 8px 16px;
-  border-bottom: 1px solid color-mix(in srgb, var(--note-text) 12%, transparent);
-  color: var(--note-text);
+  margin: 8px 28px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
   line-height: 1.4;
 }
 
 .note-held p {
   flex: 1 1 220px;
   margin: 0;
-}
-
-.icon-button.toggle.on {
-  background: color-mix(in srgb, currentColor 16%, transparent);
-  color: var(--note-text);
-}
-
-.icon-button:disabled,
-.primary-button:disabled,
-.secondary-button:disabled {
-  cursor: default;
-  opacity: 0.45;
 }
 
 .on-desktop {
@@ -912,7 +1307,7 @@ button {
   justify-content: center;
   gap: 6px;
   padding: 24px;
-  color: var(--note-muted);
+  color: var(--muted);
   text-align: center;
 }
 
@@ -922,12 +1317,8 @@ button {
   line-height: 1.45;
 }
 
-.on-desktop .muted {
-  color: var(--note-muted);
-}
-
 .on-desktop-title {
-  color: var(--note-text);
+  color: var(--text);
   font-size: 15px;
   font-weight: 600;
 }
@@ -940,58 +1331,133 @@ button {
   margin-top: 10px;
 }
 
-.toast {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  max-width: 100%;
-  padding: 6px 6px 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel-raised);
+.icon-button.toggle.on {
+  background: var(--hover);
   color: var(--text);
-  box-shadow: 0 8px 24px var(--shadow);
 }
 
-.toast span {
+/* ---- The footer and its one notice place ---- */
+
+.area-foot {
+  display: flex;
+  grid-area: foot;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 6px 16px 6px 28px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.notes-area.single .area-foot {
+  padding-inline-start: 16px;
+}
+
+/* Nothing to say: the footer folds away, but its live regions stay for the next notice. */
+.notes-area[data-idle="true"] .area-foot,
+.notes-area.single .area-foot:not(:has(.notice-slot.filled)) {
+  min-height: 0;
+  padding-block: 0;
+  border-top-color: transparent;
+}
+
+.foot-main {
+  display: grid;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+}
+
+/* Words and "Saved" crossfade with a notice in the same place (150 ms). */
+.foot-main > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.foot-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-variant-numeric: tabular-nums;
+  transition:
+    opacity 150ms var(--ease-out),
+    visibility 150ms;
+}
+
+.foot-status.away {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.note-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.note-unsaved {
+  flex: none;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.notice-slot {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.notice-live:empty {
+  display: none;
+}
+
+/* Short of room, the button and the close button move under the sentence; the sentence never
+   breaks into single letters. */
+.notice-live,
+.notice {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  color: var(--text);
+  animation: fade-in 150ms var(--ease-out);
+}
+
+.notice-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--error);
+}
+
+.notice-live .notice-icon {
+  color: var(--accent);
+}
+
+.notice-text {
+  flex: 1 1 12em;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
-.popup-menu {
-  position: fixed;
-  z-index: 30;
-  min-width: 220px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel-raised);
-  color: var(--text);
-  box-shadow: 0 8px 24px var(--shadow);
-}
-
-.menu-label {
-  flex: 1;
-}
-
-.menu-shortcut {
+.notice-detail {
   color: var(--muted);
-  font-family: inherit;
-  font-size: 12px;
 }
 
-.menu-item:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
+/* ---- Trash and settings ---- */
 
 .trash-row {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 10px 12px 10px 14px;
-  border-radius: 6px;
+  padding: 10px 12px 10px 16px;
+  border-radius: var(--radius);
   background: var(--panel);
-  box-shadow: inset 3px 0 0 var(--note-head);
+  box-shadow: inset 3px 0 0 var(--note-edge);
 }
 
 .trash-text {
@@ -1062,12 +1528,6 @@ button {
   outline: none;
 }
 
-.swatch.small {
-  flex: none;
-  width: 20px;
-  height: 20px;
-}
-
 .segmented {
   display: flex;
   gap: 2px;
@@ -1105,6 +1565,7 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 32px;
   cursor: pointer;
 }
 
@@ -1115,14 +1576,39 @@ button {
   accent-color: var(--accent);
 }
 
-/* Narrow windows show the list or the note, as the notes panel in Hangar does. */
+/* A note that cannot save and was asked to close: the warning with a way to copy. */
+.note-stuck {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.note-stuck p {
+  flex: 1 1 200px;
+  margin: 0;
+}
+
+.notes-stuck {
+  flex-wrap: wrap;
+}
+
+/* ---- Narrow windows: the list or the note, as Hangar's notes panel does ---- */
+
 @media (max-width: 720px) {
   .notes-area {
-    grid-template-columns: 1fr;
+    grid-template-areas:
+      "list"
+      "foot";
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .note-pane {
+    grid-area: list;
   }
 
   .notes-area[data-pane="list"] .note-pane,
-  .notes-area[data-pane="note"] .list-pane {
+  .notes-area[data-pane="note"]:not(.is-empty) .list-pane {
     display: none;
   }
 
@@ -1133,42 +1619,86 @@ button {
   .note-back {
     display: inline-flex;
   }
-}
 
-@media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none !important;
+  .note-bar {
+    padding: 8px 8px 0;
+  }
+
+  .note-page {
+    padding: 4px 16px 24px;
+  }
+
+  .note-held {
+    margin-inline: 16px;
+  }
+
+  .area-foot {
+    padding-inline: 16px 8px;
   }
 }
 
-/* In the menus the eight colors form two calm rows of four. */
-.popup-menu .swatches,
-.note-menu .swatches {
-  display: grid;
-  grid-template-columns: repeat(4, 32px);
-  justify-content: start;
+@media (max-width: 480px) {
+  /* "On the desktop" keeps its name for screen readers and in the tooltip. */
+  .ghost-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .ghost-button {
+    padding: 0;
+    width: 32px;
+  }
+
+  /* A notice takes the footer's whole width; "Not saved" and the preview move below it. */
+  .area-foot:has(.notice-slot.filled) {
+    flex-wrap: wrap;
+  }
+
+  .area-foot:has(.notice-slot.filled) .foot-main {
+    flex-basis: 100%;
+  }
+
+  .area-foot:has(.notice-slot.filled) .note-unsaved,
+  .area-foot:has(.notice-slot.filled) .foot-main + .toggle {
+    margin-inline-start: auto;
+  }
 }
 
-/* A note that cannot save and was asked to close or to switch: the warning with a way to copy. */
-.note-stuck {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 12px;
-  line-height: 1.4;
-}
+/* Reduced motion: only opacity, 80 ms at most, no scaling. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
 
-.note-stuck p {
-  flex: 1 1 200px;
-  margin: 0;
-}
+  .row-tools,
+  .note-row-meta,
+  .note-head,
+  .foot-status {
+    transition: opacity 80ms linear !important;
+  }
 
-.notes-error.notes-stuck {
-  flex-wrap: wrap;
-  padding: 8px 14px;
-}
+  .popup-menu,
+  .note-menu,
+  .format-bar,
+  .notice,
+  .notice-live {
+    animation: fade-in 80ms linear !important;
+  }
 
-.notes-stuck p {
-  flex: 1 1 220px;
-  margin: 0;
+  .icon-button:active,
+  .primary-button:active,
+  .secondary-button:active,
+  .ghost-button:active,
+  .color-button:active,
+  .scope-button:active,
+  .menu-swatch:hover .swatch-dot {
+    transform: none;
+  }
 }

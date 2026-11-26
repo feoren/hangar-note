@@ -61,10 +61,11 @@ const api = vi.hoisted(() => ({
   copyText: vi.fn(),
 }));
 
-vi.mock("./api", () => ({
+// The real error codes and their helpers (errors.ts reads them); the commands are mocked.
+vi.mock("./api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./api")>()),
   MAX_NOTE_BYTES: 1024 * 1024,
   utf8Bytes: (text: string) => new TextEncoder().encode(text).length,
-  errorText: (error: unknown) => String(error),
   isNotSaved: (error: unknown) => error === "not-saved",
   isReadOnly: (error: unknown) => error === "read-only",
   getStatus: api.getStatus,
@@ -180,6 +181,26 @@ function titles(): string[] {
   return Array.from(container.querySelectorAll(".note-row-title")).map((e) => e.textContent);
 }
 
+/** A menu item by its visible label (counts and check marks aside). */
+function menuItem(label: string): HTMLButtonElement {
+  const found = Array.from(
+    container.ownerDocument.querySelectorAll<HTMLButtonElement>(".popup-menu button"),
+  ).find(
+    (element) =>
+      element.querySelector(".menu-label")?.textContent === label ||
+      element.getAttribute("aria-label") === label,
+  );
+  if (!found) throw new Error(`menu item ${label} missing`);
+  return found;
+}
+
+/** Opens the title menu ("All notes"), which holds the scopes and the former list menu. */
+async function openAreaMenu() {
+  const scope = container.querySelector<HTMLButtonElement>(".scope-button");
+  if (!scope) throw new Error("title menu missing");
+  await click(scope);
+}
+
 function button(text: string): HTMLButtonElement {
   const found = Array.from(container.querySelectorAll("button")).find(
     (element) => element.textContent === text || element.getAttribute("aria-label") === text,
@@ -233,14 +254,21 @@ describe("notes area", () => {
 
   it("filters by one or more colors and names a color by its own name", async () => {
     await render();
-    const sky = button("Arbeit");
-    await click(sky);
+    // Direction A: the filter sits behind one button; its menu stays open while choosing.
+    await click(button(t("notes.colorFilter")));
+    await click(menuItem("Arbeit"));
     expect(titles()).toEqual(["Projekt"]);
-    await click(button(t("color.mint")));
+    expect(menuItem("Arbeit").getAttribute("aria-checked")).toBe("true");
+    await click(menuItem(t("color.mint")));
     expect(titles()).toEqual(["Einkaufen", "Projekt"]);
-    await click(button(t("notes.colorFilterClear")));
+    // The button names what is filtered, and "All colors" keeps its place in the menu.
+    const filter = container.querySelector(".color-button");
+    expect(filter?.getAttribute("aria-label")).toBe(
+      t("notes.colorFilterActive", { colors: `${t("color.mint")}, Arbeit` }),
+    );
+    await click(menuItem(t("notes.colorFilterClear")));
     expect(titles()).toEqual(["Einkaufen", "Projekt"]);
-    expect(container.querySelectorAll(".color-chip.on")).toHaveLength(0);
+    expect(container.querySelector(".color-button.on")).toBeNull();
   });
 
   it("shows the calm read-only hint and offers no new note while Hangar keeps the notes", async () => {
@@ -456,12 +484,8 @@ describe("notes area: trash and back", () => {
     await render();
     await click(rowButton("Einkaufen"));
     await type("Einkaufen\nneu");
-    await click(button(t("notes.more")));
-    const trash = Array.from(container.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
-      (element) => element.textContent.includes(t("notes.trash")),
-    );
-    if (!trash) throw new Error("trash item missing");
-    await click(trash);
+    await openAreaMenu();
+    await click(menuItem(t("notes.trash")));
     expect(container.querySelector(".note-editor")).toBeNull();
     await click(button(t("notes.back")));
     const content = container.querySelector(".note-editor .cm-content");
@@ -480,16 +504,19 @@ describe("notes area: trash and back", () => {
 describe("notes area: list", () => {
   it("shows All on a start without a project, and new notes still go to General", async () => {
     await render();
-    const on = container.querySelector('.chip[aria-pressed="true"]');
-    expect(on?.textContent).toBe(t("notes.scopeAll"));
+    expect(container.querySelector(".scope-button")?.textContent).toBe(t("note.allNotes"));
+    await openAreaMenu();
+    const on = container.querySelector('.popup-menu [role="menuitemradio"][aria-checked="true"]');
+    expect(on?.querySelector(".menu-label")?.textContent).toBe(t("note.allNotes"));
+    await openAreaMenu();
     await click(button(t("notes.new")));
     await type("Neu");
     expect(api.createNote).toHaveBeenCalledWith(GENERAL, "Notiz");
   });
 
-  it("switches the window on top from the list menu", async () => {
+  it("switches the window on top from the title menu", async () => {
     await render();
-    await click(button(t("notes.more")));
+    await openAreaMenu();
     const item = Array.from(
       container.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"]'),
     ).find((element) => element.textContent.includes(t("note.keepOnTop")));
@@ -497,15 +524,15 @@ describe("notes area: list", () => {
     if (!item) throw new Error("on-top switch missing");
     await click(item);
     expect(api.setHubOnTop).toHaveBeenCalledWith(true);
-    await click(button(t("notes.more")));
+    await openAreaMenu();
     const again = container.querySelector('[role="menuitemcheckbox"]');
     expect(again?.getAttribute("aria-checked")).toBe("true");
   });
 
-  it("offers On the desktop once, in the note's footer", async () => {
+  it("offers On the desktop once in the open note, at its top", async () => {
     await render();
     await click(rowButton("Einkaufen"));
-    expect(container.querySelector(".note-footer")?.textContent).toContain(t("notes.toDesktop"));
+    expect(container.querySelector(".note-bar")?.textContent).toContain(t("notes.toDesktop"));
     await click(button(t("notes.more")));
     expect(container.querySelector(".popup-menu")?.textContent).not.toContain(t("notes.toDesktop"));
   });
@@ -533,5 +560,102 @@ describe("notes area: list", () => {
     expect(container.textContent).not.toContain(t("notes.empty"));
     await click(button(t("notes.retry")));
     expect(titles()).toEqual(["Einkaufen", "Projekt"]);
+  });
+});
+
+describe("notes area: direction A", () => {
+  it("shows one invitation and nothing else while there are no notes", async () => {
+    api.listNotes.mockResolvedValue([]);
+    await render();
+    const news = Array.from(container.querySelectorAll("button")).filter(
+      (element) => element.textContent === t("notes.new"),
+    );
+    expect(news).toHaveLength(1);
+    expect(container.querySelector('input[type="search"]')).toBeNull();
+    expect(container.querySelector(".color-button")).toBeNull();
+    expect(container.textContent).toContain(t("notes.emptyTitle"));
+  });
+
+  it("opens a row's menu with Shift+F10 and puts the note on the desktop from it", async () => {
+    await render();
+    const row = rowButton("Projekt");
+    await act(async () => {
+      row.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    const menu = container.querySelector(".popup-menu");
+    expect(menu?.getAttribute("aria-label")).toBe(t("notes.actionsFor", { title: "Projekt" }));
+    await click(menuItem(t("notes.toDesktop")));
+    expect(api.toDesktop).toHaveBeenCalledWith(GENERAL, B);
+    expect(container.querySelector(".popup-menu")).toBeNull();
+  });
+
+  it("opens the same menu on a right click and deletes from the row's tools", async () => {
+    await render();
+    const item = rowButton("Projekt").closest("li");
+    if (!item) throw new Error("row item missing");
+    await act(async () => {
+      item.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    expect(container.querySelector(".popup-menu")).not.toBeNull();
+    const tools = Array.from(item.querySelectorAll<HTMLButtonElement>(".row-tools button"));
+    expect(tools.map((tool) => tool.getAttribute("aria-label"))).toEqual([
+      t("notes.color"),
+      t("notes.toDesktop"),
+      t("notes.delete"),
+    ]);
+    await click(tools[2] ?? item);
+    expect(api.deleteNote).toHaveBeenCalledWith(GENERAL, B);
+    expect(container.querySelector(".area-foot")?.textContent).toContain(
+      t("notes.deleted", { title: "Projekt" }),
+    );
+  });
+
+  it("gives only the current row a Tab stop and moves it with the arrow keys", async () => {
+    await render();
+    expect(rowButton("Einkaufen").tabIndex).toBe(0);
+    expect(rowButton("Projekt").tabIndex).toBe(-1);
+    await act(async () => {
+      rowButton("Einkaufen").focus();
+      rowButton("Einkaufen").dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(document.activeElement).toBe(rowButton("Projekt"));
+    expect(rowButton("Projekt").tabIndex).toBe(0);
+    expect(rowButton("Einkaufen").tabIndex).toBe(-1);
+  });
+
+  it("says a failed save in one plain sentence in the footer, never the backend's text", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    api.writeNote.mockRejectedValue("C:/Users/x/notes/Einkaufen.md: Access denied");
+    await type("Einkaufen\nneu");
+    await act(async () => {
+      api.handlers.get("flush:hub")?.();
+      await Promise.resolve();
+    });
+    await settle();
+    const foot = container.querySelector(".area-foot");
+    expect(foot?.querySelector('[role="alert"]')?.textContent).toContain(t("note.saveFailed"));
+    expect(container.textContent).not.toContain("Access denied");
+    // A storage code gets its own sentence and replaces the first notice: never two at once.
+    api.writeNote.mockRejectedValue("disk-full");
+    await click(button(t("notes.retry")));
+    expect(foot?.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(foot?.textContent).toContain(t("storage.diskFull"));
+    // Once a save works, the error is fixed and goes.
+    api.writeNote.mockResolvedValue(null);
+    await type("Einkaufen\nneu\nmehr");
+    await act(async () => {
+      api.handlers.get("flush:hub")?.();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(foot?.querySelector('[role="alert"]')).toBeNull();
   });
 });

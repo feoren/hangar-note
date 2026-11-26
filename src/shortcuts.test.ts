@@ -7,6 +7,7 @@ import {
   letterOf,
   matchHubShortcut,
   matchNoteShortcut,
+  matchRowShortcut,
   platformOf,
   shortcutLabel,
   type Platform,
@@ -220,5 +221,24 @@ describe("notes area shortcuts", () => {
     expect(hubShortcutLabel("quickNote", "windows", de)).toBe("Strg+Umschalt+N");
     expect(hubShortcutLabel("quickNote", "mac", de)).toBe("⇧⌘N");
     expect(hubShortcutLabel("rename", "windows", de)).toBe("F2");
+  });
+});
+
+describe("row shortcuts", () => {
+  it("delete with Delete and open the row menu with the menu key or Shift+F10", () => {
+    expect(matchRowShortcut(press({ key: "Delete", code: "Delete" }))).toBe("delete");
+    expect(matchRowShortcut(press({ key: "ContextMenu", code: "ContextMenu" }))).toBe("menu");
+    expect(matchRowShortcut(press({ key: "F10", code: "F10", shift: true }))).toBe("menu");
+  });
+
+  it("leave other keys and modified ones alone", () => {
+    expect(matchRowShortcut(press({ key: "F10", code: "F10" }))).toBeNull();
+    expect(
+      matchRowShortcut(press({ key: "F10", code: "F10", shift: true, ctrl: true })),
+    ).toBeNull();
+    expect(matchRowShortcut(press({ key: "Delete", code: "Delete", shift: true }))).toBeNull();
+    expect(matchRowShortcut(press({ key: "Delete", code: "Delete", ctrl: true }))).toBeNull();
+    expect(matchRowShortcut(press({ key: "Backspace", code: "Backspace" }))).toBeNull();
+    expect(matchRowShortcut(press({ key: "Enter", code: "Enter" }))).toBeNull();
   });
 });

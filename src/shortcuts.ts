@@ -12,6 +12,9 @@
 //
 // The notes area (Hangar's notes panel) has two of its own: Ctrl+Shift+N starts a quick note and
 // F2 renames the open note, as in Hangar.
+//
+// A row of the notes list has two more: Delete puts the note into the trash, and the context menu
+// key or Shift+F10 opens the row's menu, the keyboard's way to what a right click shows.
 
 import type { Translate } from "./i18n";
 
@@ -83,6 +86,18 @@ export function matchHubShortcut(event: KeyInfo, platform: Platform): HubAction 
   const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
   if (event.key === "F2" && plain) return "rename";
   if (commandKey(event, platform) && event.shiftKey && letterOf(event) === "n") return "quickNote";
+  return null;
+}
+
+export type RowAction = "delete" | "menu";
+
+/** The action for a key press on a row of the notes list, or `null`. */
+export function matchRowShortcut(event: KeyInfo): RowAction | null {
+  const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+  if (event.key === "Delete" && plain) return "delete";
+  if (event.key === "ContextMenu" && plain) return "menu";
+  const onlyShift = event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
+  if (event.key === "F10" && onlyShift) return "menu";
   return null;
 }
 

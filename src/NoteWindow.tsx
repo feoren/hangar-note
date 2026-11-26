@@ -1,6 +1,7 @@
-// One sticky note in its own frameless window (ADR 0001): a header row as the drag region with
-// "New note", the menu and "Close"; the Markdown editor; a slim formatting bar while the focus is
-// anywhere in the note. Typing is saved 500 ms after the last keystroke, at once on blur and
+// One sticky note in its own frameless window (ADR 0001), calm as in direction A: at rest only
+// the text and a slim color strip at the top, which is always there to drag the window by. On
+// hover or while the focus is anywhere in the note, the header ("New note", the menu, "Close")
+// and the formatting bar fade in; their places are kept free, so the text never moves. Typing is saved 500 ms after the last keystroke, at once on blur and
 // close, and before the backend deletes the note from the notes area, quits or flushes.
 //
 // Any note can sit on the desktop (ADR 0002); while it does, this window is its only editor. Its
@@ -41,7 +42,8 @@ import {
 } from "./colors";
 import { copyText } from "./clipboard";
 import { createNoteEditor, type Format, type NoteEditor } from "./editor";
-import { DICTIONARIES, LANGUAGES, useT } from "./i18n";
+import { errorMessage } from "./errors";
+import { DICTIONARIES, LANGUAGES, useT, type MessageKey } from "./i18n";
 import { BulletIcon, CheckIcon, CloseIcon, MoreIcon, PlusIcon, TaskIcon } from "./icons";
 import { createLeaveAnyway } from "./leaveAnyway";
 import { focusFirstItem, moveMenuFocus } from "./menuKeys";
@@ -69,8 +71,12 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
   const [writable, setWritable] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("saved");
+  /** The sentence for the last failed save (errors.ts), never the backend's own text. */
+  const [saveError, setSaveError] = useState<MessageKey>("note.saveFailed");
   const [tooLarge, setTooLarge] = useState(false);
   const [focused, setFocused] = useState(false);
+  /** The pointer is over the note: its tools show, as they do with the focus. */
+  const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   /** Closing was refused because the text is not saved: offer to copy it. */
   const [stuck, setStuck] = useState(false);
@@ -88,8 +94,9 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
       save: async (text) => {
         await writeSticky(text);
       },
-      onState: (state) => {
+      onState: (state, error) => {
         setSaveState(state);
+        if (state === "failed") setSaveError(errorMessage(error, "save")?.key ?? "note.saveFailed");
         if (state === "saved") {
           leaveAnyway.reset();
           setStuck(false);
@@ -347,8 +354,14 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
 
   return (
     <div
-      className="note"
+      className={hovered ? "note hovered" : "note"}
       style={style}
+      onMouseEnter={() => {
+        setHovered(true);
+      }}
+      onMouseLeave={() => {
+        setHovered(false);
+      }}
       // React's focus and blur bubble (focusin and focusout): the bar stays while the focus moves
       // between the editor, the bar and the header, and goes when it leaves the window.
       onFocus={() => {
@@ -359,6 +372,8 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
         if (!(next instanceof Node && event.currentTarget.contains(next))) setFocused(false);
       }}
     >
+      {/* Always there and easy to grab: without a visible header, this moves the window. */}
+      <div className="note-strip" data-tauri-drag-region title={t("note.drag")} />
       <header className="note-head" data-tauri-drag-region>
         <button
           type="button"
@@ -408,25 +423,30 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
             if (moveMenuFocus(event.currentTarget, event.key)) event.preventDefault();
           }}
         >
-          <div className="swatches" role="group" aria-label={t("note.color")}>
+          <p className="menu-heading" aria-hidden="true">
+            {t("note.color")}
+          </p>
+          <div className="menu-swatches" role="group" aria-label={t("note.color")}>
             {NOTE_COLORS.map((option) => (
               <button
                 key={option}
                 type="button"
                 role="menuitemradio"
                 aria-checked={option === color}
-                className="swatch"
+                className={option === color ? "menu-swatch on" : "menu-swatch"}
                 title={colorName(option, colorNames, t)}
                 aria-label={colorName(option, colorNames, t)}
-                style={{ background: swatchColor(option) }}
                 onClick={() => {
                   pickColor(option);
                 }}
               >
-                {option === color && <CheckIcon size={14} />}
+                <span className="swatch-dot" style={dotStyle(option)}>
+                  {option === color && <CheckIcon size={12} />}
+                </span>
               </button>
             ))}
           </div>
+          <div className="menu-separator" role="separator" />
           <button
             type="button"
             role="menuitemcheckbox"
@@ -481,7 +501,7 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
 
       {(tooLarge || saveState === "failed") && !stuck && (
         <p className="note-message note-error" role="status">
-          {tooLarge ? t("note.tooLarge") : t("note.saveFailed")}
+          {tooLarge ? t("note.tooLarge") : t(saveError)}
         </p>
       )}
 
@@ -505,32 +525,42 @@ export function NoteWindow({ label, theme, colorNames }: Props) {
         </div>
       )}
 
-      {focused && writable && (
-        <div className="format-bar" role="toolbar" aria-label={t("format.bar")}>
-          {FORMATS.map((format) => (
-            <button
-              key={format}
-              type="button"
-              className={`icon-button format-${format}`}
-              title={withKeys(formatLabel(format), format)}
-              aria-label={formatLabel(format)}
-              // Keeps the focus (and the selection) in the editor.
-              onMouseDown={(event) => {
-                event.preventDefault();
-              }}
-              onClick={() => {
-                editor.current?.format(format);
-              }}
-            >
-              {format === "bold" && <b>B</b>}
-              {format === "italic" && <i>I</i>}
-              {format === "strike" && <s>S</s>}
-              {format === "bullet" && <BulletIcon />}
-              {format === "task" && <TaskIcon />}
-            </button>
-          ))}
+      {writable && (
+        // The bar's place stays free while it is hidden, so the text does not jump when it shows.
+        <div className="format-slot">
+          {(focused || hovered) && (
+            <div className="format-bar" role="toolbar" aria-label={t("format.bar")}>
+              {FORMATS.map((format) => (
+                <button
+                  key={format}
+                  type="button"
+                  className={`icon-button format-${format}`}
+                  title={withKeys(formatLabel(format), format)}
+                  aria-label={formatLabel(format)}
+                  // Keeps the focus (and the selection) in the editor.
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                  }}
+                  onClick={() => {
+                    editor.current?.format(format);
+                  }}
+                >
+                  {format === "bold" && <b>B</b>}
+                  {format === "italic" && <i>I</i>}
+                  {format === "strike" && <s>S</s>}
+                  {format === "bullet" && <BulletIcon />}
+                  {format === "task" && <TaskIcon />}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
+}
+
+/** The color dot of a swatch as a custom property (styles.css draws the dot). */
+function dotStyle(color: NoteColor): Record<string, string> {
+  return { "--dot": swatchColor(color) };
 }

@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { colorLabelKey, contrastRatio, isNoteColor, NOTE_COLORS, NOTE_TONES } from "./colors";
@@ -37,6 +40,29 @@ describe("note colors", () => {
     }
   });
 
+  it.each(["light", "dark"] as const)(
+    "keep their edge at 3 : 1 on every surface of the %s theme",
+    (theme) => {
+      // The surfaces a row or the open note sits on, read from the tokens themselves.
+      const surfaces = chromeTokens(theme);
+      for (const color of NOTE_COLORS) {
+        for (const surface of ["--bg", "--panel", "--panel-raised", "--hover"] as const) {
+          const background = surfaces[surface];
+          expect(background, `${theme} ${surface}`).toMatch(/^#[0-9a-f]{6}$/i);
+          expect(
+            contrastRatio(NOTE_TONES[theme][color].edge, background ?? ""),
+            `${theme} ${color} edge on ${surface}`,
+          ).toBeGreaterThanOrEqual(3);
+        }
+      }
+    },
+  );
+
+  it("measure the edges of Mint and Sand on the hover surface, which the draft missed", () => {
+    expect(contrastRatio(NOTE_TONES.light.mint.edge, "#e6eaef")).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(NOTE_TONES.light.sand.edge, "#e6eaef")).toBeGreaterThanOrEqual(3);
+  });
+
   it("stay apart from each other within a theme", () => {
     for (const theme of ["light", "dark"] as const) {
       const backgrounds = NOTE_COLORS.map((color) => NOTE_TONES[theme][color].background);
@@ -58,3 +84,17 @@ describe("note colors", () => {
     expect(contrastRatio("#767676", "#ffffff")).toBeCloseTo(4.54, 2);
   });
 });
+
+/** The custom properties of a theme in styles.css: dark in `:root`, light in its own block. */
+function chromeTokens(theme: "light" | "dark"): Record<string, string> {
+  const css = readFileSync(join(import.meta.dirname, "styles.css"), "utf8");
+  const selector = theme === "dark" ? ":root {" : ':root[data-theme="light"] {';
+  const start = css.indexOf(selector);
+  const block = css.slice(start, css.indexOf("}", start));
+  return Object.fromEntries(
+    Array.from(block.matchAll(/(--[\w-]+):\s*(#[0-9a-f]{6})\s*;/gi), (m) => [
+      m[1] ?? "",
+      m[2] ?? "",
+    ]),
+  );
+}

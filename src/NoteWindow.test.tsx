@@ -54,7 +54,9 @@ const api = vi.hoisted(() => {
   };
 });
 
-vi.mock("./api", () => ({
+// The real error codes and their helpers (errors.ts reads them); the commands are mocked.
+vi.mock("./api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./api")>()),
   MAX_NOTE_BYTES: 1024 * 1024,
   utf8Bytes: (text: string) => new TextEncoder().encode(text).length,
   getSticky: api.getSticky,
@@ -372,5 +374,30 @@ describe("note window", () => {
     await press("Escape");
     expect(container.querySelector("[role=menu]")).toBeNull();
     expect(document.activeElement).toBe(button);
+  });
+
+  it("is always movable by its color strip, and shows its tools on hover", async () => {
+    await render();
+    const strip = get(".note-strip", HTMLElement);
+    expect(strip.hasAttribute("data-tauri-drag-region")).toBe(true);
+    expect(strip.title).toBe(t("note.drag"));
+    expect(bar()).toBeNull();
+    const note = get(".note", HTMLElement);
+    await act(async () => {
+      note.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: outside }));
+      await Promise.resolve();
+    });
+    expect(bar()).not.toBeNull();
+    // The bar's place is kept while it is hidden, so the text never jumps.
+    expect(container.querySelector(".format-slot")).not.toBeNull();
+  });
+
+  it("says why a save failed in a plain sentence", async () => {
+    api.writeSticky.mockRejectedValue("disk-full");
+    await render();
+    await type("Nur hier");
+    await request("flush");
+    expect(container.textContent).toContain(t("storage.diskFull"));
+    expect(container.textContent).not.toContain("disk-full");
   });
 });

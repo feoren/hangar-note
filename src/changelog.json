@@ -88,6 +88,34 @@
         "zh": "八种颜色帮你整理笔记。可按一种或多种颜色筛选，并为每种颜色起自己的名字。"
       },
       {
+        "de": "Ruhig und aufgeräumt: Einfärben, auf den Desktop legen und Löschen gehen direkt an der Zeile, auch per Rechtsklick oder Umschalt+F10.",
+        "en": "Calm and tidy: color a note, put it on the desktop or delete it right from its row, also with a right click or Shift+F10.",
+        "el": "Ήρεμο και τακτοποιημένο: χρωμάτισε μια σημείωση, βάλ' την στην επιφάνεια εργασίας ή διάγραψέ την από τη γραμμή της, και με δεξί κλικ ή Shift+F10.",
+        "es": "Tranquilo y ordenado: colorea una nota, ponla en el escritorio o elimínala desde su fila, también con clic derecho o Mayús+F10.",
+        "fr": "Calme et rangé : colore une note, pose-la sur le bureau ou supprime-la depuis sa ligne, aussi par clic droit ou Maj+F10.",
+        "it": "Calmo e ordinato: colora una nota, mettila sul desktop o eliminala dalla sua riga, anche con il clic destro o Maiusc+F10.",
+        "ja": "すっきり落ち着いた画面になりました。色分け、デスクトップへの配置、削除は一覧の行から直接できます。右クリックや Shift+F10 でも操作できます。",
+        "pl": "Spokojnie i porządnie: pokoloruj notatkę, połóż ją na pulpicie albo usuń prosto z jej wiersza, także prawym kliknięciem lub Shift+F10.",
+        "pt": "Calmo e organizado: dê cor a uma nota, coloque-a na área de trabalho ou exclua-a direto da linha, também com clique direito ou Shift+F10.",
+        "ru": "Спокойно и аккуратно: раскрась заметку, положи её на рабочий стол или удали прямо из строки, также правым кликом или Shift+F10.",
+        "tr": "Sakin ve düzenli: bir notu renklendir, masaüstüne koy ya da doğrudan satırından sil; sağ tık veya Shift+F10 ile de olur.",
+        "zh": "界面更安静整洁：直接在列表行里给笔记上色、放到桌面或删除，也可以右键或按 Shift+F10。"
+      },
+      {
+        "de": "Geht etwas schief, sagt dir ein klarer Satz unten im Fenster, was passiert ist und was hilft.",
+        "en": "If something goes wrong, one plain sentence at the bottom of the window says what happened and what helps.",
+        "el": "Αν κάτι πάει στραβά, μια απλή πρόταση στο κάτω μέρος του παραθύρου σου λέει τι έγινε και τι βοηθά.",
+        "es": "Si algo sale mal, una frase clara abajo en la ventana te dice qué pasó y qué ayuda.",
+        "fr": "Si quelque chose ne va pas, une phrase simple en bas de la fenêtre te dit ce qui s'est passé et ce qui aide.",
+        "it": "Se qualcosa va storto, una frase chiara in fondo alla finestra ti dice cosa è successo e cosa aiuta.",
+        "ja": "うまくいかないときは、何が起きたか、どうすればよいかをウィンドウ下部に短い文で表示します。",
+        "pl": "Gdy coś pójdzie nie tak, jedno proste zdanie na dole okna powie ci, co się stało i co pomoże.",
+        "pt": "Se algo der errado, uma frase simples na parte de baixo da janela diz o que aconteceu e o que ajuda.",
+        "ru": "Если что-то пошло не так, одна простая фраза внизу окна скажет, что случилось и что поможет.",
+        "tr": "Bir şey ters giderse pencerenin altındaki tek ve açık bir cümle ne olduğunu ve neyin yardımcı olacağını söyler.",
+        "zh": "出错时，窗口底部会用一句简单的话告诉你发生了什么、怎样解决。"
+      },
+      {
         "de": "Gelöschtes holst du mit Rückgängig oder über „Zuletzt gelöscht“ zurück. Notizen kannst du exportieren und als Markdown kopieren.",
         "en": "Bring deleted notes back with Undo or from “Recently deleted”. You can export notes and copy them as Markdown.",
         "el": "Φέρε πίσω ό,τι διέγραψες με Αναίρεση ή από τις «Πρόσφατα διαγραμμένες». Μπορείς να εξάγεις σημειώσεις και να τις αντιγράφεις ως Markdown.",

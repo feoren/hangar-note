@@ -71,6 +71,12 @@ Window model option 1, storage option 1, editor option 1, Hangar relation option
   lines, last change), click opens or brings the note to the front, a context menu with "Delete".
   A small settings area: language, theme (system, light, dark), start with the system, color of
   new notes.
+- **Changed on 2026-11-26 (direction A, see [[usability-pass]]):** the sticky note shows only its
+  text at rest; a 10 px color strip at the top is always its drag region, and the header and the
+  formatting bar fade in on hover or focus in places kept free for them. The "All notes" window is
+  the notes area of [[0002-hangar-notes-takeover]]: a title menu with the scopes and the former list
+  menu, a list whose rows show the color as a thin edge and carry tools and a context menu, the
+  open note as a page, and one notice place in the footer (`src/notices.ts`, `src/errors.ts`).
 - **Tray icon:** "All notes", "New note", "Show all notes", "Quit". Closing the "All notes" window
   hides it; "Quit" ends the app. Without a working tray (some Linux desktops), closing the last
   window quits.

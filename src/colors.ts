@@ -29,6 +29,12 @@ export interface NoteTone {
   muted: string;
   /** Links and ticked checkboxes. */
   accent: string;
+  /**
+   * The color as a thin edge on the app's own surfaces (a list row, the top of the open note): a
+   * stronger tone that keeps 3 : 1 against the background, the panel and the hover surface of its
+   * theme (colors.test.ts reads them from styles.css).
+   */
+  edge: string;
 }
 
 const LIGHT_TEXT = "#1f2328";
@@ -38,34 +44,34 @@ const DARK_TEXT = "#e6edf3";
 const DARK_MUTED = "#b3bcc6";
 const DARK_ACCENT = "#6cb6ff";
 
-function light(background: string, header: string): NoteTone {
-  return { background, header, text: LIGHT_TEXT, muted: LIGHT_MUTED, accent: LIGHT_ACCENT };
+function light(background: string, header: string, edge: string): NoteTone {
+  return { background, header, text: LIGHT_TEXT, muted: LIGHT_MUTED, accent: LIGHT_ACCENT, edge };
 }
 
-function dark(background: string, header: string): NoteTone {
-  return { background, header, text: DARK_TEXT, muted: DARK_MUTED, accent: DARK_ACCENT };
+function dark(background: string, header: string, edge: string): NoteTone {
+  return { background, header, text: DARK_TEXT, muted: DARK_MUTED, accent: DARK_ACCENT, edge };
 }
 
 export const NOTE_TONES: Record<Theme, Record<NoteColor, NoteTone>> = {
   light: {
-    lemon: light("#fff7c2", "#fbec9a"),
-    peach: light("#ffe6d1", "#fdd3b0"),
-    mint: light("#dcf5e5", "#c3ecd2"),
-    sky: light("#dcedfd", "#c5e0fa"),
-    lilac: light("#ede5ff", "#ddd0fb"),
-    rose: light("#ffe2eb", "#fbcbda"),
-    sand: light("#f4ecdc", "#e9dcc4"),
-    slate: light("#e5e9ef", "#d3dae3"),
+    lemon: light("#fff7c2", "#fbec9a", "#8f7600"),
+    peach: light("#ffe6d1", "#fdd3b0", "#c25a16"),
+    mint: light("#dcf5e5", "#c3ecd2", "#2f8a5e"),
+    sky: light("#dcedfd", "#c5e0fa", "#3b82d6"),
+    lilac: light("#ede5ff", "#ddd0fb", "#8a63d2"),
+    rose: light("#ffe2eb", "#fbcbda", "#c94473"),
+    sand: light("#f4ecdc", "#e9dcc4", "#96764a"),
+    slate: light("#e5e9ef", "#d3dae3", "#6e7781"),
   },
   dark: {
-    lemon: dark("#3a3415", "#47401a"),
-    peach: dark("#3e2a1c", "#4b3322"),
-    mint: dark("#1d382a", "#244433"),
-    sky: dark("#1b2f46", "#223a55"),
-    lilac: dark("#2e2645", "#382e54"),
-    rose: dark("#40232f", "#4d2a39"),
-    sand: dark("#383127", "#443c30"),
-    slate: dark("#262d36", "#303843"),
+    lemon: dark("#3a3415", "#47401a", "#e3c84a"),
+    peach: dark("#3e2a1c", "#4b3322", "#f0955a"),
+    mint: dark("#1d382a", "#244433", "#5cc08b"),
+    sky: dark("#1b2f46", "#223a55", "#5aa9ff"),
+    lilac: dark("#2e2645", "#382e54", "#a98bf0"),
+    rose: dark("#40232f", "#4d2a39", "#ee77a0"),
+    sand: dark("#383127", "#443c30", "#cbb08a"),
+    slate: dark("#262d36", "#303843", "#8592a3"),
   },
 };
 
@@ -107,6 +113,7 @@ export function toneVariables(tone: NoteTone): Record<string, string> {
     "--note-text": tone.text,
     "--note-muted": tone.muted,
     "--note-accent": tone.accent,
+    "--note-edge": tone.edge,
   };
 }
 

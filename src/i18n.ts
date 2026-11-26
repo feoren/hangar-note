@@ -130,9 +130,7 @@ const de = {
   "notes.deletedAgo": "Gelöscht: {time}",
   "notes.capturedNew": "In einer neuen schnellen Notiz gesichert.",
   "notes.placeholder": "Schreib los. Markdown geht: # Überschrift, **fett**, - Liste",
-  "notes.saveFailed": "Notiz nicht gespeichert: {error}",
   "notes.dismiss": "Meldung schließen",
-  "notes.actionFailed": "Das hat nicht geklappt: {error}",
   "storage.denied": "Hangar Note darf diese Datei nicht ändern. Ist sie schreibgeschützt?",
   "storage.diskFull": "Die Festplatte ist voll.",
   "storage.tooLarge": "Die Notiz ist zu groß. Gespeichert wird höchstens 1 MiB.",
@@ -183,6 +181,20 @@ const de = {
     "Nicht gespeichert. Kopier den Text als Markdown. Wechselst du innerhalb von 10 Sekunden noch einmal, geht das Ungespeicherte verloren.",
   "note.closeUnsaved":
     "Nicht gespeichert. Kopier den Text als Markdown. Schließt du innerhalb von 10 Sekunden noch einmal, geht das Ungespeicherte verloren.",
+  "notes.reloadList": "Liste neu laden",
+  "error.failed": "Das hat nicht geklappt. Versuch es noch einmal.",
+  "error.onDesktop": "Diese Notiz liegt auf dem Desktop. Bearbeite sie in ihrer Haftnotiz.",
+  "notes.searchShort": "Suchen",
+  "notes.colorFilterActive": "Nach Farbe gefiltert: {colors}",
+  "notes.areaMenu": "Bereiche und Einstellungen",
+  "notes.saved": "Gespeichert",
+  "notes.saving": "Speichert …",
+  "notes.emptyTitle": "Noch keine Notizen",
+  "notes.emptyLead":
+    "Schreib auf, was du nicht vergessen willst. Alles wird beim Tippen gespeichert.",
+  "notes.actionsFor": "Aktionen für „{title}“",
+  "note.drag": "Zum Verschieben ziehen",
+  "key.delete": "Entf",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof de;
@@ -290,9 +302,7 @@ const en: Record<MessageKey, string> = {
   "notes.deletedAgo": "Deleted {time}",
   "notes.capturedNew": "Added to a new quick note.",
   "notes.placeholder": "Start writing. Markdown works: # Heading, **bold**, - list",
-  "notes.saveFailed": "Note not saved: {error}",
   "notes.dismiss": "Dismiss message",
-  "notes.actionFailed": "That did not work: {error}",
   "storage.denied": "Hangar Note may not change this file. Is it read-only?",
   "storage.diskFull": "The disk is full.",
   "storage.tooLarge": "This note is too large. At most 1 MiB is saved.",
@@ -340,6 +350,19 @@ const en: Record<MessageKey, string> = {
     "Not saved. Copy the text as Markdown. Leave again within 10 seconds and the unsaved text is lost.",
   "note.closeUnsaved":
     "Not saved. Copy the text as Markdown. Close again within 10 seconds and the unsaved text is lost.",
+  "notes.reloadList": "Reload the list",
+  "error.failed": "That did not work. Try again.",
+  "error.onDesktop": "This note is on the desktop. Edit it in its sticky note.",
+  "notes.searchShort": "Search",
+  "notes.colorFilterActive": "Filtered by color: {colors}",
+  "notes.areaMenu": "Areas and settings",
+  "notes.saved": "Saved",
+  "notes.saving": "Saving…",
+  "notes.emptyTitle": "No notes yet",
+  "notes.emptyLead": "Write down what you don’t want to forget. Everything is saved as you type.",
+  "notes.actionsFor": "Actions for “{title}”",
+  "note.drag": "Drag to move",
+  "key.delete": "Del",
 };
 
 const el: Record<MessageKey, string> = {
@@ -446,9 +469,7 @@ const el: Record<MessageKey, string> = {
   "notes.capturedNew": "Προστέθηκε σε νέα γρήγορη σημείωση.",
   "notes.placeholder":
     "Ξεκίνα να γράφεις. Υποστηρίζεται Markdown: # Επικεφαλίδα, **έντονα**, - λίστα",
-  "notes.saveFailed": "Η σημείωση δεν αποθηκεύτηκε: {error}",
   "notes.dismiss": "Κλείσιμο μηνύματος",
-  "notes.actionFailed": "Αυτό δεν πέτυχε: {error}",
   "storage.denied":
     "Το Hangar Note δεν μπορεί να αλλάξει αυτό το αρχείο. Μήπως είναι μόνο για ανάγνωση;",
   "storage.diskFull": "Ο δίσκος είναι γεμάτος.",
@@ -501,6 +522,20 @@ const el: Record<MessageKey, string> = {
     "Δεν αποθηκεύτηκε. Αντίγραψε το κείμενο ως Markdown. Αν φύγεις ξανά μέσα σε 10 δευτερόλεπτα, το μη αποθηκευμένο κείμενο χάνεται.",
   "note.closeUnsaved":
     "Δεν αποθηκεύτηκε. Αντίγραψε το κείμενο ως Markdown. Αν την κλείσεις ξανά μέσα σε 10 δευτερόλεπτα, το μη αποθηκευμένο κείμενο χάνεται.",
+  "notes.reloadList": "Φόρτωσε ξανά τη λίστα",
+  "error.failed": "Αυτό δεν πέτυχε. Δοκίμασε ξανά.",
+  "error.onDesktop":
+    "Αυτή η σημείωση είναι στην επιφάνεια εργασίας. Επεξεργάσου τη στο αυτοκόλλητό της.",
+  "notes.searchShort": "Αναζήτηση",
+  "notes.colorFilterActive": "Φιλτράρισμα κατά χρώμα: {colors}",
+  "notes.areaMenu": "Περιοχές και ρυθμίσεις",
+  "notes.saved": "Αποθηκεύτηκε",
+  "notes.saving": "Αποθήκευση…",
+  "notes.emptyTitle": "Δεν υπάρχουν ακόμη σημειώσεις",
+  "notes.emptyLead": "Γράψε ό,τι δεν θέλεις να ξεχάσεις. Όλα αποθηκεύονται καθώς πληκτρολογείς.",
+  "notes.actionsFor": "Ενέργειες για «{title}»",
+  "note.drag": "Σύρε για μετακίνηση",
+  "key.delete": "Delete",
 };
 
 const es: Record<MessageKey, string> = {
@@ -606,9 +641,7 @@ const es: Record<MessageKey, string> = {
   "notes.deletedAgo": "Eliminada {time}",
   "notes.capturedNew": "Añadido a una nueva nota rápida.",
   "notes.placeholder": "Empieza a escribir. Admite Markdown: # Título, **negrita**, - lista",
-  "notes.saveFailed": "Nota no guardada: {error}",
   "notes.dismiss": "Cerrar mensaje",
-  "notes.actionFailed": "No ha funcionado: {error}",
   "storage.denied":
     "Hangar Note no puede modificar este archivo. ¿Está protegido contra escritura?",
   "storage.diskFull": "El disco está lleno.",
@@ -656,6 +689,19 @@ const es: Record<MessageKey, string> = {
     "No guardado. Copia el texto como Markdown. Si vuelves a salir en menos de 10 segundos, se pierde el texto sin guardar.",
   "note.closeUnsaved":
     "No guardado. Copia el texto como Markdown. Si vuelves a cerrar en menos de 10 segundos, se pierde el texto sin guardar.",
+  "notes.reloadList": "Recargar la lista",
+  "error.failed": "No ha funcionado. Inténtalo de nuevo.",
+  "error.onDesktop": "Esta nota está en el escritorio. Edítala en su nota adhesiva.",
+  "notes.searchShort": "Buscar",
+  "notes.colorFilterActive": "Filtrado por color: {colors}",
+  "notes.areaMenu": "Áreas y ajustes",
+  "notes.saved": "Guardado",
+  "notes.saving": "Guardando…",
+  "notes.emptyTitle": "Aún no hay notas",
+  "notes.emptyLead": "Apunta lo que no quieras olvidar. Todo se guarda mientras escribes.",
+  "notes.actionsFor": "Acciones para «{title}»",
+  "note.drag": "Arrastra para mover",
+  "key.delete": "Supr",
 };
 
 const fr: Record<MessageKey, string> = {
@@ -761,9 +807,7 @@ const fr: Record<MessageKey, string> = {
   "notes.deletedAgo": "Supprimée {time}",
   "notes.capturedNew": "Ajouté à une nouvelle note rapide.",
   "notes.placeholder": "Commence à écrire. Markdown fonctionne : # Titre, **gras**, - liste",
-  "notes.saveFailed": "Note non enregistrée : {error}",
   "notes.dismiss": "Fermer le message",
-  "notes.actionFailed": "Ça n’a pas marché : {error}",
   "storage.denied": "Hangar Note ne peut pas modifier ce fichier. Est-il protégé en écriture ?",
   "storage.diskFull": "Le disque est plein.",
   "storage.tooLarge": "La note est trop volumineuse. 1 Mio au maximum est enregistré.",
@@ -814,6 +858,20 @@ const fr: Record<MessageKey, string> = {
     "Non enregistré. Copie le texte en Markdown. Si tu quittes à nouveau dans les 10 secondes, le texte non enregistré est perdu.",
   "note.closeUnsaved":
     "Non enregistré. Copie le texte en Markdown. Si tu fermes à nouveau dans les 10 secondes, le texte non enregistré est perdu.",
+  "notes.reloadList": "Recharger la liste",
+  "error.failed": "Ça n’a pas marché. Réessaie.",
+  "error.onDesktop": "Cette note est sur le bureau. Modifie-la dans son pense-bête.",
+  "notes.searchShort": "Rechercher",
+  "notes.colorFilterActive": "Filtré par couleur : {colors}",
+  "notes.areaMenu": "Zones et réglages",
+  "notes.saved": "Enregistré",
+  "notes.saving": "Enregistrement…",
+  "notes.emptyTitle": "Pas encore de notes",
+  "notes.emptyLead":
+    "Note ce que tu ne veux pas oublier. Tout est enregistré pendant que tu tapes.",
+  "notes.actionsFor": "Actions pour « {title} »",
+  "note.drag": "Fais glisser pour déplacer",
+  "key.delete": "Suppr",
 };
 
 const it: Record<MessageKey, string> = {
@@ -919,9 +977,7 @@ const it: Record<MessageKey, string> = {
   "notes.deletedAgo": "Eliminata {time}",
   "notes.capturedNew": "Aggiunto a una nuova nota veloce.",
   "notes.placeholder": "Inizia a scrivere. Markdown funziona: # Titolo, **grassetto**, - elenco",
-  "notes.saveFailed": "Nota non salvata: {error}",
   "notes.dismiss": "Chiudi messaggio",
-  "notes.actionFailed": "Non ha funzionato: {error}",
   "storage.denied": "Hangar Note non può modificare questo file. È di sola lettura?",
   "storage.diskFull": "Il disco è pieno.",
   "storage.tooLarge": "La nota è troppo grande. Viene salvato al massimo 1 MiB.",
@@ -971,6 +1027,19 @@ const it: Record<MessageKey, string> = {
     "Non salvata. Copia il testo come Markdown. Se esci di nuovo entro 10 secondi, il testo non salvato va perso.",
   "note.closeUnsaved":
     "Non salvata. Copia il testo come Markdown. Se chiudi di nuovo entro 10 secondi, il testo non salvato va perso.",
+  "notes.reloadList": "Ricarica l’elenco",
+  "error.failed": "Non ha funzionato. Riprova.",
+  "error.onDesktop": "Questa nota è sul desktop. Modificala nel suo post-it.",
+  "notes.searchShort": "Cerca",
+  "notes.colorFilterActive": "Filtrato per colore: {colors}",
+  "notes.areaMenu": "Aree e impostazioni",
+  "notes.saved": "Salvato",
+  "notes.saving": "Salvataggio…",
+  "notes.emptyTitle": "Ancora nessuna nota",
+  "notes.emptyLead": "Scrivi ciò che non vuoi dimenticare. Tutto viene salvato mentre scrivi.",
+  "notes.actionsFor": "Azioni per «{title}»",
+  "note.drag": "Trascina per spostare",
+  "key.delete": "Canc",
 };
 
 const ja: Record<MessageKey, string> = {
@@ -1075,9 +1144,7 @@ const ja: Record<MessageKey, string> = {
   "notes.deletedAgo": "{time}に削除",
   "notes.capturedNew": "新しいクイックメモに追加しました。",
   "notes.placeholder": "書き始めましょう。Markdown が使えます: # 見出し、**太字**、- リスト",
-  "notes.saveFailed": "メモを保存できませんでした: {error}",
   "notes.dismiss": "メッセージを閉じる",
-  "notes.actionFailed": "うまくいきませんでした: {error}",
   "storage.denied": "Hangar Note はこのファイルを変更できません。読み取り専用になっていませんか？",
   "storage.diskFull": "ディスクがいっぱいです。",
   "storage.tooLarge": "メモが大きすぎます。保存できるのは最大 1 MiB です。",
@@ -1126,6 +1193,19 @@ const ja: Record<MessageKey, string> = {
     "保存されていません。テキストを Markdown としてコピーしてください。10 秒以内にもう一度移動すると、保存されていないテキストは失われます。",
   "note.closeUnsaved":
     "保存されていません。テキストを Markdown としてコピーしてください。10 秒以内にもう一度閉じると、保存されていないテキストは失われます。",
+  "notes.reloadList": "一覧を再読み込み",
+  "error.failed": "うまくいきませんでした。もう一度お試しください。",
+  "error.onDesktop": "このメモはデスクトップにあります。付箋で編集してください。",
+  "notes.searchShort": "検索",
+  "notes.colorFilterActive": "色で絞り込み中: {colors}",
+  "notes.areaMenu": "領域と設定",
+  "notes.saved": "保存済み",
+  "notes.saving": "保存中…",
+  "notes.emptyTitle": "まだメモはありません",
+  "notes.emptyLead": "忘れたくないことを書き留めましょう。入力すると自動で保存されます。",
+  "notes.actionsFor": "「{title}」の操作",
+  "note.drag": "ドラッグして移動",
+  "key.delete": "Delete",
 };
 
 const pl: Record<MessageKey, string> = {
@@ -1231,9 +1311,7 @@ const pl: Record<MessageKey, string> = {
   "notes.deletedAgo": "Usunięto {time}",
   "notes.capturedNew": "Dodano do nowej szybkiej notatki.",
   "notes.placeholder": "Zacznij pisać. Działa Markdown: # Nagłówek, **pogrubienie**, - lista",
-  "notes.saveFailed": "Notatka nie została zapisana: {error}",
   "notes.dismiss": "Zamknij komunikat",
-  "notes.actionFailed": "Nie udało się: {error}",
   "storage.denied": "Hangar Note nie może zmienić tego pliku. Czy jest tylko do odczytu?",
   "storage.diskFull": "Dysk jest pełny.",
   "storage.tooLarge": "Notatka jest za duża. Zapisywany jest najwyżej 1 MiB.",
@@ -1281,6 +1359,20 @@ const pl: Record<MessageKey, string> = {
     "Nie zapisano. Skopiuj tekst jako Markdown. Jeśli w ciągu 10 sekund spróbujesz ponownie wyjść, niezapisany tekst przepadnie.",
   "note.closeUnsaved":
     "Nie zapisano. Skopiuj tekst jako Markdown. Jeśli w ciągu 10 sekund spróbujesz ponownie zamknąć, niezapisany tekst przepadnie.",
+  "notes.reloadList": "Wczytaj listę ponownie",
+  "error.failed": "Nie udało się. Spróbuj ponownie.",
+  "error.onDesktop": "Ta notatka jest na pulpicie. Edytuj ją na jej karteczce.",
+  "notes.searchShort": "Szukaj",
+  "notes.colorFilterActive": "Filtr koloru: {colors}",
+  "notes.areaMenu": "Obszary i ustawienia",
+  "notes.saved": "Zapisano",
+  "notes.saving": "Zapisywanie…",
+  "notes.emptyTitle": "Nie ma jeszcze notatek",
+  "notes.emptyLead":
+    "Zapisz to, czego nie chcesz zapomnieć. Wszystko zapisuje się w trakcie pisania.",
+  "notes.actionsFor": "Działania dla „{title}”",
+  "note.drag": "Przeciągnij, aby przenieść",
+  "key.delete": "Delete",
 };
 
 const pt: Record<MessageKey, string> = {
@@ -1386,9 +1478,7 @@ const pt: Record<MessageKey, string> = {
   "notes.deletedAgo": "Excluída {time}",
   "notes.capturedNew": "Adicionado a uma nova nota rápida.",
   "notes.placeholder": "Comece a escrever. Markdown funciona: # Título, **negrito**, - lista",
-  "notes.saveFailed": "Nota não salva: {error}",
   "notes.dismiss": "Fechar mensagem",
-  "notes.actionFailed": "Não deu certo: {error}",
   "storage.denied":
     "O Hangar Note não pode alterar este arquivo. Ele está protegido contra gravação?",
   "storage.diskFull": "O disco está cheio.",
@@ -1439,6 +1529,19 @@ const pt: Record<MessageKey, string> = {
     "Não salva. Copie o texto como Markdown. Se sair de novo em até 10 segundos, o texto não salvo será perdido.",
   "note.closeUnsaved":
     "Não salva. Copie o texto como Markdown. Se fechar de novo em até 10 segundos, o texto não salvo será perdido.",
+  "notes.reloadList": "Recarregar a lista",
+  "error.failed": "Não deu certo. Tente de novo.",
+  "error.onDesktop": "Esta nota está na área de trabalho. Edite-a na nota adesiva dela.",
+  "notes.searchShort": "Buscar",
+  "notes.colorFilterActive": "Filtrado por cor: {colors}",
+  "notes.areaMenu": "Áreas e configurações",
+  "notes.saved": "Salvo",
+  "notes.saving": "Salvando…",
+  "notes.emptyTitle": "Ainda não há notas",
+  "notes.emptyLead": "Anote o que você não quer esquecer. Tudo é salvo enquanto você digita.",
+  "notes.actionsFor": "Ações para “{title}”",
+  "note.drag": "Arraste para mover",
+  "key.delete": "Delete",
 };
 
 const ru: Record<MessageKey, string> = {
@@ -1544,9 +1647,7 @@ const ru: Record<MessageKey, string> = {
   "notes.deletedAgo": "Удалено {time}",
   "notes.capturedNew": "Добавлено в новую быструю заметку.",
   "notes.placeholder": "Начни писать. Markdown работает: # Заголовок, **жирный**, - список",
-  "notes.saveFailed": "Заметка не сохранена: {error}",
   "notes.dismiss": "Закрыть сообщение",
-  "notes.actionFailed": "Не получилось: {error}",
   "storage.denied": "Hangar Note не может изменить этот файл. Может, он только для чтения?",
   "storage.diskFull": "Диск заполнен.",
   "storage.tooLarge": "Заметка слишком большая. Сохраняется не больше 1 МиБ.",
@@ -1596,6 +1697,19 @@ const ru: Record<MessageKey, string> = {
     "Не сохранено. Скопируй текст как Markdown. Если уйдёшь ещё раз в течение 10 секунд, несохранённый текст пропадёт.",
   "note.closeUnsaved":
     "Не сохранено. Скопируй текст как Markdown. Если закроешь ещё раз в течение 10 секунд, несохранённый текст пропадёт.",
+  "notes.reloadList": "Обновить список",
+  "error.failed": "Не получилось. Попробуй ещё раз.",
+  "error.onDesktop": "Эта заметка на рабочем столе. Редактируй её в стикере.",
+  "notes.searchShort": "Поиск",
+  "notes.colorFilterActive": "Фильтр по цвету: {colors}",
+  "notes.areaMenu": "Области и настройки",
+  "notes.saved": "Сохранено",
+  "notes.saving": "Сохранение…",
+  "notes.emptyTitle": "Заметок пока нет",
+  "notes.emptyLead": "Запиши то, что не хочешь забыть. Всё сохраняется прямо при вводе.",
+  "notes.actionsFor": "Действия для «{title}»",
+  "note.drag": "Перетащи, чтобы переместить",
+  "key.delete": "Delete",
 };
 
 const tr: Record<MessageKey, string> = {
@@ -1700,9 +1814,7 @@ const tr: Record<MessageKey, string> = {
   "notes.deletedAgo": "Silindi: {time}",
   "notes.capturedNew": "Yeni bir hızlı nota eklendi.",
   "notes.placeholder": "Yazmaya başla. Markdown çalışır: # Başlık, **kalın**, - liste",
-  "notes.saveFailed": "Not kaydedilmedi: {error}",
   "notes.dismiss": "Mesajı kapat",
-  "notes.actionFailed": "Olmadı: {error}",
   "storage.denied": "Hangar Note bu dosyayı değiştiremiyor. Dosya salt okunur mu?",
   "storage.diskFull": "Disk dolu.",
   "storage.tooLarge": "Not çok büyük. En fazla 1 MiB kaydedilir.",
@@ -1750,6 +1862,19 @@ const tr: Record<MessageKey, string> = {
     "Kaydedilmedi. Metni Markdown olarak kopyala. 10 saniye içinde yeniden çıkarsan kaydedilmemiş metin kaybolur.",
   "note.closeUnsaved":
     "Kaydedilmedi. Metni Markdown olarak kopyala. 10 saniye içinde yeniden kapatırsan kaydedilmemiş metin kaybolur.",
+  "notes.reloadList": "Listeyi yeniden yükle",
+  "error.failed": "Olmadı. Tekrar dene.",
+  "error.onDesktop": "Bu not masaüstünde. Onu yapışkan notunda düzenle.",
+  "notes.searchShort": "Ara",
+  "notes.colorFilterActive": "Renge göre süzüldü: {colors}",
+  "notes.areaMenu": "Alanlar ve ayarlar",
+  "notes.saved": "Kaydedildi",
+  "notes.saving": "Kaydediliyor…",
+  "notes.emptyTitle": "Henüz not yok",
+  "notes.emptyLead": "Unutmak istemediğin şeyleri yaz. Her şey sen yazarken kaydedilir.",
+  "notes.actionsFor": "“{title}” için işlemler",
+  "note.drag": "Taşımak için sürükle",
+  "key.delete": "Delete",
 };
 
 const zh: Record<MessageKey, string> = {
@@ -1854,9 +1979,7 @@ const zh: Record<MessageKey, string> = {
   "notes.deletedAgo": "删除于{time}",
   "notes.capturedNew": "已添加到新的快速笔记。",
   "notes.placeholder": "开始书写。支持 Markdown：# 标题、**粗体**、- 列表",
-  "notes.saveFailed": "笔记未保存：{error}",
   "notes.dismiss": "关闭消息",
-  "notes.actionFailed": "操作未成功：{error}",
   "storage.denied": "Hangar Note 无法修改此文件。它是否为只读？",
   "storage.diskFull": "磁盘已满。",
   "storage.tooLarge": "便笺过大。最多保存 1 MiB。",
@@ -1899,6 +2022,19 @@ const zh: Record<MessageKey, string> = {
   "notes.readOnlyTitle": "Hangar 笔记",
   "notes.leaveUnsaved": "未保存。请将文本复制为 Markdown。10 秒内再次离开，未保存的文本将丢失。",
   "note.closeUnsaved": "未保存。请将文本复制为 Markdown。10 秒内再次关闭，未保存的文本将丢失。",
+  "notes.reloadList": "重新加载列表",
+  "error.failed": "操作未成功。请重试。",
+  "error.onDesktop": "这条笔记在桌面上。请在它的便笺中编辑。",
+  "notes.searchShort": "搜索",
+  "notes.colorFilterActive": "按颜色筛选：{colors}",
+  "notes.areaMenu": "区域和设置",
+  "notes.saved": "已保存",
+  "notes.saving": "正在保存…",
+  "notes.emptyTitle": "还没有笔记",
+  "notes.emptyLead": "记下不想忘记的事。输入时会自动保存。",
+  "notes.actionsFor": "“{title}”的操作",
+  "note.drag": "拖动以移动",
+  "key.delete": "Delete",
 };
 
 export const DICTIONARIES: Record<Language, Record<MessageKey, string>> = {
