@@ -23,28 +23,34 @@
 //! `trash.json`, but it parses both tolerantly and keeps every field it does not know, at the top
 //! and in each entry (`extra`), so a rewrite loses nothing a newer Hangar wrote. An entry that does
 //! not parse, or whose ID or file name is unsafe ([`plain_markdown_name`]), is skipped with a log
-//! line that names no title, and is never followed. An index that cannot be read at all (broken
-//! JSON, unknown version, too large, a link) is never rewritten: the scope's notes are listed from
-//! the files under IDs derived from their names, their text can be read and saved, and changes to
-//! the index (create, rename, delete, restore) are refused with the storage code `io` until the
-//! file is fixed. Contents are never logged.
+//! line that names no title, and is never followed. An index that is valid JSON of an unknown
+//! version or shape, or that cannot be read (too large, a link, unreadable), is left byte for
+//! byte: the scope's notes are listed from the files under IDs derived from their names, their
+//! text can be read and saved, and changes to the index (create, rename, delete, restore) are
+//! refused with the storage code `io` until the file is fixed. Only an index that is not JSON at
+//! all is set aside, under the scope lock, as `<name>.broken-<millis>` in its folder (never over
+//! an existing file), so the scope works again with a new index built from the same files under
+//! the same derived IDs. Contents are never logged.
 //!
 //! **Shared with Hangar** (ADR 0005, contract "notes-shared 1"). Hangar writes the same folder at
 //! the same time. Every read-modify-write of a scope's `folder.json` or `.trash/trash.json`, and
 //! every write of a note's text, holds the scope lock, an exclusive OS file lock on
 //! `<scope>/.lock` ([`SCOPE_LOCK_FILE`]), waits for it at most [`SCOPE_LOCK_WAIT`], re-reads the
 //! file from disk under it and writes it atomically. Nothing is written from a copy kept in
-//! memory. A note's version is the SHA-256 of its bytes ([`content_version`]); its text is written
-//! only while the file still hashes to the version the editor read
-//! ([`NotesStore::write_note_checked`]); new files are created without replacing one that appeared
-//! meanwhile, and moves never replace a file.
+//! memory. The lock file is opened without following a link, must be a plain file with one name,
+//! cannot be deleted or renamed while held on Windows, and is checked by identity once locked
+//! ([`lock_scope_with`]). Opening a scope for writing also removes stale temporary files of
+//! crashed atomic writes ([`sweep_temps_in`]). A note's version is the SHA-256 of its bytes
+//! ([`content_version`]); its text is written only while the file still hashes to the version the
+//! editor read ([`NotesStore::write_note_checked`]); new files are created without replacing one
+//! that appeared meanwhile, and moves never replace a file.
 //!
 //! **Read only** (another Hangar Note holds the writer lock, `access.rs`): the store writes
 //! nothing at all, no sync, no set-aside metadata, no migration, not even the scope lock file.
 //! Reading still syncs in memory; a file without an entry then gets an ID derived from its scope
 //! and name, so the same note keeps the same ID between two calls without anything being written.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf, Prefix};
@@ -57,9 +63,10 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 use crate::fsio::{
-    create_private_dir, is_hidden_or_temp, is_link_meta, is_regular_file, lock, log_cause, millis,
-    read_capped, read_prefix, rename_no_replace, storage_log, storage_log_io, utf8_prefix,
-    write_atomic, write_atomic_versioned, StorageCode,
+    create_private_dir, is_atomic_temp_name, is_hidden_or_temp, is_link_meta, is_regular_file,
+    lock, lock_file_matches, log_cause, millis, open_lock_file, read_capped, read_prefix,
+    rename_no_replace, storage_log, storage_log_io, try_set_aside, utf8_prefix, write_atomic,
+    write_atomic_versioned, StorageCode,
 };
 use crate::naming::{is_reserved_on_windows, without_invisible, FORBIDDEN_CHARS, JOINERS};
 use crate::watch::{stat_version, Watch};
@@ -263,11 +270,16 @@ impl NoteEntry {
 enum MetaRead {
     /// No file: a new scope, or one Hangar has not indexed yet. Written on the next save.
     Absent,
-    /// A file that cannot be used (broken JSON, unknown version, too large, a link, unreadable).
-    /// Never rewritten. `path` is the working folder if the JSON at least names one.
+    /// A file that is JSON but cannot be used (unknown version or shape), or that cannot be read
+    /// (too large, a link, unreadable). Never rewritten, never set aside. `path` is the working
+    /// folder if the JSON at least names one.
     Broken {
         path: Option<PathBuf>,
     },
+    /// A file that is not JSON at all. Under the scope lock of a writable store it is set aside as
+    /// `folder.json.broken-<millis>` ([`try_set_aside`]) and the scope starts a new index from its
+    /// files; until then, and read only, it counts as [`MetaRead::Broken`].
+    NotJson,
     Read(FolderMeta),
 }
 
@@ -278,6 +290,9 @@ struct TrashIndex {
     extra: Map<String, Value>,
     /// The file exists but cannot be used: it is never rewritten.
     broken: bool,
+    /// The file is not JSON at all (so also `broken`): set aside under the scope lock while the
+    /// store may write ([`NotesStore::read_trash_locked`]).
+    not_json: bool,
 }
 
 /// What the frontend receives for [`NotesError::ReadOnly`], so it can show its calm hint.
@@ -646,6 +661,71 @@ fn read_limited(path: &Path, max: usize) -> Result<Option<Vec<u8>>, String> {
     }
 }
 
+/// Whether `bytes` are JSON at all, of whatever shape. The index contract of "notes-shared 1"
+/// tells the two apart: valid JSON of an unknown version or shape may be a newer Hangar's and is
+/// left byte for byte; anything else (cut off, binary, empty, not UTF-8) is set aside.
+fn is_json(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<serde::de::IgnoredAny>(bytes).is_ok()
+}
+
+/// Sets an index file that is not JSON aside as `<name>.broken-<millis>` in its folder, never over
+/// an existing file. The caller holds the scope lock, so the other app cannot write the file in
+/// between. Logs the file kind and scope, never content. `None` when the move failed; the file
+/// then stays and counts as broken.
+fn set_aside_logged(path: &Path) -> Option<PathBuf> {
+    match try_set_aside(path) {
+        Ok(moved) => {
+            eprintln!("hangar-note: set aside {}", storage_log(path, "not JSON"));
+            Some(moved)
+        }
+        Err(error) => {
+            eprintln!(
+                "hangar-note: not set aside, not rewriting {}",
+                storage_log_io(path, &error)
+            );
+            None
+        }
+    }
+}
+
+/// How old a temporary file of an atomic write must be before a sweep removes it: far longer than
+/// any write takes, so only the leftovers of a crash go.
+const STALE_TEMP_AGE: Duration = Duration::from_secs(10 * 60);
+
+/// Removes the leftovers of crashed atomic writes in `dir`: regular files (no link, no reparse
+/// point, no folder) named exactly `.<name>.<pid>.<n>.tmp` ([`is_atomic_temp_name`]) and last
+/// changed more than [`STALE_TEMP_AGE`] ago. Nothing else is ever removed. Returns how many went.
+fn sweep_temps_in(dir: &Path, now: SystemTime) -> usize {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        if !is_atomic_temp_name(&name) {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.file_type().is_file() || is_link_meta(&meta) {
+            continue;
+        }
+        let stale = meta
+            .modified()
+            .ok()
+            .and_then(|changed| now.duration_since(changed).ok())
+            .is_some_and(|age| age >= STALE_TEMP_AGE);
+        if stale && fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
 /// Storage of all private notes. A lock keeps reading, changing and writing `folder.json`
 /// together. Clones share the lock and the write permission.
 #[derive(Debug, Clone)]
@@ -655,6 +735,8 @@ pub struct NotesStore {
     writable: Arc<AtomicBool>,
     watch: Arc<Watch>,
     lock_wait: Duration,
+    /// When each scope's stale temporary files were last swept ([`NotesStore::sweep_stale_temps`]).
+    swept: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 /// The held scope lock; dropping it releases the lock (and closing the handle does on a crash).
@@ -666,37 +748,45 @@ struct ScopeLock {
 /// Takes `<dir>/.lock` exclusively, trying again every [`SCOPE_LOCK_RETRY`] for at most `wait`.
 /// On timeout [`io::ErrorKind::TimedOut`], which reaches the window as the storage code `io`.
 fn lock_scope(dir: &Path, wait: Duration) -> io::Result<ScopeLock> {
-    let mut options = fs::OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
+    lock_scope_with(dir, wait, &mut || {})
+}
+
+/// [`lock_scope`] with a step run right after each successful `try_lock`, before the identity
+/// check, so a test can delete or rename the lock file in that moment.
+///
+/// The file is opened without following a link and must be a regular file with one name
+/// ([`open_lock_file`]; a link, a folder or a hard link fails at once). Once locked, the path must
+/// still name the locked file ([`lock_file_matches`]): if the file was deleted or renamed and
+/// another created in its place, a lock on the old one keeps nobody out, so the lock is dropped
+/// and taken again on the file the path names now, within the same wait.
+fn lock_scope_with(
+    dir: &Path,
+    wait: Duration,
+    after_lock: &mut dyn FnMut(),
+) -> io::Result<ScopeLock> {
     let path = dir.join(SCOPE_LOCK_FILE);
-    // A lock file that is a link would be opened (and created) wherever it points.
-    if fs::symlink_metadata(&path).is_ok_and(|meta| is_link_meta(&meta) || !meta.is_file()) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "the scope lock is not a regular file",
-        ));
-    }
-    let file = options.open(&path)?;
     let deadline = Instant::now() + wait;
     loop {
+        let file = open_lock_file(&path)?;
         match file.try_lock() {
-            Ok(()) => return Ok(ScopeLock { _file: file }),
-            Err(fs::TryLockError::WouldBlock) => {
-                if Instant::now() >= deadline {
-                    return Err(io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "another program holds the scope lock",
-                    ));
+            Ok(()) => {
+                after_lock();
+                if lock_file_matches(&file, &path)? {
+                    return Ok(ScopeLock { _file: file });
                 }
-                std::thread::sleep(SCOPE_LOCK_RETRY);
             }
+            Err(fs::TryLockError::WouldBlock) => {}
             Err(fs::TryLockError::Error(error)) => return Err(error),
         }
+        // Closing the handle releases a lock taken on a file the path no longer names.
+        drop(file);
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "another program holds the scope lock",
+            ));
+        }
+        std::thread::sleep(SCOPE_LOCK_RETRY);
     }
 }
 
@@ -1029,12 +1119,12 @@ fn migrate_general(old: &Path, new: &Path) -> io::Result<()> {
     let new_meta_path = new.join(META_FILE);
     let old_meta = match NotesStore::read_meta(old) {
         MetaRead::Read(meta) => Some(meta),
-        MetaRead::Absent | MetaRead::Broken { .. } => None,
+        MetaRead::Absent | MetaRead::Broken { .. } | MetaRead::NotJson => None,
     };
     let new_meta = match NotesStore::read_meta(new) {
         MetaRead::Read(meta) => Some(meta),
         MetaRead::Absent => Some(FolderMeta::empty(None)),
-        MetaRead::Broken { .. } => None,
+        MetaRead::Broken { .. } | MetaRead::NotJson => None,
     };
     if let (Some(mut old_meta), Some(mut meta)) = (old_meta, new_meta) {
         let mut ids: HashSet<String> = meta.notes.iter().map(|n| n.id.clone()).collect();
@@ -1170,6 +1260,33 @@ impl NotesStore {
             writable,
             watch: Arc::new(Watch::new(root)),
             lock_wait: SCOPE_LOCK_WAIT,
+            swept: Arc::default(),
+        }
+    }
+
+    /// Removes stale temporary files of crashed atomic writes in the scope and its trash
+    /// ([`sweep_temps_in`]), at most once per [`STALE_TEMP_AGE`] per scope, since a younger file
+    /// could not be stale yet. Called while the scope is opened for writing, with its lock held.
+    fn sweep_stale_temps(&self, key: &str, dir: &Path) {
+        {
+            let mut swept = lock(&self.swept);
+            if swept
+                .get(key)
+                .is_some_and(|last| last.elapsed() < STALE_TEMP_AGE)
+            {
+                return;
+            }
+            swept.insert(key.to_owned(), Instant::now());
+        }
+        let now = SystemTime::now();
+        let mut removed = sweep_temps_in(dir, now);
+        let trash = dir.join(TRASH_DIR);
+        if is_plain_dir(&trash) {
+            removed += sweep_temps_in(&trash, now);
+        }
+        if removed > 0 {
+            let cause = format!("{removed} stale temporary files removed");
+            eprintln!("hangar-note: {}", storage_log(dir, &cause));
         }
     }
 
@@ -1238,10 +1355,25 @@ impl NotesStore {
                 extra: head.extra,
             }),
             Ok(head) => broken("unknown version", head.path),
+            Err(_) if !is_json(&bytes) => MetaRead::NotJson,
             Err(error) => {
                 let cause = format!("JSON error {:?} on line {}", error.classify(), error.line());
                 broken(&cause, path_hint(&bytes))
             }
+        }
+    }
+
+    /// Sets a `folder.json` that is not JSON aside (the caller holds the scope lock) and reads
+    /// again what is there then: normally nothing, so the scope starts a new index from its files.
+    /// If the move fails, the file counts as broken and stays.
+    fn set_aside_index(&self, dir: &Path) -> MetaRead {
+        let path = dir.join(META_FILE);
+        match set_aside_logged(&path) {
+            Some(moved) => {
+                self.own(&[&path, &moved]);
+                Self::read_meta(dir)
+            }
+            None => MetaRead::Broken { path: None },
         }
     }
 
@@ -1276,16 +1408,17 @@ impl NotesStore {
             create_private_dir(&dir).map_err(io_error(&dir))?;
         }
         if !writable {
-            return Self::load(key, dir, folder).map(|(opened, _)| Some(opened));
+            return Self::load(key, dir, folder, None).map(|(opened, _)| Some(opened));
         }
         if hold == Hold::WhileSyncing {
-            let (opened, changed) = Self::load(key.clone(), dir.clone(), folder)?;
+            let (opened, changed) = Self::load(key.clone(), dir.clone(), folder, None)?;
             if !changed {
                 return Ok(Some(opened));
             }
         }
         let held = self.lock_scope(&dir)?;
-        let (mut opened, changed) = Self::load(key, dir, folder)?;
+        self.sweep_stale_temps(&key, &dir);
+        let (mut opened, changed) = Self::load(key, dir, folder, Some(self))?;
         if hold == Hold::ForIndex && opened.index_broken {
             return Err(broken_index(&opened.dir.join(META_FILE)));
         }
@@ -1299,12 +1432,27 @@ impl NotesStore {
     }
 
     /// Reads `folder.json` from disk and syncs it with the files. Returns whether it needs saving,
-    /// which an unusable `folder.json` never does: it is not replaced.
-    fn load(key: String, dir: PathBuf, folder: &NoteFolder) -> Result<(Folder, bool), NotesError> {
-        let (meta, mut changed, index_broken) = match Self::read_meta(&dir) {
+    /// which an unusable `folder.json` never does: it is not replaced. A `folder.json` that is not
+    /// JSON is set aside when `locked` (the writable store, holding the scope lock) is given;
+    /// without it, it counts as broken but asks for the lock (`true`), so a writable store comes
+    /// back with the lock and sets it aside.
+    fn load(
+        key: String,
+        dir: PathBuf,
+        folder: &NoteFolder,
+        locked: Option<&Self>,
+    ) -> Result<(Folder, bool), NotesError> {
+        let read = match (Self::read_meta(&dir), locked) {
+            (MetaRead::NotJson, Some(store)) => store.set_aside_index(&dir),
+            (read, _) => read,
+        };
+        let not_json = matches!(read, MetaRead::NotJson);
+        let (meta, mut changed, index_broken) = match read {
             MetaRead::Read(meta) => (meta, false, false),
             MetaRead::Absent => (FolderMeta::empty(folder.path.clone()), true, false),
-            MetaRead::Broken { .. } => (FolderMeta::empty(folder.path.clone()), false, true),
+            MetaRead::Broken { .. } | MetaRead::NotJson => {
+                (FolderMeta::empty(folder.path.clone()), false, true)
+            }
         };
         let mut opened = Folder {
             key,
@@ -1314,7 +1462,7 @@ impl NotesStore {
             _lock: None,
         };
         changed |= opened.sync()?;
-        Ok((opened, changed && !index_broken))
+        Ok((opened, not_json || (changed && !index_broken)))
     }
 
     /// The notes of a scope for the overview and the search, read only: `folder.json`'s path and
@@ -1325,7 +1473,11 @@ impl NotesStore {
         match Self::read_meta(dir) {
             MetaRead::Read(meta) => Some((meta.path, meta.notes)),
             MetaRead::Absent => None,
-            MetaRead::Broken { path } => {
+            read @ (MetaRead::Broken { .. } | MetaRead::NotJson) => {
+                let path = match read {
+                    MetaRead::Broken { path } => path,
+                    _ => None,
+                };
                 let path = if key == GENERAL_KEY {
                     None
                 } else {
@@ -1377,6 +1529,7 @@ impl NotesStore {
         let path = match Self::read_meta(&dir) {
             MetaRead::Read(meta) => meta.path?,
             MetaRead::Broken { path } => path?,
+            MetaRead::NotJson => return None,
             MetaRead::Absent => return None,
         };
         let folder = NoteFolder { path: Some(path) };
@@ -1680,7 +1833,7 @@ impl NotesStore {
         // Without the record the file is still adopted by `list_trash`, only under a new ID.
         // Read again here, under the scope lock that `opened` holds. An unreadable trash.json is
         // left as it is, so the deleted note goes without a record.
-        let mut index = Self::read_trash(&trash);
+        let mut index = self.read_trash_locked(&trash);
         if !index.broken {
             index.items.push(TrashEntry {
                 id: entry.id,
@@ -1726,14 +1879,21 @@ impl NotesStore {
                 ..TrashIndex::default()
             }
         };
+        // Not logged here when it is not JSON: a writable store sets it aside and logs that.
         match read_limited(&path, MAX_META_BYTES) {
             Ok(Some(bytes)) => match serde_json::from_slice::<TrashHead>(&bytes) {
                 Ok(head) if head.version == TRASH_META_VERSION => TrashIndex {
                     items: checked_entries(&path, head.items, Self::trusted_entry),
                     extra: head.extra,
                     broken: false,
+                    not_json: false,
                 },
                 Ok(_) => broken("unknown version"),
+                Err(_) if !is_json(&bytes) => TrashIndex {
+                    broken: true,
+                    not_json: true,
+                    ..TrashIndex::default()
+                },
                 Err(error) => broken(&format!(
                     "JSON error {:?} on line {}",
                     error.classify(),
@@ -1742,6 +1902,30 @@ impl NotesStore {
             },
             Ok(None) => TrashIndex::default(),
             Err(reason) => broken(&reason),
+        }
+    }
+
+    /// [`Self::read_trash`] for a change, with the scope lock held by the caller: a `trash.json`
+    /// that is not JSON is set aside first ([`set_aside_logged`]), so the trash starts a new record
+    /// from its files. JSON of an unknown version or shape stays broken and untouched.
+    fn read_trash_locked(&self, trash: &Path) -> TrashIndex {
+        let index = Self::read_trash(trash);
+        if !index.not_json {
+            return index;
+        }
+        let path = trash.join(TRASH_META_FILE);
+        let index = match set_aside_logged(&path) {
+            Some(moved) => {
+                self.own(&[&path, &moved]);
+                Self::read_trash(trash)
+            }
+            None => index,
+        };
+        // Set aside once per call: whatever is there now (normally nothing) is taken as read, a
+        // file that is still not JSON stays broken and untouched.
+        TrashIndex {
+            not_json: false,
+            ..index
         }
     }
 
@@ -1765,9 +1949,18 @@ impl NotesStore {
     /// The trash records matched with the files: records without a file are dropped, `.md` files
     /// without a record (deleted before records existed) are adopted under their [`stable_id`].
     /// Returns whether the records differ from `trash.json`; the caller saves under the lock,
-    /// unless the index is broken.
-    fn synced_trash(key: &str, trash: &Path) -> Result<(TrashIndex, bool), NotesError> {
-        let mut index = Self::read_trash(trash);
+    /// unless the index is broken. With `locked` (the writable store, holding the scope lock) a
+    /// `trash.json` that is not JSON is set aside first; without it, such a file asks for the
+    /// lock (`true`) but is not saved over.
+    fn synced_trash(
+        key: &str,
+        trash: &Path,
+        locked: Option<&Self>,
+    ) -> Result<(TrashIndex, bool), NotesError> {
+        let mut index = match locked {
+            Some(store) => store.read_trash_locked(trash),
+            None => Self::read_trash(trash),
+        };
         let items = &mut index.items;
         let before = items.clone();
         items.retain(|item| is_regular_file(&trash.join(&item.file)));
@@ -1797,7 +1990,7 @@ impl NotesStore {
                 extra: Map::new(),
             });
         }
-        let changed = *items != before && !index.broken;
+        let changed = index.not_json || (*items != before && !index.broken);
         Ok((index, changed))
     }
 
@@ -1810,11 +2003,11 @@ impl NotesStore {
         if !is_plain_dir(&dir) || !is_plain_dir(&trash) {
             return Ok(Vec::new());
         }
-        let (mut index, changed) = Self::synced_trash(&key, &trash)?;
+        let (mut index, changed) = Self::synced_trash(&key, &trash, None)?;
         if changed && self.writable() {
             // Read again under the scope lock, so a record Hangar added meanwhile stays.
             let _held = self.lock_scope(&dir)?;
-            let (fresh, changed) = Self::synced_trash(&key, &trash)?;
+            let (fresh, changed) = Self::synced_trash(&key, &trash, Some(self))?;
             if changed {
                 Self::save_trash(&trash, fresh.clone())?;
             }
@@ -1844,7 +2037,7 @@ impl NotesStore {
         if !is_plain_dir(&trash) {
             return Err(NotesError::UnknownNote);
         }
-        let (mut index, _) = Self::synced_trash(&opened.key, &trash)?;
+        let (mut index, _) = Self::synced_trash(&opened.key, &trash, Some(self))?;
         let position = index
             .items
             .iter()
@@ -2501,10 +2694,13 @@ mod tests {
         let id = t.0.create_note(&folder, "important").unwrap();
         t.0.write_note(&folder, &id, "content").unwrap();
         let dir = t.0.root().join(folder_key(&folder).unwrap());
-        // Broken JSON, an unknown version and a file far too large: none is ever rewritten.
+        // Valid JSON of an unknown version or shape (a newer Hangar's, perhaps) and a file far too
+        // large: none is ever rewritten or set aside. (Content that is not JSON at all is set
+        // aside: `an_index_that_is_not_json_is_set_aside_and_the_scope_works_again`.)
         for broken in [
-            b"{ broken".to_vec(),
             br#"{"version":2,"path":null,"notes":[]}"#.to_vec(),
+            br#"{"notes":"marker-shape-5e1"}"#.to_vec(),
+            b"[1, 2, 3]".to_vec(),
             vec![b' '; MAX_META_BYTES + 1],
         ] {
             fs::write(dir.join(META_FILE), &broken).unwrap();
@@ -2545,24 +2741,123 @@ mod tests {
         t.0.create_note(&folder, "new").unwrap();
     }
 
-    /// An unreadable trash.json is never emptied: deleting and restoring still move the files,
-    /// the list comes from the files, and the file keeps its bytes.
+    /// A trash.json that is valid JSON of an unknown version or shape is never emptied: deleting
+    /// and restoring still move the files, the list comes from the files, and the file keeps its
+    /// bytes.
     #[test]
     fn a_broken_trash_index_is_not_rewritten() {
-        let t = TempNotes::new("broken-trash");
+        for broken in [
+            &br#"{"version":2,"items":[]}"#[..],
+            &br#"{"items":"marker-shape-9d4"}"#[..],
+        ] {
+            let t = TempNotes::new("broken-trash");
+            let folder = general();
+            let gone = t.0.create_note(&folder, "gone").unwrap();
+            t.0.delete_note(&folder, &gone).unwrap();
+            let trash = t.0.root().join(GENERAL_KEY).join(TRASH_DIR);
+            fs::write(trash.join(TRASH_META_FILE), broken).unwrap();
+            let other = t.0.create_note(&folder, "other").unwrap();
+            t.0.delete_note(&folder, &other).unwrap();
+            let listed = t.0.list_trash(&folder).unwrap();
+            assert_eq!(listed.len(), 2);
+            let restored = t.0.restore_note(&folder, &listed[0].id).unwrap();
+            assert!(t.0.read_note(&folder, &restored).is_ok());
+            assert_eq!(t.0.list_trash(&folder).unwrap().len(), 1);
+            assert_eq!(fs::read(trash.join(TRASH_META_FILE)).unwrap(), broken);
+            assert!(!names(&trash).iter().any(|n| n.contains(".broken-")));
+        }
+    }
+
+    /// Index contract of "notes-shared 1": a folder.json that is not JSON at all is set aside as
+    /// `folder.json.broken-<millis>` under the scope lock, its notes stay listed from disk under
+    /// the same IDs as before, a new index is written and the scope can be changed again. An
+    /// existing `.broken-` file is never replaced.
+    #[test]
+    fn an_index_that_is_not_json_is_set_aside_and_the_scope_works_again() {
+        let t = TempNotes::new("not-json");
+        let folder = project();
+        let id = t.0.create_note(&folder, "important").unwrap();
+        t.0.write_note(&folder, &id, "content").unwrap();
+        let dir = t.0.root().join(folder_key(&folder).unwrap());
+        for (round, junk) in [&b"{ cut off"[..], b"", &[0xff, 0xfe, 0x00]]
+            .iter()
+            .enumerate()
+        {
+            fs::write(dir.join(META_FILE), junk).unwrap();
+            // The read-only view and the overview see the notes from disk, under derived IDs.
+            let seen = t.read_only().list_notes(&folder).unwrap();
+            assert_eq!(seen.len(), round + 1);
+            assert_eq!(fs::read(dir.join(META_FILE)).unwrap(), *junk);
+            // The writable store sets the file aside and writes a new index with the same IDs.
+            let notes = t.0.list_notes(&folder).unwrap();
+            assert_eq!(notes, seen);
+            let aside: Vec<String> = names(&dir)
+                .into_iter()
+                .filter(|n| n.starts_with("folder.json.broken-"))
+                .collect();
+            assert_eq!(aside.len(), round + 1, "{aside:?}");
+            let kept: Vec<Vec<u8>> = aside
+                .iter()
+                .map(|n| fs::read(dir.join(n)).unwrap())
+                .collect();
+            assert!(kept.contains(&junk.to_vec()));
+            assert!(matches!(
+                NotesStore::read_meta(&dir),
+                MetaRead::Read(meta) if meta.notes.len() == round + 1
+                    && meta.path == folder.path
+            ));
+            // The index can be changed again.
+            t.0.create_note(&folder, &format!("new {round}")).unwrap();
+            assert_eq!(t.0.read_note(&folder, &notes[0].id).unwrap(), "content");
+        }
+    }
+
+    /// The same for trash.json: not JSON is set aside, the deleted notes stay listed and can be
+    /// restored, and a new record is written.
+    #[test]
+    fn a_trash_index_that_is_not_json_is_set_aside() {
+        let t = TempNotes::new("not-json-trash");
         let folder = general();
         let gone = t.0.create_note(&folder, "gone").unwrap();
+        t.0.write_note(&folder, &gone, "marker-trash-41c").unwrap();
         t.0.delete_note(&folder, &gone).unwrap();
         let trash = t.0.root().join(GENERAL_KEY).join(TRASH_DIR);
         fs::write(trash.join(TRASH_META_FILE), "{ broken").unwrap();
+        // Read only: listed from the files, nothing moved.
+        assert_eq!(t.read_only().list_trash(&folder).unwrap().len(), 1);
+        assert_eq!(fs::read(trash.join(TRASH_META_FILE)).unwrap(), b"{ broken");
+
+        let listed = t.0.list_trash(&folder).unwrap();
+        assert_eq!(listed.len(), 1);
+        let aside: Vec<String> = names(&trash)
+            .into_iter()
+            .filter(|n| n.starts_with("trash.json.broken-"))
+            .collect();
+        assert_eq!(aside.len(), 1);
+        assert_eq!(fs::read(trash.join(&aside[0])).unwrap(), b"{ broken");
+        assert!(!NotesStore::read_trash(&trash).broken);
+        // A delete under the lock sets aside a new piece of junk as well, without replacing the
+        // first copy, and records the note.
+        fs::write(trash.join(TRASH_META_FILE), "not json either").unwrap();
         let other = t.0.create_note(&folder, "other").unwrap();
         t.0.delete_note(&folder, &other).unwrap();
-        let listed = t.0.list_trash(&folder).unwrap();
-        assert_eq!(listed.len(), 2);
+        assert_eq!(
+            names(&trash)
+                .iter()
+                .filter(|n| n.starts_with("trash.json.broken-"))
+                .count(),
+            2
+        );
+        assert_eq!(NotesStore::read_trash(&trash).items.len(), 1);
+        // The earlier note's file is adopted again under the same derived ID.
+        let both = t.0.list_trash(&folder).unwrap();
+        assert_eq!(both.len(), 2);
+        assert!(both.iter().any(|item| item.id == listed[0].id));
         let restored = t.0.restore_note(&folder, &listed[0].id).unwrap();
-        assert!(t.0.read_note(&folder, &restored).is_ok());
-        assert_eq!(t.0.list_trash(&folder).unwrap().len(), 1);
-        assert_eq!(fs::read(trash.join(TRASH_META_FILE)).unwrap(), b"{ broken");
+        assert_eq!(
+            t.0.read_note(&folder, &restored).unwrap(),
+            "marker-trash-41c"
+        );
     }
 
     #[test]
@@ -2769,6 +3064,164 @@ mod tests {
         fs::write(dir.join("from outside.md"), "y").unwrap();
         assert_eq!(t.read_only().list_notes(&project()).unwrap().len(), 2);
         assert!(!dir.join(SCOPE_LOCK_FILE).exists());
+    }
+
+    /// Security review L1: a held scope lock cannot be deleted or renamed on Windows (no
+    /// `FILE_SHARE_DELETE`). Where it can be (Unix), the lock notices that the path names another
+    /// file now, drops the old one and takes the new one within the same wait, so two programs
+    /// never both hold "the" lock.
+    #[test]
+    fn a_held_scope_lock_cannot_be_swapped_away() {
+        let t = TempNotes::new("lock-identity");
+        t.0.create_note(&general(), "x").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        let path = dir.join(SCOPE_LOCK_FILE);
+        let old = dir.join("lock-old");
+        let mut tries = 0;
+        let mut renamed = None;
+        let held = lock_scope_with(&dir, SCOPE_LOCK_WAIT, &mut || {
+            tries += 1;
+            if tries == 1 {
+                let removed = fs::remove_file(&path);
+                renamed = Some(fs::rename(&path, &old));
+                if cfg!(windows) {
+                    assert!(removed.is_err(), "deleted while held");
+                }
+            }
+        })
+        .unwrap();
+        let renamed = renamed.unwrap();
+        if cfg!(windows) {
+            assert!(renamed.is_err(), "renamed while held");
+            assert_eq!(tries, 1);
+        } else {
+            // Deleted by the first step, so the rename found nothing: the lock was taken again
+            // on the new file.
+            assert_eq!(tries, 2);
+        }
+        assert!(lock_file_matches(&held._file, &path).unwrap());
+        // The lock really is on the file the path names: nobody else gets it.
+        let quick = lock_scope(&dir, Duration::from_millis(50)).unwrap_err();
+        assert_eq!(quick.kind(), io::ErrorKind::TimedOut);
+        drop(held);
+        lock_scope(&dir, Duration::from_millis(50)).unwrap();
+    }
+
+    /// Security review L2: a scope lock with a second name (a hard link to a file elsewhere) is
+    /// refused as a lock failure, storage code `io`; the other file is not touched.
+    #[test]
+    fn a_scope_lock_with_a_second_name_is_refused() {
+        let t = TempNotes::new("lock-hardlink");
+        t.0.create_note(&general(), "x").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        fs::remove_file(dir.join(SCOPE_LOCK_FILE)).unwrap();
+        let foreign = t.1.path().join("foreign.txt");
+        fs::write(&foreign, "marker-foreign-6f2").unwrap();
+        fs::hard_link(&foreign, dir.join(SCOPE_LOCK_FILE)).unwrap();
+        let refused = t.0.create_note(&general(), "y").unwrap_err();
+        assert_eq!(refused.code(), "io", "{refused}");
+        assert!(matches!(
+            &refused,
+            NotesError::Io { source, .. } if source.kind() == io::ErrorKind::InvalidData
+        ));
+        assert_eq!(fs::read(&foreign).unwrap(), b"marker-foreign-6f2");
+        assert!(!dir.join("y.md").exists());
+    }
+
+    /// A scope lock that is a link (a symbolic link, also a dangling one, or a junction) is
+    /// refused, and the open never creates the link's target.
+    #[test]
+    fn a_linked_scope_lock_is_never_followed() {
+        let t = TempNotes::new("lock-link");
+        t.0.create_note(&general(), "x").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        let lock_path = dir.join(SCOPE_LOCK_FILE);
+        fs::remove_file(&lock_path).unwrap();
+        let target = t.1.path().join("target.txt");
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&target, &lock_path).is_ok();
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_file(&target, &lock_path).is_ok();
+        if linked {
+            // Dangling: following it would create the target.
+            assert_eq!(t.0.create_note(&general(), "y").unwrap_err().code(), "io");
+            assert!(!target.exists());
+            fs::write(&target, "marker-target-0b7").unwrap();
+            assert_eq!(t.0.create_note(&general(), "y").unwrap_err().code(), "io");
+            assert_eq!(fs::read(&target).unwrap(), b"marker-target-0b7");
+            fs::remove_file(&lock_path).unwrap();
+        } else {
+            eprintln!("no file symlinks without a privilege here; that half skipped");
+        }
+        let elsewhere = t.1.path().join("elsewhere");
+        fs::create_dir_all(&elsewhere).unwrap();
+        assert!(crate::test_support::make_dir_link(&elsewhere, &lock_path));
+        assert_eq!(t.0.create_note(&general(), "y").unwrap_err().code(), "io");
+        assert!(names(&elsewhere).is_empty());
+        assert!(!dir.join("y.md").exists());
+    }
+
+    /// Opening a scope for writing removes stale temporary files of crashed atomic writes,
+    /// exactly `.<name>.<pid>.<n>.tmp`, older than 10 minutes, regular files only, in the scope
+    /// and its trash; nothing else.
+    #[test]
+    fn stale_temporary_files_are_swept_and_nothing_else() {
+        let t = TempNotes::new("sweep");
+        let folder = general();
+        let gone = t.0.create_note(&folder, "gone").unwrap();
+        t.0.delete_note(&folder, &gone).unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        let trash = dir.join(TRASH_DIR);
+        let old = SystemTime::now() - Duration::from_secs(11 * 60);
+        let write_aged = |path: &Path, aged: bool| {
+            fs::write(path, "marker-temp-c3a").unwrap();
+            if aged {
+                fs::File::options()
+                    .write(true)
+                    .open(path)
+                    .unwrap()
+                    .set_modified(old)
+                    .unwrap();
+            }
+        };
+        let swept = [
+            dir.join(".gone.md.4711.3.tmp"),
+            dir.join(".folder.json.1.22.tmp"),
+            trash.join(".trash.json.99.0.tmp"),
+        ];
+        let kept = [
+            dir.join(".young.md.4711.4.tmp"),
+            dir.join(".x.md.pid.3.tmp"),
+            dir.join(".x.md.1.tmp"),
+            dir.join("..1.2.tmp"),
+            dir.join("x.md.1.2.tmp"),
+            dir.join("Old.tmp"),
+            dir.join("keep.md"),
+            dir.join(".x.md.1.2.tmp.bak"),
+        ];
+        for path in &swept {
+            write_aged(path, true);
+        }
+        for path in &kept {
+            write_aged(path, !path.ends_with(".young.md.4711.4.tmp"));
+        }
+        let folder_named_like_one = dir.join(".d.md.1.2.tmp");
+        fs::create_dir_all(&folder_named_like_one).unwrap();
+        // Read only, nothing goes.
+        t.read_only().list_notes(&folder).unwrap();
+        assert!(swept.iter().all(|p| p.exists()));
+
+        // A fresh store, as after a start: this one swept the scope already when it was created
+        // and does so at most once per ten minutes.
+        let fresh = NotesStore::new(t.0.root(), Arc::new(AtomicBool::new(true)));
+        fresh.create_note(&folder, "trigger").unwrap();
+        for path in &swept {
+            assert!(!path.exists(), "{path:?}");
+        }
+        for path in &kept {
+            assert!(path.exists(), "{path:?}");
+        }
+        assert!(folder_named_like_one.is_dir());
     }
 
     #[test]
@@ -3406,6 +3859,59 @@ mod tests {
         }
     }
 
+    /// The shared test vector of Hangar's ADR 0022: both apps must derive the same ID for an
+    /// adopted file, or the two would list one note under two IDs after an index is rebuilt.
+    #[test]
+    fn stable_ids_match_the_shared_test_vector() {
+        assert_eq!(
+            stable_id("general", "Idea.md"),
+            "ac27f523-b8fe-4881-8d5d-7d91b6d8f214"
+        );
+        assert_eq!(
+            stable_id("0123456789abcdef0123456789abcdef", "Plan (2).md"),
+            "4d02da19-af23-46b3-ae54-9be992402315"
+        );
+        assert_eq!(
+            stable_id("general/.trash", "1700000000000-Old idea.md"),
+            "f73a68fe-c535-43ce-871c-cdb806e41527"
+        );
+        // The trash scope the store derives from is exactly `<scope>/.trash`.
+        assert_eq!(format!("{GENERAL_KEY}/{TRASH_DIR}"), "general/.trash");
+    }
+
+    /// Round trip through a set-aside index: the rebuilt folder.json holds only canonical
+    /// lowercase UUIDs that pass the entry check (Hangar's and ours), the IDs are the shared
+    /// derived ones, and a fresh store reading the rebuilt file lists the same notes again.
+    #[test]
+    fn a_rebuilt_index_holds_ids_both_apps_accept() {
+        let t = TempNotes::new("rebuilt-ids");
+        let folder = general();
+        let dir = t.0.root().join(GENERAL_KEY);
+        t.0.create_note(&folder, "keep").unwrap();
+        fs::write(dir.join("Idea.md"), "marker-idea-2a9").unwrap();
+        fs::write(dir.join(META_FILE), b"\x00 not json").unwrap();
+        let rebuilt = t.0.list_notes(&folder).unwrap();
+        let MetaRead::Read(meta) = NotesStore::read_meta(&dir) else {
+            panic!("no new index was written");
+        };
+        assert_eq!(meta.notes.len(), 2);
+        for entry in &meta.notes {
+            assert!(trusted_note_entry(entry), "{}", entry.id);
+            let parsed = uuid::Uuid::parse_str(&entry.id).unwrap();
+            assert_eq!(parsed.get_version_num(), 4);
+            assert_eq!(parsed.get_variant(), uuid::Variant::RFC4122);
+            assert_eq!(entry.id, stable_id(GENERAL_KEY, &entry.file));
+        }
+        let idea = rebuilt.iter().find(|n| n.title == "Idea").unwrap();
+        assert_eq!(idea.id, "ac27f523-b8fe-4881-8d5d-7d91b6d8f214");
+        let fresh = NotesStore::new(t.0.root(), Arc::new(AtomicBool::new(true)));
+        assert_eq!(fresh.list_notes(&folder).unwrap(), rebuilt);
+        assert_eq!(
+            fresh.read_note(&folder, &idea.id).unwrap(),
+            "marker-idea-2a9"
+        );
+    }
+
     #[test]
     fn a_new_file_under_an_adopted_name_gets_its_own_id() {
         let t = TempNotes::new("stable-collision");
@@ -3597,12 +4103,13 @@ mod tests {
         let id = t.0.restore_note(&folder, &list[0].id).unwrap();
         assert_eq!(t.0.read_note(&folder, &id).unwrap(), "old");
         assert!(t.0.root().join(GENERAL_KEY).join("Old idea.md").is_file());
-        // A broken record does not hide the files.
+        // A record of an unknown version does not hide the files.
         let gone = t.0.create_note(&folder, "gone").unwrap();
         t.0.delete_note(&folder, &gone).unwrap();
-        fs::write(trash.join(TRASH_META_FILE), "{ broken").unwrap();
+        let unknown = br#"{"version":2,"items":[]}"#;
+        fs::write(trash.join(TRASH_META_FILE), unknown).unwrap();
         assert_eq!(t.0.list_trash(&folder).unwrap()[0].title, "gone");
-        assert_eq!(fs::read(trash.join(TRASH_META_FILE)).unwrap(), b"{ broken");
+        assert_eq!(fs::read(trash.join(TRASH_META_FILE)).unwrap(), unknown);
     }
 
     /// Amendment 2: the temporary files of an atomic write (either app's) and any other dotfile

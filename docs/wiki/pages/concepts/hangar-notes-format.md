@@ -75,11 +75,24 @@ against the layout of a real notes folder (read only: keys and formatting checke
   "not a folder" or "not a note" (scope folders, trash, note files, the lock file); notes are opened
   with `FILE_FLAG_OPEN_REPARSE_POINT` and checked on the handle.
 - Size caps: 1 MiB per note, 4 MiB per index file.
-- An index file that exists but cannot be used (broken JSON, unknown version, too large, a link) is
-  never rewritten, set aside or emptied: notes are listed from the files under IDs derived from
-  scope and file name and stay readable and writable; create, rename, delete and restore that need
-  `folder.json` are refused with `io` until it is fixed. A broken `trash.json` stays as it is while
-  delete and restore still move files.
+- An index file that is valid JSON of an unknown version or shape, or that cannot be read (too
+  large, a link, unreadable), is left byte for byte: notes are listed from the files under IDs
+  derived from scope and file name and stay readable and writable; create, rename, delete and
+  restore that need `folder.json` are refused with `io` until it is fixed. Such a `trash.json`
+  stays as it is while delete and restore still move files.
+- An index file that is not JSON at all (cut off, empty, binary) is set aside as
+  `<name>.broken-<millis>` in the same folder, under the scope lock and only while writable, never
+  over an existing `.broken-` file (`rename_no_replace`, `-<n>` suffix in the same millisecond).
+  A new index is then built from the same files under the same derived IDs (`stable_id`, test
+  vector in Hangar's ADR 0022). Hangar does the same. Random IDs only the lost index knew are
+  not salvaged, so those notes lose their color and sticky note until the copy is restored.
+- The scope lock `.lock` is opened without following a link (`FILE_FLAG_OPEN_REPARSE_POINT`,
+  `O_NOFOLLOW`), must be a plain file with exactly one name (a hard link is a lock failure, `io`),
+  is opened on Windows without `FILE_SHARE_DELETE` so it cannot be deleted or renamed while held,
+  and once locked the path is checked to still name the locked file (volume serial and file index,
+  or device and inode); otherwise the lock is taken again within the same 2 s.
+- A scope opened for writing removes stale temporary files: regular files named exactly
+  `.<name>.<pid>.<n>.tmp` older than 10 minutes, in the scope and its `.trash/`, nothing else.
 - Hangar renames the old German folders `allgemein/` and `.papierkorb/` on every start; Hangar Note
   does the same, but only while it may write (that move does not take the scope lock; by the time
   both apps run, Hangar has already done it).

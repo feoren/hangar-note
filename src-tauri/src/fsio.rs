@@ -465,6 +465,187 @@ pub fn open_regular(path: &Path) -> io::Result<File> {
     }
 }
 
+/// What a lock file's handle says about the file: its identity, its number of names and whether
+/// it is a plain file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LockFileInfo {
+    /// Windows: volume serial number and file index; Unix: device and inode.
+    id: (u64, u64),
+    links: u64,
+    regular: bool,
+}
+
+#[cfg(windows)]
+fn lock_file_info(file: &File) -> io::Result<LockFileInfo> {
+    use std::os::windows::io::AsRawHandle as _;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY,
+        FILE_ATTRIBUTE_REPARSE_POINT,
+    };
+    // SAFETY: BY_HANDLE_FILE_INFORMATION is a plain C struct of integers, for which all zero bytes
+    // are a valid value.
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: the handle is open for the lifetime of `file`, and `info` is a valid, writable
+    // BY_HANDLE_FILE_INFORMATION the call fills in.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    Ok(LockFileInfo {
+        id: (u64::from(info.dwVolumeSerialNumber), index),
+        links: u64::from(info.nNumberOfLinks),
+        regular: info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)
+            == 0,
+    })
+}
+
+#[cfg(not(windows))]
+fn lock_file_info(file: &File) -> io::Result<LockFileInfo> {
+    use std::os::unix::fs::MetadataExt as _;
+    let meta = file.metadata()?;
+    Ok(LockFileInfo {
+        id: (meta.dev(), meta.ino()),
+        links: meta.nlink(),
+        regular: meta.file_type().is_file(),
+    })
+}
+
+/// The refusal of a lock file with a second name: a hard link to a file elsewhere would let a
+/// foreign file stand in for the lock (security review of "notes-shared 1", L2).
+fn lock_with_more_names() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        "the lock file has more than one name",
+    )
+}
+
+/// Checks what [`open_lock_file`] opened: a plain file with exactly one name. A count of 0 (the
+/// file was deleted after the open) passes here and fails [`lock_file_matches`] later.
+fn checked_lock_info(file: &File) -> io::Result<LockFileInfo> {
+    let info = lock_file_info(file)?;
+    if !info.regular {
+        return Err(not_regular());
+    }
+    if info.links > 1 {
+        return Err(lock_with_more_names());
+    }
+    Ok(info)
+}
+
+/// Opens a lock file (`notes/<scope>/.lock`) for reading and writing, creating it if missing,
+/// without ever following a link, also not while creating it:
+///
+/// - Windows: `FILE_FLAG_OPEN_REPARSE_POINT`, so a link or junction is opened itself (and then
+///   refused) instead of its target; shared for reading and writing only, without
+///   `FILE_SHARE_DELETE`, so nobody can delete or rename the file while the handle is open
+///   (security review L1).
+/// - Unix: `O_NOFOLLOW` (a link at the path fails with `ELOOP`, a dangling one is never created
+///   through) and `O_NONBLOCK` (a FIFO named `.lock` cannot hang the open), mode 0600.
+///
+/// The handle must show a regular file with one name ([`checked_lock_info`]); anything else is
+/// refused with an error (storage code `io`).
+pub fn open_lock_file(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        };
+        options
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = match options.open(path) {
+        Ok(file) => file,
+        // A link or folder in the way fails the open (`ELOOP`, or access denied for a junction):
+        // that is a lock failure, not a lack of rights.
+        Err(_) if fs::symlink_metadata(path).is_ok_and(|meta| !meta.file_type().is_file()) => {
+            return Err(not_regular());
+        }
+        Err(error) => return Err(error),
+    };
+    checked_lock_info(&file)?;
+    Ok(file)
+}
+
+/// Whether `path` still names the file `file` holds open, looked at without following a link:
+/// after a lock is taken, the file may have been deleted or renamed and a new one created under
+/// the name, and then a lock on the old handle keeps nobody out (security review L1). `Ok(false)`
+/// when the path is gone, a link or another file; an error when the file there has a second name
+/// (L2) or cannot be looked at.
+///
+/// - Windows: the path is opened again (attributes only, with `FILE_FLAG_OPEN_REPARSE_POINT`, all
+///   sharing allowed so the held handle is not disturbed) and volume serial number and file index
+///   of both handles are compared.
+/// - Unix: `lstat` of the path, compared by device and inode.
+pub fn lock_file_matches(file: &File, path: &Path) -> io::Result<bool> {
+    let held = checked_lock_info(file)?;
+    #[cfg(windows)]
+    let now = {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+            FILE_SHARE_WRITE,
+        };
+        let opened = OpenOptions::new()
+            .access_mode(FILE_READ_ATTRIBUTES)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path);
+        match opened {
+            Ok(again) => lock_file_info(&again)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
+        }
+    };
+    #[cfg(not(windows))]
+    let now = {
+        use std::os::unix::fs::MetadataExt as _;
+        match fs::symlink_metadata(path) {
+            Ok(meta) => LockFileInfo {
+                id: (meta.dev(), meta.ino()),
+                links: meta.nlink(),
+                regular: meta.file_type().is_file(),
+            },
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
+        }
+    };
+    if !now.regular || now.id != held.id {
+        return Ok(false);
+    }
+    if now.links > 1 {
+        return Err(lock_with_more_names());
+    }
+    Ok(true)
+}
+
+/// Whether `name` is exactly the temporary file of an atomic write, `.<name>.<pid>.<n>.tmp` with
+/// a non-empty name and decimal `<pid>` and `<n>` (contract "notes-shared 1", amendment 2), the
+/// only kind of file a sweep of stale temporary files may remove.
+pub fn is_atomic_temp_name(name: &str) -> bool {
+    let Some(inner) = name
+        .strip_prefix('.')
+        .and_then(|rest| rest.strip_suffix(&format!(".{TEMP_EXT}")))
+    else {
+        return false;
+    };
+    let mut parts = inner.rsplitn(3, '.');
+    let digits = |part: Option<&str>| {
+        part.is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+    };
+    digits(parts.next()) && digits(parts.next()) && parts.next().is_some_and(|n| !n.is_empty())
+}
+
 /// At most `max` bytes of a regular file; `Ok(None)` when it holds more.
 pub fn read_capped(path: &Path, max: usize) -> io::Result<Option<Vec<u8>>> {
     let file = open_regular(path)?;
@@ -600,8 +781,23 @@ fn same_file(a: &Path, b: &Path) -> io::Result<bool> {
 /// Moves a corrupt file aside under `<name>.broken-<millis>` (a counter keeps two in one
 /// millisecond apart), so nothing the user could still rescue is overwritten.
 pub fn set_aside(path: &Path) {
+    if let Err(error) = try_set_aside(path) {
+        eprintln!(
+            "hangar-note: corrupt file not set aside: {}",
+            storage_log_io(path, &error)
+        );
+    }
+}
+
+/// [`set_aside`] that reports whether it worked and returns the new path. The move never replaces
+/// a file ([`rename_no_replace`]): a `.broken-` copy another program made in the same millisecond
+/// stays, this one takes the next suffix.
+pub fn try_set_aside(path: &Path) -> io::Result<std::path::PathBuf> {
     let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
-        return;
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path without file name",
+        ));
     };
     let stamp = now_ms();
     for attempt in 0..100u32 {
@@ -612,15 +808,12 @@ pub fn set_aside(path: &Path) {
         };
         let target = path.with_file_name(format!("{name}.broken-{stamp}{suffix}"));
         match rename_no_replace(path, &target) {
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => eprintln!(
-                "hangar-note: corrupt file not set aside: {}",
-                storage_log_io(path, &error)
-            ),
-            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+            Ok(()) => return Ok(target),
         }
-        return;
     }
+    Err(io::ErrorKind::AlreadyExists.into())
 }
 
 #[cfg(test)]
@@ -958,6 +1151,78 @@ mod tests {
         assert!(read_capped(dir.path(), 10).is_err());
         // "ä" is two bytes: a cut in its middle drops it rather than garbling it.
         assert_eq!(utf8_prefix("aä".as_bytes(), 2), "a");
+    }
+
+    /// Three set-asides in a row, mostly within one millisecond: each copy keeps its own bytes,
+    /// none replaces another (`rename_no_replace` plus the counter suffix).
+    #[test]
+    fn a_set_aside_never_replaces_an_earlier_copy() {
+        let dir = TempDir::new("fsio-aside-many");
+        let path = dir.path().join("folder.json");
+        let mut targets = Vec::new();
+        for round in 0..3 {
+            fs::write(&path, format!("marker-junk-{round}")).unwrap();
+            targets.push(try_set_aside(&path).unwrap());
+        }
+        assert!(!path.exists());
+        let mut kept: Vec<String> = targets
+            .iter()
+            .map(|target| fs::read_to_string(target).unwrap())
+            .collect();
+        kept.sort();
+        assert_eq!(kept, ["marker-junk-0", "marker-junk-1", "marker-junk-2"]);
+        assert!(names(dir.path())
+            .iter()
+            .all(|n| n.starts_with("folder.json.broken-")));
+    }
+
+    #[test]
+    fn only_exact_atomic_temp_names_match() {
+        for name in [
+            ".Plan.md.4711.3.tmp",
+            ".folder.json.1.0.tmp",
+            ".a.b.c.md.12.345.tmp",
+        ] {
+            assert!(is_atomic_temp_name(name), "{name}");
+        }
+        for name in [
+            "Plan.md.4711.3.tmp",
+            ".Plan.md.4711.tmp",
+            ".Plan.md.x.3.tmp",
+            ".Plan.md.4711.3x.tmp",
+            "..4711.3.tmp",
+            ".Plan.md.4711.3.TMP.bak",
+            ".Plan.md.-1.3.tmp",
+            ".lock",
+            "Old.tmp",
+        ] {
+            assert!(!is_atomic_temp_name(name), "{name}");
+        }
+    }
+
+    /// The lock file is created as a plain file, a folder in its place is refused (storage code
+    /// `io`), and the identity check tells the held file from another one and from a gone one.
+    #[test]
+    fn lock_files_are_plain_and_checked_by_identity() {
+        let dir = TempDir::new("fsio-lockfile");
+        let path = dir.path().join(".lock");
+        let held = open_lock_file(&path).unwrap();
+        assert!(is_regular_file(&path));
+        assert!(lock_file_matches(&held, &path).unwrap());
+        let other = dir.path().join(".other");
+        let _other_file = open_lock_file(&other).unwrap();
+        assert!(!lock_file_matches(&held, &other).unwrap());
+        assert!(!lock_file_matches(&held, &dir.path().join(".missing")).unwrap());
+        // A second name on the held file is refused by the check as well.
+        fs::hard_link(&path, dir.path().join("second")).unwrap();
+        assert_eq!(
+            lock_file_matches(&held, &path).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        let folder = dir.path().join(".dirlock");
+        fs::create_dir_all(&folder).unwrap();
+        let refused = open_lock_file(&folder).unwrap_err();
+        assert_eq!(StorageCode::of(&refused), StorageCode::Io, "{refused}");
     }
 
     #[test]

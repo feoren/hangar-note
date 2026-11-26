@@ -177,3 +177,15 @@ the level tabs Private, Project (Hangar's project, switchable, stored as lastPro
 empty state until Hangar is connected), the sidebar folded away with its button or Ctrl+Shift+S
 and resized on its edge (sidebarOpen, sidebarWidth in settings.json), "New note" per level and the
 start level. Noted the new hangar-look width rule in pages/decisions/0004-switchable-looks.md.
+
+## [2026-11-26] update | Security review of contract "notes-shared 1"
+Implemented Hangar's security review on Hangar Note's side. Added "2026-11-26: security review of
+the contract" to the amendments of pages/decisions/0005-shared-notes-folder.md: the scope lock is
+opened without FILE_SHARE_DELETE and without following links (also while creating it), checked by
+file identity after locking and retried within the 2 s wait (L1), refused with more than one name
+(L2); valid JSON of unknown version or shape stays byte for byte, only non-JSON folder.json and
+trash.json are set aside as `<name>.broken-<millis>` without replacing an existing copy; stale
+`.<name>.<pid>.<n>.tmp` files older than 10 minutes are swept when a scope is opened for writing.
+Pinned the stable_id test vector of Hangar's ADR 0022 (identical derivation, nothing differed) and
+noted that colors of notes whose random IDs only a lost index knew are not salvaged.
+Updated pages/concepts/hangar-notes-format.md and index.md.

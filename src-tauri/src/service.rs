@@ -538,6 +538,41 @@ mod tests {
             .is_err());
     }
 
+    /// A folder.json that is not JSON is set aside and rebuilt under the derived IDs. A note
+    /// Hangar's files already carried under its derived ID keeps its color through that; a note
+    /// whose random ID only the lost index knew gets its derived ID, and its color entry stays in
+    /// meta.json under the old ID (back if the `.broken-` copy is restored by hand).
+    #[test]
+    fn colors_of_derived_ids_survive_a_rebuilt_index() {
+        let dir = TempDir::new("service-rebuilt");
+        let service = service(&dir);
+        let folder = NoteFolder::general();
+        let own = service
+            .create_untitled(&folder, "Note", NoteColor::Mint)
+            .unwrap();
+        let scope = dir.path().join("notes/general");
+        std::fs::write(scope.join("Idea.md"), "marker-idea-7d1").unwrap();
+        let idea = "ac27f523-b8fe-4881-8d5d-7d91b6d8f214";
+        assert!(service
+            .list_notes(&folder)
+            .unwrap()
+            .iter()
+            .any(|n| n.id == idea));
+        service.set_color(&folder, idea, NoteColor::Rose).unwrap();
+        std::fs::write(scope.join("folder.json"), "{ cut off").unwrap();
+        let rows = service.list_notes(&folder).unwrap();
+        assert_eq!(rows.len(), 2);
+        let row = rows.iter().find(|n| n.id == idea).unwrap();
+        assert_eq!(row.color, NoteColor::Rose);
+        assert!(rows.iter().all(|n| n.id != own.id));
+        // A fresh start reads the rebuilt index: same IDs, same colors.
+        let again = self::service(&dir).list_notes(&folder).unwrap();
+        assert_eq!(
+            again.iter().map(|n| (&n.id, n.color)).collect::<Vec<_>>(),
+            rows.iter().map(|n| (&n.id, n.color)).collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn a_rename_by_the_person_ends_the_auto_title() {
         let dir = TempDir::new("service-title");

@@ -86,3 +86,11 @@ windows-sys = { version = "0.61", features = [
 # adds no code; MIT/Apache-2.0, rust-lang, maintained. Unix needs neither: a port another user holds
 # cannot be bound twice there without `SO_REUSEPORT` on both sockets.
 socket2 = "0.6"
+
+[target.'cfg(unix)'.dependencies]
+# `O_NOFOLLOW` and `O_NONBLOCK` for opening the scope lock `notes/<scope>/.lock` without following
+# a link, also while creating it (`fsio::open_lock_file`, security review of "notes-shared 1").
+# The values differ between Linux architectures and macOS, so they are not written down by hand.
+# Constants only; already in the tree at this version through std's ecosystem crates (tauri,
+# getrandom, socket2 and others), so it adds no code. MIT/Apache-2.0, rust-lang, maintained.
+libc = "0.2"

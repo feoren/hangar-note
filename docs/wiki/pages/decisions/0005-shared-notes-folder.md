@@ -163,7 +163,9 @@ folder another program writes:
   file, so a link swapped in after a look is refused too.
 - The size caps stay: 1 MiB per note, 4 MiB per index file.
 - An index file that exists but cannot be used (broken JSON, unknown version, too large, a link,
-  unreadable) is never rewritten, set aside or emptied. The scope's notes are listed from the
+  unreadable) is never rewritten, set aside or emptied. (Narrowed by "Security review of the
+  contract" below: content that is not JSON at all is now set aside; everything else stays as
+  written here.) The scope's notes are listed from the
   files under IDs derived from scope and file name, can be read and their text saved; changes
   that need the index (create, rename, delete, restore for `folder.json`) are refused with the
   storage code `io` until the file is fixed. A broken `trash.json` is likewise left as is: deleting
@@ -180,10 +182,61 @@ writes can still land a save between Hangar Note's check and rename; a Hangar th
 `deny_unknown_fields` rejects files that carry fields only a newer Hangar wrote (Hangar Note keeps
 them, it does not add them).
 
+### 2026-11-26: security review of the contract
+Hangar's security review of "notes-shared 1" asked both apps for the following; Hangar does the
+same on its side.
+
+**L1: the lock file cannot be swapped away while held.**
+- `<scope>/.lock` is opened on Windows with `FILE_SHARE_READ | FILE_SHARE_WRITE` only, without
+  `FILE_SHARE_DELETE`: while either app holds it open, nobody can delete or rename it.
+- After a successful `try_lock` the path is looked at again without following a link (Windows: a
+  second open for attributes only with `FILE_FLAG_OPEN_REPARSE_POINT`, comparing volume serial
+  number and file index from `GetFileInformationByHandle`; Unix: `lstat`, comparing device and
+  inode). If the path is gone or names another file, the lock is dropped and taken again on the
+  file there now, within the same 2 s wait. Without this, a `.lock` deleted or renamed between
+  one app's open and its lock would let both apps hold "the" lock.
+
+**L2: one name only.** A `.lock` with more than one name (a hard link, possibly to a foreign file)
+is refused, checked on the handle at the open and again in the identity check. It is a lock
+failure: storage code `io`, nothing written, the log names the scope and "scope lock", no title.
+
+**The open itself does not follow links.** The open that creates the lock file uses
+`FILE_FLAG_OPEN_REPARSE_POINT` (Windows) or `O_NOFOLLOW | O_NONBLOCK` (Unix), so a link, also a
+dangling one, is never followed or created through, and a FIFO cannot hang it. The handle must be
+a regular file (Windows: neither directory nor reparse point attribute). A link or folder in the
+way is a lock failure (`io`). This replaces the earlier look before the open (a `symlink_metadata`
+pre-check), which left a window between the look and the open.
+
+**Index contract, as Hangar words it.**
+- A `folder.json` or `trash.json` that is valid JSON but of an unknown version or shape is left
+  byte for byte: the scope index is read only, as before (notes listed from the files, index
+  changes refused with `io`; a broken `trash.json` still lets delete and restore move files).
+  The same holds for a file that is too large, a link or unreadable.
+- Only content that is not JSON at all (cut off, empty, binary, not UTF-8) is set aside as
+  `<name>.broken-<millis>` in the same folder, under the scope lock and only by a writable store,
+  with `rename_no_replace`: an existing `.broken-` file is never replaced, a second one in the
+  same millisecond takes a `-<n>` suffix. The notes stay listed from disk; the next index is
+  built from the same files under the same derived IDs (`stable_id`, the test vector of Hangar's
+  ADR 0022, pinned in both apps), whichever app sets the file aside first. A note that already
+  carried its derived ID keeps its color and sticky note in `meta.json`. A note whose random ID
+  only the lost index knew gets its derived ID; its `meta.json` entry stays under the old ID and
+  comes back only if the `.broken-` copy is restored by hand. The old IDs are not salvaged from
+  the broken bytes: Hangar does not either, and both apps must arrive at the same IDs.
+- Read only, nothing is set aside.
+
+**Stale temporary files.** When a scope is opened for writing (under its lock), regular files
+named exactly `.<name>.<pid>.<n>.tmp` (non-empty name, decimal pid and counter) older than 10
+minutes are removed from the scope folder and its `.trash/`; links, folders and every other name
+are never touched. Each scope is swept at most once per 10 minutes per process, so the first write
+after a start cleans up.
+
 ## Evidence
 - Code: `src-tauri/src/access.rs` (access without marker), `src-tauri/src/notes.rs` (`lock_scope`,
   `SCOPE_LOCK_FILE`, `SCOPE_LOCK_WAIT`, `Hold`, `create_free_file`), `src-tauri/src/watch.rs`,
   `src-tauri/src/windows.rs` (`notify_outside`), `src-tauri/src/lib.rs` (`watch_outside_changes`).
+  Security review: `src-tauri/src/fsio.rs` (`open_lock_file`, `lock_file_matches`,
+  `try_set_aside`, `is_atomic_temp_name`), `src-tauri/src/notes.rs` (`lock_scope_with`,
+  `MetaRead::NotJson`, `set_aside_index`, `read_trash_locked`, `sweep_temps_in`).
 - Tests, Windows 11, Rust stable, 2026-11-26: `hangars_folder_is_writable_without_a_marker`,
   `a_second_hangar_note_on_hangars_folder_stays_read_only`,
   `the_scope_lock_serialises_two_writers` (two stores, two threads, 31 notes, no entry lost; fails
@@ -207,6 +260,22 @@ them, it does not add them).
   `a_broken_trash_index_is_not_rewritten`, `unknown_fields_survive_a_rewrite`. File symlinks need a
   privilege on Windows that the test run did not have; those halves were skipped there and run on
   Unix, junctions were tested.
+- Security review, tests, Windows 11, Rust stable, 2026-11-26: `notes.rs`
+  `a_held_scope_lock_cannot_be_swapped_away` (Windows: delete and rename of the held `.lock` fail;
+  fails with the default share mode; Unix: the deleted file is noticed and the lock is taken on the
+  new one), `a_scope_lock_with_a_second_name_is_refused`, `a_linked_scope_lock_is_never_followed`
+  (junction; the dangling file symlink half needs a privilege on Windows and was skipped there),
+  `an_index_that_is_not_json_is_set_aside_and_the_scope_works_again`,
+  `a_trash_index_that_is_not_json_is_set_aside`, `broken_metadata_loses_no_notes` and
+  `a_broken_trash_index_is_not_rewritten` (valid JSON of unknown version or shape stays byte for
+  byte), `stale_temporary_files_are_swept_and_nothing_else`,
+  `stable_ids_match_the_shared_test_vector` (the three vectors of Hangar's ADR 0022),
+  `a_rebuilt_index_holds_ids_both_apps_accept`; `service.rs`
+  `colors_of_derived_ids_survive_a_rebuilt_index`; `fsio.rs`
+  `lock_files_are_plain_and_checked_by_identity`, `only_exact_atomic_temp_names_match`,
+  `a_set_aside_never_replaces_an_earlier_copy`. The Unix branches (`O_NOFOLLOW`, `lstat`
+  identity, the retry after a deleted lock file) compile only there and were not run on this
+  machine.
 
 > [!question] Unverified
 > The scope lock on a network share or a synced folder (OneDrive, Seafile) is only as reliable as
