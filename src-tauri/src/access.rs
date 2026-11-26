@@ -53,6 +53,8 @@ pub struct NotesRoot {
 pub enum RootError {
     #[error("{ROOT_ENV} must be an absolute path")]
     RelativeRoot,
+    #[error("{ROOT_ENV} must be a folder on this computer, not a network or device path")]
+    NetworkRoot,
     #[error("The local data folder of this user is unknown")]
     NoDataFolder,
 }
@@ -72,6 +74,9 @@ pub fn resolve_root(
     if debug {
         if let Some(value) = env.filter(|value| !value.is_empty()) {
             let path = PathBuf::from(value);
+            if is_network_or_device(&path) {
+                return Err(RootError::NetworkRoot);
+            }
             if !path.is_absolute() {
                 return Err(RootError::RelativeRoot);
             }
@@ -92,6 +97,29 @@ pub fn resolve_root(
         path: hangar.ok_or(RootError::NoDataFolder)?,
         kind: RootKind::Hangar,
     })
+}
+
+/// A path on a share (`\\server\share`, `\\?\UNC\server\share`) or in the device namespace
+/// (`\\.\`). Windows only: on a share the writer lock and the atomic rename are only as reliable
+/// as the server, and another machine would hold the notes. Unix paths have no such prefix.
+fn is_network_or_device(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::path::Prefix;
+        matches!(
+            path.components().next(),
+            Some(Component::Prefix(prefix))
+                if matches!(
+                    prefix.kind(),
+                    Prefix::UNC(..) | Prefix::VerbatimUNC(..) | Prefix::DeviceNS(..)
+                )
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 /// The path with `.` and `..` resolved lexically, and its longest existing ancestor resolved
@@ -309,6 +337,38 @@ mod tests {
             RootKind::Hangar
         );
         assert_eq!(resolve_root(None, true, None), Err(RootError::NoDataFolder));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_network_path_is_no_development_root() {
+        let data = Some(PathBuf::from(r"C:\data"));
+        for path in [
+            r"\\server\share\notes",
+            r"\\server\share",
+            r"\\?\UNC\server\share\notes",
+            r"\\.\pipe\notes",
+            "//server/share/notes",
+        ] {
+            let result = resolve_root(Some(path.into()), true, data.clone());
+            assert!(result.is_err(), "{path}: {result:?}");
+        }
+        assert_eq!(
+            resolve_root(Some(r"\\server\share\notes".into()), true, data.clone()),
+            Err(RootError::NetworkRoot)
+        );
+        // A release build ignores the variable altogether.
+        assert_eq!(
+            resolve_root(Some(r"\\server\share\notes".into()), false, data.clone())
+                .unwrap()
+                .kind,
+            RootKind::Hangar
+        );
+        // A local drive, also in its verbatim spelling, stays a development root.
+        for path in [r"D:\dev notes", r"\\?\D:\dev notes"] {
+            let root = resolve_root(Some(path.into()), true, data.clone()).unwrap();
+            assert_eq!(root.kind, RootKind::Development, "{path}");
+        }
     }
 
     #[test]

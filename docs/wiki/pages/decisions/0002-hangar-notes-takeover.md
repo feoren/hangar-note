@@ -106,8 +106,8 @@ writes Hangar's existing notes folders and formats unchanged; nothing is migrate
 
 ### Local channel (both directions)
 - Loopback HTTP on 127.0.0.1 with a random port, one per app. Each app writes `endpoint.json`
-  `{ version: 1, port, token }` into its local data folder with user-only permissions; the token is
-  32 random bytes, rotated on every start. Requests carry `Authorization: Bearer <token>`; browser
+  `{ version: 1, port, pid, token, teamToken }` into its local data folder with user-only
+  permissions; both tokens are 32 random bytes, rotated on every start. Requests carry `Authorization: Bearer <token>`; browser
   `Origin` headers and foreign `Host` values are rejected, as in Hangar's hook endpoint.
 - **Hangar to Hangar Note:** `open`, `quick`, `capture`, `create` (daily review), `search`
   (quick launcher), `excerpts` (handover), `flush` (before Hangar quits).
@@ -141,8 +141,8 @@ writes Hangar's existing notes folders and formats unchanged; nothing is migrate
 - **Team routes get their own token** (`teamToken` in `endpoint.json`, separate scope); the token
   that serves `search` and `create` never opens or seals team notes.
 - **Errors for people:** storage failures come back as fixed codes (`denied`, `disk-full`,
-  `too-large`, `io`), never as raw OS text or paths; the interface turns each code into one plain
-  sentence in all languages.
+  `too-large`, `not-found`, `io`), never as raw OS text or paths; the interface turns each code
+  into one plain sentence in all languages.
 
 ### Team notes
 - Hangar Note never holds the team ring and never reads the keychain entry `team/<team key>`;
@@ -257,6 +257,30 @@ channel details: [[hangar-notes-format]], [[local-channel]]. Deviations and choi
     `http(s)://tauri.localhost`) and, in debug builds, the dev server's origin.
   - "Always on top" of the notes area: `set_hub_on_top`, allowed for `hub` only, stored as
     `hubOnTop` in `settings.json` and applied when the notes area is built.
+- **After the second security review** (findings N-A, N-B, N-C, the team token, storage codes),
+  all with tests; details in [[local-channel]]:
+  - `endpoint.json` carries the label `S:(ML;;NWNRNX;;;ME)` in the same descriptor as its DACL;
+    the system adds `AI` to the SACL, which is left unprotected so inherited audit entries stay.
+  - The hello answers `Connection: keep-alive` when the client asked for it and a head slot for
+    the request is free; that request is the last on the connection. A proven hello with
+    `Connection: close` (no slot) ends the exchange as `busy`; a connection that closes after the
+    hello ends it as not proven. The client looks for 2 ms whether the server closed before it
+    sends the token.
+  - A connection gives its head slot back before it is answered. Answers without a valid token
+    wait at most 100 ms for the client, at most 32 at once (beyond, the socket closes at once);
+    authenticated answers keep 1 s. A connection waiting for its request after a hello may be
+    closed for a newer one after 250 ms of silence (1 s for a new connection).
+  - Team routes are every path under `/team/`; none exists in phase 1, so the team token reaches
+    `unknown-route` and the notes token gets `unauthorized` there. `endpoint.json` with one token
+    for both scopes is refused.
+  - Storage codes also cover `not-found` (a missing file, an unknown note in the window) and come
+    from the OS error number first (Windows 5, 19, 32, 33 `denied`; 39, 112 `disk-full`; 2, 3
+    `not-found`; POSIX `EACCES`, `EPERM`, `EROFS`, `ENOSPC`, `EFBIG`, `ENOENT`), then from the
+    portable error kind. The path and the OS text go to the log once, where the error leaves the
+    command. On the channel `denied`, `disk-full` and `io` answer 500, `not-found` 404,
+    `too-large` 413 (a note over 1 MiB in `create` included, formerly `invalid`).
+  - `HANGAR_NOTE_NOTES_ROOT` naming a share (`\\server\share`, `\\?\UNC\...`) or a device path
+    (`\\.\`) is refused at the start.
 
 ## Consequences
 - Two apps must agree on one versioned contract; changes go through both sessions.

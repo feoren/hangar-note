@@ -3,10 +3,13 @@
 //!
 //! Until its head is read, a connection holds one of [`MAX_UNAUTHENTICATED`] head slots and has
 //! [`HEAD_TIME`] in total for its head, however slowly it sends. With all of them taken, a new
-//! connection closes the oldest *silent* one: it waited [`HEAD_GRACE`] and nothing of its head
-//! waits unread. Hangar and the command line send their head at once, so silent local programs
-//! cannot keep them out. Past [`MAX_HEAD_THREADS`] busy head threads with none of them silent, a
-//! new connection is closed unanswered. An authenticated request then moves to one of
+//! connection closes the oldest *silent* one: its grace is over ([`HEAD_GRACE`] for a new
+//! connection, [`AFTER_HELLO_GRACE`] for one waiting for its request after a proven hello) and
+//! nothing of its head waits unread. Hangar and the command line send their head at once, so
+//! silent local programs cannot keep them out. Past [`MAX_HEAD_THREADS`] busy head threads with
+//! none of them silent, a new connection is closed unanswered. A connection leaves its head slot
+//! as soon as its head is read, before it is answered (second security review, N-C), so finished
+//! requests never fill the slots. An authenticated request then moves to one of
 //! [`MAX_AUTHENTICATED`] slots for its body and answer.
 
 use std::collections::VecDeque;
@@ -28,6 +31,10 @@ pub const MAX_AUTHENTICATED: usize = 16;
 pub const HEAD_TIME: Duration = Duration::from_secs(2);
 /// How long a connection may wait silently for its head before a newer one may close it.
 pub const HEAD_GRACE: Duration = Duration::from_secs(1);
+/// The same for the request that follows a proven hello on its connection: the client sends it
+/// as soon as it checked the proof, so a connection that stays silent longer is taken for one
+/// that only holds the place.
+pub const AFTER_HELLO_GRACE: Duration = Duration::from_millis(250);
 /// How often a connection reading its head looks whether a newer one took its slot.
 const HEAD_POLL: Duration = Duration::from_millis(100);
 
@@ -134,8 +141,8 @@ fn nothing_buffered(stream: &TcpStream) -> bool {
 #[derive(Default)]
 pub struct Heads {
     next: u64,
-    /// The ones holding a slot, oldest first: id, a handle to close it, its state, when it was
-    /// accepted.
+    /// The ones holding a slot, oldest first: id, a handle to close it, its state, from when a
+    /// newer connection may close it if it is silent.
     open: VecDeque<(u64, TcpStream, Arc<HeadState>, Instant)>,
     /// Threads still reading a head, the closed ones that have not noticed yet included.
     alive: usize,
@@ -150,9 +157,10 @@ pub struct HeadSlot {
 }
 
 impl HeadSlot {
-    /// A slot for `stream`; with [`MAX_UNAUTHENTICATED`] or more open, or every head thread busy,
-    /// the oldest silent connection (it waited `grace`) is closed for this one. `None` (closed
-    /// unanswered) only when [`MAX_HEAD_THREADS`] threads are busy and none of them is silent.
+    /// A slot for `stream`, which no newer connection closes within `grace`; with
+    /// [`MAX_UNAUTHENTICATED`] or more open, or every head thread busy, the oldest silent
+    /// connection whose grace is over is closed for this one. `None` (closed unanswered) only when
+    /// [`MAX_HEAD_THREADS`] threads are busy and none of them is silent.
     pub fn take(heads: &Arc<Mutex<Heads>>, stream: &TcpStream, grace: Duration) -> Option<Self> {
         let handle = stream.try_clone().ok()?;
         let state = Arc::new(HeadState::new());
@@ -160,14 +168,11 @@ impl HeadSlot {
         let (id, evicted) = {
             let mut list = lock(heads);
             let crowded = list.open.len() >= MAX_UNAUTHENTICATED || list.alive >= MAX_HEAD_THREADS;
-            // Oldest first; the ones after the first within its grace are younger still.
+            // Oldest first. The grace is checked before the socket is asked.
             let silent = if crowded {
-                list.open
-                    .iter()
-                    .take_while(|(_, _, _, since)| now.saturating_duration_since(*since) >= grace)
-                    .position(|(_, other, other_state, _)| {
-                        nothing_buffered(other) && other_state.close_waiting()
-                    })
+                list.open.iter().position(|(_, other, other_state, from)| {
+                    now >= *from && nothing_buffered(other) && other_state.close_waiting()
+                })
             } else {
                 None
             };
@@ -177,7 +182,8 @@ impl HeadSlot {
             }
             let id = list.next;
             list.next = list.next.wrapping_add(1);
-            list.open.push_back((id, handle, Arc::clone(&state), now));
+            list.open
+                .push_back((id, handle, Arc::clone(&state), now + grace));
             list.alive += 1;
             (id, evicted)
         };
@@ -243,6 +249,12 @@ impl<'a> Deadline<'a> {
     pub fn restart(&mut self, limit: Duration) {
         self.until = Instant::now() + limit;
         self.head = None;
+    }
+
+    /// A fresh total from now for the next head on the same connection, guarded by `state`.
+    pub fn watch_head(&mut self, limit: Duration, state: Arc<HeadState>) {
+        self.until = Instant::now() + limit;
+        self.head = Some(state);
     }
 }
 
@@ -358,6 +370,26 @@ mod tests {
         }
         assert!(silent.iter().any(|slot| slot.state.closed()));
         assert!(unread.head_read());
+    }
+
+    #[test]
+    fn each_connection_keeps_its_own_grace() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let heads = Arc::new(Mutex::new(Heads::default()));
+        let mut clients = Vec::new();
+        let mut take = |grace: Duration| {
+            let (client, stream) = pair(&listener, port);
+            clients.push(client);
+            HeadSlot::take(&heads, &stream, grace).unwrap()
+        };
+        // The oldest is still within its long grace; a younger one with none gives way first.
+        let protected = take(HEAD_GRACE);
+        let unprotected = take(Duration::ZERO);
+        let rest: Vec<HeadSlot> = (0..MAX_UNAUTHENTICATED).map(|_| take(HEAD_GRACE)).collect();
+        assert!(!protected.state.closed());
+        assert!(unprotected.state.closed());
+        assert!(rest.iter().all(|slot| !slot.state.closed()));
     }
 
     #[test]

@@ -1,8 +1,9 @@
-//! The smallest HTTP/1.1 the local channel needs: one `POST` with `Content-Length` per
-//! connection, answered with `Connection: close`. Taken from Hangar's `hook_http.rs` (MIT, same
-//! owner), which made the same choice: a few routes on 127.0.0.1 for one client, every limit
-//! explicit here. hyper or axum would add an async server, routing and keep-alive handling for
-//! no gain. Anything unusual is refused rather than interpreted: chunked bodies, a second
+//! The smallest HTTP/1.1 the local channel needs: `POST` with `Content-Length`, at most a hello
+//! and one request per connection (ADR 0002, "One exchange, one connection"); every answer says
+//! whether the connection stays open (`Connection: keep-alive`) or closes. Taken from Hangar's
+//! `hook_http.rs` (MIT, same owner), which made the same choice: a few routes on 127.0.0.1 for
+//! one client, every limit explicit here. hyper or axum would add an async server, routing and
+//! general keep-alive handling for no gain. Anything unusual is refused rather than interpreted: chunked bodies, a second
 //! `Content-Length`, folded headers, control characters, oversized heads.
 
 use std::io::{self, BufRead};
@@ -120,6 +121,9 @@ pub struct Head {
     pub json: bool,
     /// [`NONCE_HEADER`] as sent; the channel checks its form.
     pub nonce: Option<String>,
+    /// The client asked to close after this request: `Connection: close`, or HTTP/1.0 without
+    /// `Connection: keep-alive`.
+    pub close: bool,
 }
 
 impl std::fmt::Debug for Head {
@@ -133,6 +137,7 @@ impl std::fmt::Debug for Head {
             .field("from_browser", &self.from_browser)
             .field("json", &self.json)
             .field("nonce", &self.nonce)
+            .field("close", &self.close)
             .finish()
     }
 }
@@ -205,6 +210,8 @@ pub fn read_head(reader: &mut impl BufRead) -> Result<Head, HeadError> {
     let mut host: Option<String> = None;
     let mut from_browser = false;
     let mut length: Option<u64> = None;
+    let mut connection_close = false;
+    let mut connection_keep_alive = false;
     let mut headers = 0;
     loop {
         read_line(reader, &mut line, &mut budget)?;
@@ -266,6 +273,11 @@ pub fn read_head(reader: &mut impl BufRead) -> Result<Head, HeadError> {
                 return Err(HeadError::Malformed);
             }
             nonce = Some(value.to_owned());
+        } else if name.eq_ignore_ascii_case("connection") {
+            for option in value.split(',').map(|option| option.trim()) {
+                connection_close |= option.eq_ignore_ascii_case("close");
+                connection_keep_alive |= option.eq_ignore_ascii_case("keep-alive");
+            }
         }
     }
     if !method_ok {
@@ -287,18 +299,20 @@ pub fn read_head(reader: &mut impl BufRead) -> Result<Head, HeadError> {
         from_browser,
         json,
         nonce,
+        close: connection_close || (version == "HTTP/1.0" && !connection_keep_alive),
     })
 }
 
-/// A complete response with a JSON body that closes the connection; `proof` goes into
-/// [`PROOF_HEADER`].
-pub fn response(status: Status, body: &str, proof: Option<&str>) -> Vec<u8> {
+/// A complete response with a JSON body; `proof` goes into [`PROOF_HEADER`]. `keep_alive`: the
+/// connection stays open for one more request (only after a hello), else it closes.
+pub fn response(status: Status, body: &str, proof: Option<&str>, keep_alive: bool) -> Vec<u8> {
     let proof = proof
         .map(|proof| format!("{PROOF_HEADER}: {proof}\r\n"))
         .unwrap_or_default();
+    let connection = if keep_alive { "keep-alive" } else { "close" };
     let mut out = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
-         Cache-Control: no-store\r\n{proof}Connection: close\r\n\r\n",
+         Cache-Control: no-store\r\n{proof}Connection: {connection}\r\n\r\n",
         status.code(),
         status.reason(),
         body.len()
@@ -407,12 +421,32 @@ mod tests {
     }
 
     #[test]
-    fn responses_close_the_connection() {
-        let text = String::from_utf8(response(Status::Conflict, "{}", None)).unwrap();
+    fn the_client_may_ask_to_close() {
+        for (version, connection, close) in [
+            ("HTTP/1.1", "", false),
+            ("HTTP/1.1", "Connection: keep-alive\r\n", false),
+            ("HTTP/1.1", "Connection: close\r\n", true),
+            ("HTTP/1.1", "connection: Keep-Alive, Close\r\n", true),
+            ("HTTP/1.0", "", true),
+            ("HTTP/1.0", "Connection: keep-alive\r\n", false),
+        ] {
+            let raw = format!("POST / {version}\r\n{connection}Content-Length: 0\r\n\r\n");
+            assert_eq!(
+                head(raw.as_bytes()).unwrap().close,
+                close,
+                "{version} {connection}"
+            );
+        }
+    }
+
+    #[test]
+    fn responses_say_whether_the_connection_stays_open() {
+        let text = String::from_utf8(response(Status::Conflict, "{}", None, false)).unwrap();
         assert!(text.starts_with("HTTP/1.1 409 Conflict\r\n"));
         assert!(!text.contains(PROOF_HEADER));
-        let proven = String::from_utf8(response(Status::Ok, "{}", Some("ab"))).unwrap();
+        let proven = String::from_utf8(response(Status::Ok, "{}", Some("ab"), true)).unwrap();
         assert!(proven.contains("X-Channel-Proof: ab\r\n"));
+        assert!(proven.contains("Connection: keep-alive\r\n"));
         assert!(text.contains("Content-Length: 2\r\n"));
         assert!(text.contains("Connection: close\r\n"));
         assert!(text.ends_with("\r\n\r\n{}"));

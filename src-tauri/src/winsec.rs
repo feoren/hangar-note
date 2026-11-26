@@ -6,6 +6,11 @@
 //!   "Protected" means no ACE is inherited from the folder, so a folder whose ACL a program or an
 //!   administrator widened never widens this file. A rename within the same volume keeps the
 //!   descriptor, so the atomic write's temporary file passes it on to `endpoint.json`.
+//! - The same descriptor carries the mandatory label `S:(ML;;NWNRNX;;;ME)` (second security
+//!   review, N-B): a process below medium integrity (a sandboxed browser renderer, a low
+//!   integrity helper of the same user) may neither read, write nor execute the file, even though
+//!   the DACL grants the user full access. Setting a label no higher than the caller's own
+//!   integrity needs no privilege.
 //! - [`set_exclusive_address`] sets `SO_EXCLUSIVEADDRUSE` on a socket before it is bound, so no
 //!   other socket can bind the same address while it is held, not even one with `SO_REUSEADDR`
 //!   (Microsoft's documentation on `SO_EXCLUSIVEADDRUSE`).
@@ -107,9 +112,13 @@ pub fn current_user_sid() -> io::Result<String> {
     Ok(String::from_utf16_lossy(units))
 }
 
-/// The descriptor of an owner-only file: protected, full access for SYSTEM and `sid`.
+/// The mandatory label of an owner-only file: medium integrity, no read, write or execute up.
+pub const OWNER_ONLY_LABEL: &str = "S:(ML;;NWNRNX;;;ME)";
+
+/// The descriptor of an owner-only file: protected, full access for SYSTEM and `sid`, and the
+/// medium integrity label [`OWNER_ONLY_LABEL`].
 pub fn owner_only_sddl(sid: &str) -> String {
-    format!("D:P(A;;FA;;;SY)(A;;FA;;;{sid})")
+    format!("D:P(A;;FA;;;SY)(A;;FA;;;{sid}){OWNER_ONLY_LABEL}")
 }
 
 /// Creates `path` (it must not exist) for writing with the owner-only DACL.
@@ -176,10 +185,28 @@ pub fn set_exclusive_address(socket: &impl AsRawSocket) -> io::Result<()> {
 
 /// The DACL of `path` in SDDL, for tests and diagnostics.
 pub fn dacl_sddl(path: &Path) -> io::Result<String> {
+    security_sddl(
+        path,
+        windows_sys::Win32::Security::DACL_SECURITY_INFORMATION,
+    )
+}
+
+/// The mandatory label of `path` in SDDL (`S:(ML;;...;;;..)`, empty without one), for tests and
+/// diagnostics. Reading it needs `READ_CONTROL` only, no privilege.
+pub fn label_sddl(path: &Path) -> io::Result<String> {
+    security_sddl(
+        path,
+        windows_sys::Win32::Security::LABEL_SECURITY_INFORMATION,
+    )
+}
+
+fn security_sddl(
+    path: &Path,
+    information: windows_sys::Win32::Security::OBJECT_SECURITY_INFORMATION,
+) -> io::Result<String> {
     use windows_sys::Win32::Security::Authorization::{
         ConvertSecurityDescriptorToStringSecurityDescriptorW, GetNamedSecurityInfoW, SE_FILE_OBJECT,
     };
-    use windows_sys::Win32::Security::DACL_SECURITY_INFORMATION;
     let name = wide(path.as_os_str());
     let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
     // SAFETY: `name` is NUL-terminated; only the descriptor is asked for, the other out pointers
@@ -188,7 +215,7 @@ pub fn dacl_sddl(path: &Path) -> io::Result<String> {
         GetNamedSecurityInfoW(
             name.as_ptr(),
             SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION,
+            information,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             std::ptr::null_mut(),
@@ -206,7 +233,7 @@ pub fn dacl_sddl(path: &Path) -> io::Result<String> {
         ConvertSecurityDescriptorToStringSecurityDescriptorW(
             descriptor.0,
             SDDL_REVISION_1,
-            DACL_SECURITY_INFORMATION,
+            information,
             &mut text,
             std::ptr::null_mut(),
         )
@@ -258,6 +285,12 @@ mod tests {
         assert_eq!(sddl.matches("(A;").count(), 2, "{sddl}");
         assert!(sddl.contains(";;;SY)"), "{sddl}");
         assert!(sddl.contains(&format!(";;;{sid})")), "{sddl}");
+        // Medium integrity, and nothing below it may read, write or execute the file.
+        let label = label_sddl(&path).unwrap();
+        // The system adds the `AI` flag (auto inherited) to the SACL; exactly one label remains.
+        assert!(label.starts_with("S:"), "{label}");
+        assert!(label.contains("(ML;;NWNRNX;;;ME)"), "{label}");
+        assert_eq!(label.matches("(ML;").count(), 1, "{label}");
         // An existing file is never opened again with this call.
         assert!(create_owner_only(&path).is_err());
     }

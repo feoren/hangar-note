@@ -18,7 +18,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::fsio::{lock, read_capped, set_aside, write_atomic};
+use crate::fsio::{lock, read_capped, set_aside, write_atomic, StorageCode};
 
 pub const META_FILE: &str = "meta.json";
 pub const META_VERSION: u32 = 1;
@@ -113,9 +113,22 @@ pub enum MetaError {
     },
 }
 
+impl MetaError {
+    /// The fixed code of a failed write; the path stays in the log (`NotesError::storage_code`).
+    pub fn storage_code(&self) -> Option<StorageCode> {
+        match self {
+            Self::Io { source, .. } => Some(StorageCode::of(source)),
+            Self::InvalidBounds => None,
+        }
+    }
+}
+
 impl Serialize for MetaError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        match self.storage_code() {
+            Some(code) => serializer.serialize_str(code.as_str()),
+            None => serializer.serialize_str(&self.to_string()),
+        }
     }
 }
 

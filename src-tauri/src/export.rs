@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use crate::fsio::write_atomic;
+use crate::fsio::{write_atomic, StorageCode};
 use crate::notes::MAX_NOTE_BYTES;
 
 pub const NOTE_EXTENSION: &str = "md";
@@ -120,6 +120,17 @@ pub enum ExportError {
     NotAPath,
 }
 
+impl ExportError {
+    /// The fixed code the window gets; the path stays in the log (`NotesError::storage_code`).
+    pub fn storage_code(&self) -> Option<StorageCode> {
+        match self {
+            Self::TooLarge { .. } => Some(StorageCode::TooLarge),
+            Self::Io { source, .. } => Some(StorageCode::of(source)),
+            Self::NotAPath => None,
+        }
+    }
+}
+
 /// Writes the content to the chosen file: temporary file next to it, then rename, so an existing
 /// file is either replaced completely or left as it was.
 pub fn write(path: &Path, content: &str) -> Result<(), ExportError> {
@@ -172,6 +183,14 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
         let error = write(&path, &"x".repeat(MAX_NOTE_BYTES + 1)).unwrap_err();
         assert!(matches!(error, ExportError::TooLarge { .. }));
+        assert_eq!(error.storage_code(), Some(StorageCode::TooLarge));
+        // A folder where the file should go: the write fails with a code, not a path.
+        let blocked = tmp.path().join("blocked.md");
+        std::fs::create_dir(&blocked).unwrap();
+        let error = write(&blocked, "x").unwrap_err();
+        assert!(matches!(error, ExportError::Io { .. }));
+        assert!(error.storage_code().is_some());
+        assert_eq!(ExportError::NotAPath.storage_code(), None);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
     }
 }

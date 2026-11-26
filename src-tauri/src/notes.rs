@@ -38,6 +38,7 @@ use sha2::{Digest, Sha256};
 
 use crate::fsio::{
     create_private_dir, lock, millis, read_capped, read_prefix, utf8_prefix, write_atomic,
+    StorageCode,
 };
 
 pub const GENERAL_KEY: &str = "general";
@@ -204,9 +205,26 @@ pub enum NotesError {
     },
 }
 
+impl NotesError {
+    /// The fixed code a storage failure reaches the window with (ADR 0002, "Errors for people"):
+    /// never the OS text or the path, which only the log gets. `None` for the errors that are not
+    /// about storage (titles, IDs, queries; read only has a code of its own).
+    pub fn storage_code(&self) -> Option<StorageCode> {
+        match self {
+            Self::Io { source, .. } => Some(StorageCode::of(source)),
+            Self::TooLarge { .. } => Some(StorageCode::TooLarge),
+            Self::UnknownNote => Some(StorageCode::NotFound),
+            _ => None,
+        }
+    }
+}
+
 impl Serialize for NotesError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        match self.storage_code() {
+            Some(code) => serializer.serialize_str(code.as_str()),
+            None => serializer.serialize_str(&self.to_string()),
+        }
     }
 }
 

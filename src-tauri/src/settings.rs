@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::fsio::{lock, read_capped, write_atomic};
+use crate::fsio::{lock, read_capped, write_atomic, StorageCode};
 use crate::meta::NoteColor;
 
 pub const SETTINGS_FILE: &str = "settings.json";
@@ -74,9 +74,22 @@ pub enum SettingsError {
     },
 }
 
+impl SettingsError {
+    /// The fixed code of a failed write; the path stays in the log (`NotesError::storage_code`).
+    pub fn storage_code(&self) -> Option<StorageCode> {
+        match self {
+            Self::Io { source, .. } => Some(StorageCode::of(source)),
+            Self::UnknownLanguage | Self::InvalidColorName => None,
+        }
+    }
+}
+
 impl Serialize for SettingsError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        match self.storage_code() {
+            Some(code) => serializer.serialize_str(code.as_str()),
+            None => serializer.serialize_str(&self.to_string()),
+        }
     }
 }
 

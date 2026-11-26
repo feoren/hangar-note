@@ -12,6 +12,99 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const TEMP_EXT: &str = "tmp";
 
+/// What a failed file operation means for the person, as a fixed code (ADR 0002, "Errors for
+/// people"). The window and the local channel get only this code, never the operating system's
+/// text or a path; those go to the log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageCode {
+    /// Access denied, a write protected file or medium, or a file another program holds open.
+    Denied,
+    /// The disk (or the quota) is full.
+    DiskFull,
+    /// The file is larger than allowed (the note limit, or the file system's own).
+    TooLarge,
+    /// The file or a folder on its way is gone.
+    NotFound,
+    /// Anything else.
+    Io,
+}
+
+impl StorageCode {
+    pub const ALL: [StorageCode; 5] = [
+        Self::Denied,
+        Self::DiskFull,
+        Self::TooLarge,
+        Self::NotFound,
+        Self::Io,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Denied => "denied",
+            Self::DiskFull => "disk-full",
+            Self::TooLarge => "too-large",
+            Self::NotFound => "not-found",
+            Self::Io => "io",
+        }
+    }
+
+    /// The code of an I/O error: the operating system's own error number first, where one is
+    /// known to mean something specific, then the portable kind.
+    pub fn of(error: &io::Error) -> Self {
+        if let Some(code) = error.raw_os_error().and_then(Self::of_os) {
+            return code;
+        }
+        match error.kind() {
+            io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => Self::Denied,
+            io::ErrorKind::StorageFull | io::ErrorKind::QuotaExceeded => Self::DiskFull,
+            io::ErrorKind::FileTooLarge => Self::TooLarge,
+            io::ErrorKind::NotFound => Self::NotFound,
+            _ => Self::Io,
+        }
+    }
+
+    /// Windows system error codes (`winerror.h`).
+    #[cfg(windows)]
+    fn of_os(code: i32) -> Option<Self> {
+        use windows_sys::Win32::Foundation::{
+            ERROR_ACCESS_DENIED, ERROR_DISK_FULL, ERROR_FILE_NOT_FOUND, ERROR_HANDLE_DISK_FULL,
+            ERROR_LOCK_VIOLATION, ERROR_PATH_NOT_FOUND, ERROR_SHARING_VIOLATION,
+            ERROR_WRITE_PROTECT,
+        };
+        match u32::try_from(code).ok()? {
+            // 5, 19; 32 and 33: another program (a sync client, a virus scanner, an editor)
+            // holds the file, which for the person is the same "may not change it".
+            ERROR_ACCESS_DENIED
+            | ERROR_WRITE_PROTECT
+            | ERROR_SHARING_VIOLATION
+            | ERROR_LOCK_VIOLATION => Some(Self::Denied),
+            // 112, 39.
+            ERROR_DISK_FULL | ERROR_HANDLE_DISK_FULL => Some(Self::DiskFull),
+            ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND => Some(Self::NotFound),
+            _ => None,
+        }
+    }
+
+    /// POSIX error numbers; these have the same values on Linux and macOS (`errno.h`), so no
+    /// `libc` is needed for them. `EDQUOT`, which differs, comes through `QuotaExceeded`.
+    #[cfg(unix)]
+    fn of_os(code: i32) -> Option<Self> {
+        const EPERM: i32 = 1;
+        const ENOENT: i32 = 2;
+        const EACCES: i32 = 13;
+        const EFBIG: i32 = 27;
+        const ENOSPC: i32 = 28;
+        const EROFS: i32 = 30;
+        match code {
+            EACCES | EPERM | EROFS => Some(Self::Denied),
+            ENOSPC => Some(Self::DiskFull),
+            EFBIG => Some(Self::TooLarge),
+            ENOENT => Some(Self::NotFound),
+            _ => None,
+        }
+    }
+}
+
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Locks a mutex even if another thread panicked while holding it. Every value guarded here is
@@ -181,6 +274,83 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    #[test]
+    fn io_errors_become_fixed_codes() {
+        let os = io::Error::from_raw_os_error;
+        #[cfg(windows)]
+        for (code, expected) in [
+            (5, StorageCode::Denied),
+            (19, StorageCode::Denied),
+            (32, StorageCode::Denied),
+            (33, StorageCode::Denied),
+            (112, StorageCode::DiskFull),
+            (39, StorageCode::DiskFull),
+            (2, StorageCode::NotFound),
+            (3, StorageCode::NotFound),
+            // ERROR_INVALID_FUNCTION, ERROR_CRC (a failing disk): just "io".
+            (1, StorageCode::Io),
+            (23, StorageCode::Io),
+        ] {
+            assert_eq!(StorageCode::of(&os(code)), expected, "{code}");
+        }
+        #[cfg(unix)]
+        for (code, expected) in [
+            (13, StorageCode::Denied),
+            (1, StorageCode::Denied),
+            (30, StorageCode::Denied),
+            (28, StorageCode::DiskFull),
+            (27, StorageCode::TooLarge),
+            (2, StorageCode::NotFound),
+            // EIO.
+            (5, StorageCode::Io),
+        ] {
+            assert_eq!(StorageCode::of(&os(code)), expected, "{code}");
+        }
+        // Errors without an OS number go by their kind.
+        for (kind, expected) in [
+            (io::ErrorKind::PermissionDenied, StorageCode::Denied),
+            (io::ErrorKind::ReadOnlyFilesystem, StorageCode::Denied),
+            (io::ErrorKind::StorageFull, StorageCode::DiskFull),
+            (io::ErrorKind::QuotaExceeded, StorageCode::DiskFull),
+            (io::ErrorKind::FileTooLarge, StorageCode::TooLarge),
+            (io::ErrorKind::NotFound, StorageCode::NotFound),
+            (io::ErrorKind::InvalidData, StorageCode::Io),
+            (io::ErrorKind::Other, StorageCode::Io),
+        ] {
+            assert_eq!(StorageCode::of(&kind.into()), expected, "{kind:?}");
+        }
+        let codes: Vec<&str> = StorageCode::ALL.iter().map(|c| c.as_str()).collect();
+        assert_eq!(
+            codes,
+            ["denied", "disk-full", "too-large", "not-found", "io"]
+        );
+    }
+
+    /// A real refusal from the file system, not a made-up error number.
+    #[test]
+    fn a_read_only_target_is_denied() {
+        let dir = TempDir::new("fsio-denied");
+        let path = dir.path().join("locked.md");
+        fs::write(&path, "keep").unwrap();
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&path, permissions.clone()).unwrap();
+        let opened = OpenOptions::new().write(true).open(&path);
+        #[allow(clippy::permissions_set_readonly_false)]
+        permissions.set_readonly(false);
+        fs::set_permissions(&path, permissions).unwrap();
+        let missing = File::open(dir.path().join("gone.md")).unwrap_err();
+        assert_eq!(StorageCode::of(&missing), StorageCode::NotFound);
+        // Root on Unix may write anyway; there the open succeeds and there is nothing to check.
+        match opened {
+            Err(error) => assert_eq!(StorageCode::of(&error), StorageCode::Denied, "{error}"),
+            #[cfg(windows)]
+            Ok(_) => panic!("a read-only file was opened for writing"),
+            #[cfg(not(windows))]
+            Ok(_) => {}
+        }
     }
 
     #[test]

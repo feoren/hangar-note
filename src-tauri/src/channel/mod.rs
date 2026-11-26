@@ -2,21 +2,32 @@
 //! 127.0.0.1 with a random port, through which Hangar (and `hangar-note capture`) reach the
 //! running app.
 //!
-//! - `endpoint.json` `{ version: 1, port, pid, token }` in Hangar Note's local data folder, written
-//!   atomically and readable by its owner only (0600 on Unix; on Windows an explicit protected
-//!   DACL for the user and SYSTEM, `winsec.rs`). Removed again on quit.
-//! - The token is 32 random bytes from the OS (64 hex digits), new on every start, held in
-//!   `Zeroizing` and never in `Debug`. It is checked in constant time, after a browser `Origin`
-//!   (or `Sec-Fetch-*`), any `Host` other than `127.0.0.1:<port>` and any `Content-Type` other
-//!   than `application/json` (415) were refused, as in Hangar's hook endpoint (`gate_service.rs`).
+//! - `endpoint.json` `{ version: 1, port, pid, token, teamToken }` in Hangar Note's local data
+//!   folder, written atomically and readable by its owner only (0600 on Unix; on Windows an
+//!   explicit protected DACL for the user and SYSTEM plus a medium integrity label, `winsec.rs`).
+//!   Removed again on quit.
+//! - Both tokens are 32 random bytes from the OS (64 hex digits), new on every start, held in
+//!   `Zeroizing` and never in `Debug`. `token` serves every route but the team routes
+//!   (`/team/...`), which take `teamToken` only ([`route_scope`]), so whoever may search or create
+//!   notes never opens or seals a team note. A token is checked in constant time, after a browser
+//!   `Origin` (or `Sec-Fetch-*`), any `Host` other than `127.0.0.1:<port>` and any `Content-Type`
+//!   other than `application/json` (415) were refused, as in Hangar's hook endpoint
+//!   (`gate_service.rs`).
 //! - **The server proves itself first** (`proof.rs`): a client sends `POST /v1/hello` with a
 //!   nonce and neither token nor content, and goes on only after a valid `X-Channel-Proof`. Every
 //!   answer to a request with a nonce carries the proof over that nonce, its status and its body.
+//! - **One exchange, one connection:** the hello and the real request travel over the same
+//!   connection, which stays open after the hello for exactly one more request and then closes.
+//!   Content can only reach the program that proved itself; a connection that closes after the
+//!   hello gets nothing more from the client ([`ClientError::NotProven`]).
 //! - Connections: separate slots before and after authentication, the oldest silent one gives
-//!   way, 2 s for the head (`slots.rs`). On Windows the socket holds its address with
-//!   `SO_EXCLUSIVEADDRUSE`.
+//!   way, 2 s for each head (`slots.rs`). A connection gives its head slot back before it is
+//!   answered, and an answer without a valid token waits at most [`QUICK_LINGER_TIME`] for the
+//!   client to finish, in a bounded count of its own, so finished hellos never fill the slots.
+//!   On Windows the socket holds its address with `SO_EXCLUSIVEADDRUSE`.
 //! - Every request body and every answer carries `version`; an unknown one gets
-//!   `unsupported-version`, never a guess. Errors are fixed codes (`{ version, error }`).
+//!   `unsupported-version`, never a guess. Errors are fixed codes (`{ version, error }`); storage
+//!   failures are `denied`, `disk-full`, `too-large`, `not-found` or `io`, never the OS text.
 //! - Routes of phase 1: `open`, `quick`, `capture`, `create`, `search`, `excerpts`, `flush`.
 //! - Neither a note's text nor the token is ever logged.
 //!
@@ -26,7 +37,7 @@ pub mod http;
 pub mod proof;
 mod slots;
 
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
@@ -39,8 +50,10 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use self::http::{Head, Status};
-use self::slots::{Deadline, HeadSlot, Heads, Slot, HEAD_GRACE, HEAD_TIME, MAX_AUTHENTICATED};
-use crate::fsio::{read_capped, write_atomic_owner_only};
+use self::slots::{
+    Deadline, HeadSlot, Heads, Slot, AFTER_HELLO_GRACE, HEAD_GRACE, HEAD_TIME, MAX_AUTHENTICATED,
+};
+use crate::fsio::{read_capped, write_atomic_owner_only, StorageCode};
 use crate::notes::NotesError;
 use crate::service::{Excerpt, HitRow, ServiceError};
 
@@ -57,9 +70,19 @@ pub const HELLO_PATH: &str = "/v1/hello";
 pub const MAX_TEXT_BODY_BYTES: u64 = 8 * 1024 * 1024;
 /// Body limit of every other route.
 pub const MAX_SMALL_BODY_BYTES: u64 = 64 * 1024;
+/// The prefix of the team routes, which take the team token only.
+pub const TEAM_PREFIX: &str = "/team/";
+/// A hello and one request: the most a connection carries.
+pub const MAX_REQUESTS_PER_CONNECTION: usize = 2;
 const BODY_TIME: Duration = Duration::from_secs(15);
 const WRITE_TIME: Duration = Duration::from_secs(5);
+/// How long an authenticated answer waits for the client to finish before the socket closes.
 const LINGER_TIME: Duration = Duration::from_secs(1);
+/// The same for an answer to a request without a valid token (a hello, a refusal): short, so a
+/// stream of finished hellos cannot keep threads waiting (second security review, N-C).
+pub const QUICK_LINGER_TIME: Duration = Duration::from_millis(100);
+/// Answers without a valid token that wait at once; beyond, the socket closes without waiting.
+const MAX_QUICK_LINGERING: usize = 32;
 const LINGER_BYTES: u64 = 64 * 1024;
 const MAX_ENDPOINT_BYTES: usize = 4096;
 const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
@@ -82,7 +105,24 @@ pub enum ErrorCode {
     ReadOnly,
     UnknownNote,
     Invalid,
+    /// Storage failures ([`StorageCode`]); `too-large` is [`ErrorCode::TooLarge`].
+    Denied,
+    DiskFull,
+    NotFound,
+    Io,
     Internal,
+}
+
+impl From<StorageCode> for ErrorCode {
+    fn from(code: StorageCode) -> Self {
+        match code {
+            StorageCode::Denied => Self::Denied,
+            StorageCode::DiskFull => Self::DiskFull,
+            StorageCode::TooLarge => Self::TooLarge,
+            StorageCode::NotFound => Self::NotFound,
+            StorageCode::Io => Self::Io,
+        }
+    }
 }
 
 impl ErrorCode {
@@ -103,6 +143,10 @@ impl ErrorCode {
             Self::ReadOnly => "read-only",
             Self::UnknownNote => "unknown-note",
             Self::Invalid => "invalid",
+            Self::Denied => StorageCode::Denied.as_str(),
+            Self::DiskFull => StorageCode::DiskFull.as_str(),
+            Self::NotFound => StorageCode::NotFound.as_str(),
+            Self::Io => StorageCode::Io.as_str(),
             Self::Internal => "internal",
         }
     }
@@ -112,7 +156,7 @@ impl ErrorCode {
             Self::BadRequest | Self::UnsupportedVersion | Self::Invalid => Status::BadRequest,
             Self::Unauthorized => Status::Unauthorized,
             Self::Forbidden => Status::Forbidden,
-            Self::UnknownRoute | Self::UnknownNote => Status::NotFound,
+            Self::UnknownRoute | Self::UnknownNote | Self::NotFound => Status::NotFound,
             Self::MethodNotAllowed => Status::MethodNotAllowed,
             Self::LengthRequired => Status::LengthRequired,
             Self::TooLarge => Status::PayloadTooLarge,
@@ -121,7 +165,7 @@ impl ErrorCode {
             Self::NotImplemented => Status::NotImplemented,
             Self::Busy => Status::Unavailable,
             Self::ReadOnly => Status::Conflict,
-            Self::Internal => Status::Internal,
+            Self::Denied | Self::DiskFull | Self::Io | Self::Internal => Status::Internal,
         }
     }
 
@@ -146,10 +190,11 @@ impl From<&ServiceError> for ErrorCode {
                 | NotesError::InvalidId
                 | NotesError::InvalidFolder(_)
                 | NotesError::InvalidQuery(_)
-                | NotesError::TooLarge { .. }
                 | NotesError::NotText,
             ) => Self::Invalid,
-            ServiceError::Notes(NotesError::Io { .. }) | ServiceError::Meta(_) => Self::Internal,
+            ServiceError::Notes(NotesError::TooLarge { .. }) => Self::TooLarge,
+            ServiceError::Notes(NotesError::Io { source, .. }) => StorageCode::of(source).into(),
+            ServiceError::Meta(error) => error.storage_code().map_or(Self::Internal, Self::from),
         }
     }
 }
@@ -183,14 +228,45 @@ pub trait Actions: Send + Sync + 'static {
     fn flush(&self) -> bool;
 }
 
-/// `endpoint.json`. The token is wiped when dropped and never shown by `Debug`.
+/// `endpoint.json`. The tokens are wiped when dropped and never shown by `Debug`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct EndpointFile {
     pub version: u32,
     pub port: u16,
     /// The process that serves the port, for diagnostics and Hangar's checks.
     pub pid: u32,
+    /// Every route but the team routes; the key of the server proof is derived from it.
     pub token: Zeroizing<String>,
+    /// The team routes (`/team/...`) only.
+    pub team_token: Zeroizing<String>,
+}
+
+/// Which token a route takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// `open`, `quick`, `capture`, `create`, `search`, `excerpts`, `flush`: `token`.
+    Notes,
+    /// `/team/...`: `teamToken`.
+    Team,
+}
+
+/// The scope of a route by its path. Pure, so the separation is testable without a socket.
+pub fn route_scope(path: &str) -> Scope {
+    if path.starts_with(TEAM_PREFIX) {
+        Scope::Team
+    } else {
+        Scope::Notes
+    }
+}
+
+/// Whether `presented` is the token of `path`'s scope; a token of the other scope never is.
+/// Compared in constant time.
+pub fn authorized(path: &str, presented: Option<&str>, token: &str, team_token: &str) -> bool {
+    let expected = match route_scope(path) {
+        Scope::Notes => token,
+        Scope::Team => team_token,
+    };
+    presented.is_some_and(|presented| token_eq(presented.as_bytes(), expected.as_bytes()))
 }
 
 impl std::fmt::Debug for EndpointFile {
@@ -204,19 +280,23 @@ impl std::fmt::Debug for EndpointFile {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct EndpointOut<'a> {
     version: u32,
     port: u16,
     pid: u32,
     token: &'a str,
+    team_token: &'a str,
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct EndpointIn {
     version: u32,
     port: u16,
     pid: u32,
     token: String,
+    team_token: String,
 }
 
 /// 32 random bytes from the OS as 64 lowercase hex digits.
@@ -247,6 +327,7 @@ pub fn write_endpoint(dir: &Path, endpoint: &EndpointFile) -> io::Result<()> {
         port: endpoint.port,
         pid: endpoint.pid,
         token: endpoint.token.as_str(),
+        team_token: endpoint.team_token.as_str(),
     };
     let bytes = Zeroizing::new(serde_json::to_vec_pretty(&out).map_err(io::Error::other)?);
     write_atomic_owner_only(&dir.join(ENDPOINT_FILE), &bytes)
@@ -261,17 +342,23 @@ pub fn read_endpoint(dir: &Path) -> io::Result<EndpointFile> {
     let parsed: EndpointIn =
         serde_json::from_slice(&bytes).map_err(|_| invalid("endpoint.json unreadable"))?;
     let token = Zeroizing::new(parsed.token);
+    let team_token = Zeroizing::new(parsed.team_token);
     if parsed.version != ENDPOINT_VERSION {
         return Err(invalid("endpoint.json of another version"));
     }
-    if !proof::is_hex64(&token) {
+    if !proof::is_hex64(&token) || !proof::is_hex64(&team_token) {
         return Err(invalid("endpoint.json holds no valid token"));
+    }
+    // One token for both scopes would undo their separation.
+    if token_eq(token.as_bytes(), team_token.as_bytes()) {
+        return Err(invalid("endpoint.json holds the same token twice"));
     }
     Ok(EndpointFile {
         version: parsed.version,
         port: parsed.port,
         pid: parsed.pid,
         token,
+        team_token,
     })
 }
 
@@ -387,7 +474,21 @@ fn done<T>(
 ) -> (Status, String) {
     match result {
         Ok(value) => answer(ok(value)),
-        Err(error) => error_body(ErrorCode::from(&error)),
+        Err(error) => {
+            let code = ErrorCode::from(&error);
+            // The caller gets the code; the path and the OS error (never content) go to the log.
+            if matches!(
+                code,
+                ErrorCode::Denied
+                    | ErrorCode::DiskFull
+                    | ErrorCode::NotFound
+                    | ErrorCode::Io
+                    | ErrorCode::Internal
+            ) {
+                eprintln!("hangar-note: channel {}: {error}", code.as_str());
+            }
+            error_body(code)
+        }
     }
 }
 
@@ -490,10 +591,11 @@ fn bind_loopback() -> io::Result<TcpListener> {
 pub struct Channel {
     pub port: u16,
     token: Zeroizing<String>,
+    team_token: Zeroizing<String>,
 }
 
 impl std::fmt::Debug for Channel {
-    // The token stays out of every debug print.
+    // The tokens stay out of every debug print.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Channel")
             .field("port", &self.port)
@@ -507,18 +609,25 @@ impl Channel {
         let listener = bind_loopback()?;
         let port = listener.local_addr()?.port();
         let token = new_token()?;
+        let team_token = new_token()?;
         let shared = Arc::new(Server {
             port,
             key: proof::key(&token),
             token: token.clone(),
+            team_token: team_token.clone(),
             actions,
             heads: Arc::default(),
             authenticated: Arc::default(),
+            lingering: Arc::default(),
         });
         thread::Builder::new()
             .name("channel-accept".to_owned())
             .spawn(move || shared.accept(&listener))?;
-        Ok(Self { port, token })
+        Ok(Self {
+            port,
+            token,
+            team_token,
+        })
     }
 
     pub fn endpoint(&self) -> EndpointFile {
@@ -527,6 +636,7 @@ impl Channel {
             port: self.port,
             pid: std::process::id(),
             token: self.token.clone(),
+            team_token: self.team_token.clone(),
         }
     }
 }
@@ -534,10 +644,13 @@ impl Channel {
 struct Server {
     port: u16,
     token: Zeroizing<String>,
+    team_token: Zeroizing<String>,
     key: Zeroizing<[u8; 32]>,
     actions: Arc<dyn Actions>,
     heads: Arc<Mutex<Heads>>,
     authenticated: Arc<AtomicUsize>,
+    /// Answers without a valid token waiting for their client to finish.
+    lingering: Arc<AtomicUsize>,
 }
 
 /// What a request head is admitted to.
@@ -545,9 +658,19 @@ struct Server {
 enum Admitted {
     /// `/v1/hello`: the proof alone, without a token.
     Hello,
-    /// A route, with the token.
+    /// A route, with the token of its scope.
     Request,
 }
+
+/// What follows one answer on a connection.
+enum After {
+    /// A hello was answered and the connection stays open for the request, which has a head slot
+    /// of its own.
+    Next(HeadSlot),
+    Closed,
+}
+
+type ConnectionReader<'a> = BufReader<Deadline<'a>>;
 
 impl Server {
     fn accept(self: &Arc<Self>, listener: &TcpListener) {
@@ -582,7 +705,7 @@ impl Server {
 
     /// Who sent the request: a browser page or a foreign `Host` is refused first, then anything
     /// that is not JSON, then a request without a well-formed nonce; only routes other than the
-    /// hello need the token.
+    /// hello need a token, and each the token of its scope.
     fn admit(&self, head: &Head) -> Result<Admitted, ErrorCode> {
         let expected = format!("127.0.0.1:{}", self.port);
         if head.from_browser || head.host.as_deref() != Some(expected.as_str()) {
@@ -597,82 +720,148 @@ impl Server {
         if head.path == HELLO_PATH {
             return Ok(Admitted::Hello);
         }
-        match &head.token {
-            Some(token) if token_eq(token.as_bytes(), self.token.as_bytes()) => {
-                Ok(Admitted::Request)
-            }
-            _ => Err(ErrorCode::Unauthorized),
+        let presented = head.token.as_ref().map(|token| token.as_str());
+        if authorized(&head.path, presented, &self.token, &self.team_token) {
+            Ok(Admitted::Request)
+        } else {
+            Err(ErrorCode::Unauthorized)
         }
     }
 
-    fn serve(&self, stream: &TcpStream, unauthenticated: HeadSlot) {
+    /// At most [`MAX_REQUESTS_PER_CONNECTION`] requests: a hello whose client asked to keep the
+    /// connection, then one more; anything else closes after its answer.
+    fn serve(&self, stream: &TcpStream, first: HeadSlot) {
         let _ = stream.set_write_timeout(Some(WRITE_TIME));
-        let deadline = Deadline::for_head(stream, HEAD_TIME, Arc::clone(&unauthenticated.state));
+        let deadline = Deadline::for_head(stream, HEAD_TIME, Arc::clone(&first.state));
         let mut reader = BufReader::new(deadline);
-        // Held until the connection closes, once the request is authenticated.
-        let mut _authenticated = None;
-        let mut nonce = None;
-        let (status, body) = match http::read_head(&mut reader) {
-            // Out of the head slots before the answer is written: the accept thread switches the
-            // socket of a connection in them to non-blocking for a moment.
-            Err(error) => match error.status() {
-                Some(status) if unauthenticated.head_read() => {
-                    error_body(ErrorCode::from_status(status))
+        let mut slot = first;
+        for turn in 1..=MAX_REQUESTS_PER_CONNECTION {
+            let may_continue = turn < MAX_REQUESTS_PER_CONNECTION;
+            match self.serve_one(stream, &mut reader, slot, may_continue) {
+                After::Next(next) => {
+                    reader
+                        .get_mut()
+                        .watch_head(HEAD_TIME, Arc::clone(&next.state));
+                    slot = next;
                 }
-                _ => return,
-            },
-            Ok(_) if !unauthenticated.head_read() => return,
-            Ok(head) => {
-                nonce = head.nonce.clone().filter(|nonce| proof::is_hex64(nonce));
-                match self.admit(&head) {
-                    Err(code) => error_body(code),
-                    Ok(_) if head.content_length > body_limit(&head.path) => {
-                        error_body(ErrorCode::TooLarge)
-                    }
-                    Ok(Admitted::Hello) => answer(serde_json::json!({})),
-                    Ok(Admitted::Request) => {
-                        drop(unauthenticated);
-                        match Slot::take(&self.authenticated, MAX_AUTHENTICATED) {
-                            None => error_body(ErrorCode::Busy),
-                            Some(slot) => {
-                                _authenticated = Some(slot);
-                                reader.get_mut().restart(BODY_TIME);
-                                let mut bytes = Vec::new();
-                                let read = (&mut reader)
-                                    .take(head.content_length)
-                                    .read_to_end(&mut bytes);
-                                match read {
-                                    Ok(n) if n as u64 == head.content_length => {
-                                        route(self.actions.as_ref(), &head.path, &bytes)
-                                    }
-                                    _ => return,
-                                }
-                            }
-                        }
-                    }
+                After::Closed => return,
+            }
+        }
+    }
+
+    /// One request on the connection, from its head to its answer.
+    fn serve_one(
+        &self,
+        stream: &TcpStream,
+        reader: &mut ConnectionReader<'_>,
+        unauthenticated: HeadSlot,
+        may_continue: bool,
+    ) -> After {
+        let read = http::read_head(reader);
+        // Out of the head slots before the answer is written: the accept thread switches the
+        // socket of a connection in them to non-blocking for a moment. `false`: a newer
+        // connection closed this one first.
+        if !unauthenticated.head_read() {
+            return After::Closed;
+        }
+        let head = match read {
+            Ok(head) => head,
+            Err(error) => {
+                drop(unauthenticated);
+                if let Some(status) = error.status() {
+                    let (status, body) = error_body(ErrorCode::from_status(status));
+                    self.answer_quickly(stream, &http::response(status, &body, None, false));
                 }
+                return After::Closed;
             }
         };
-        let proof =
-            nonce.map(|nonce| proof::proof(&self.key, &nonce, status.code(), body.as_bytes()));
-        answer_and_close(stream, &http::response(status, &body, proof.as_deref()));
+        let nonce = head.nonce.clone().filter(|nonce| proof::is_hex64(nonce));
+        let respond = |(status, body): (Status, String), keep_alive: bool| {
+            let proof = nonce
+                .as_deref()
+                .map(|nonce| proof::proof(&self.key, nonce, status.code(), body.as_bytes()));
+            http::response(status, &body, proof.as_deref(), keep_alive)
+        };
+        let refusal = match self.admit(&head) {
+            Err(code) => code,
+            Ok(_) if head.content_length > body_limit(&head.path) => ErrorCode::TooLarge,
+            Ok(Admitted::Hello) => {
+                // Given back before the answer is written (N-C); the request that may follow
+                // gets a slot of its own, with the short grace of a client that just checked
+                // the proof. Without one, the hello says so and the connection closes.
+                drop(unauthenticated);
+                let next = if may_continue && !head.close {
+                    HeadSlot::take(&self.heads, stream, AFTER_HELLO_GRACE)
+                } else {
+                    None
+                };
+                let response = respond(answer(serde_json::json!({})), next.is_some());
+                return match next {
+                    Some(next) if write_all(stream, &response) => After::Next(next),
+                    Some(_) => After::Closed,
+                    None => {
+                        self.answer_quickly(stream, &response);
+                        After::Closed
+                    }
+                };
+            }
+            Ok(Admitted::Request) => {
+                drop(unauthenticated);
+                let Some(_authenticated) = Slot::take(&self.authenticated, MAX_AUTHENTICATED)
+                else {
+                    self.answer_quickly(stream, &respond(error_body(ErrorCode::Busy), false));
+                    return After::Closed;
+                };
+                reader.get_mut().restart(BODY_TIME);
+                let mut bytes = Vec::new();
+                let read = reader.take(head.content_length).read_to_end(&mut bytes);
+                if !matches!(read, Ok(n) if n as u64 == head.content_length) {
+                    return After::Closed;
+                }
+                let response = respond(route(self.actions.as_ref(), &head.path, &bytes), false);
+                // The authenticated slot is held until the socket closes: such an answer may
+                // wait the full linger time for its client.
+                answer_and_close(stream, &response, LINGER_TIME);
+                return After::Closed;
+            }
+        };
+        drop(unauthenticated);
+        self.answer_quickly(stream, &respond(error_body(refusal), false));
+        After::Closed
+    }
+
+    /// Answers a request without a valid token and closes: it waits at most
+    /// [`QUICK_LINGER_TIME`] for the client, and only while fewer than [`MAX_QUICK_LINGERING`]
+    /// others do; beyond, the socket closes at once.
+    fn answer_quickly(&self, stream: &TcpStream, response: &[u8]) {
+        match Slot::take(&self.lingering, MAX_QUICK_LINGERING) {
+            Some(_lingering) => answer_and_close(stream, response, QUICK_LINGER_TIME),
+            None => {
+                if write_all(stream, response) {
+                    let _ = stream.shutdown(Shutdown::Write);
+                }
+            }
+        }
     }
 }
 
-/// Writes the answer and closes gracefully: the write side first, then whatever the client
-/// still sends is read and dropped, so Windows does not reset the connection on close and the
-/// client gets the whole answer (Hangar measured this).
-fn answer_and_close(stream: &TcpStream, response: &[u8]) {
+fn write_all(stream: &TcpStream, bytes: &[u8]) -> bool {
     let mut writer = stream;
-    if writer
-        .write_all(response)
+    writer
+        .write_all(bytes)
         .and_then(|()| writer.flush())
-        .is_err()
-    {
+        .is_ok()
+}
+
+/// Writes the answer and closes gracefully: the write side first, then whatever the client
+/// still sends within `linger` is read and dropped, so Windows does not reset the connection on
+/// close and the client gets the whole answer (Hangar measured this).
+fn answer_and_close(stream: &TcpStream, response: &[u8], linger: Duration) {
+    if !write_all(stream, response) {
         return;
     }
     let _ = stream.shutdown(Shutdown::Write);
-    let mut rest = Deadline::new(stream, LINGER_TIME).take(LINGER_BYTES);
+    let mut rest = Deadline::new(stream, linger).take(LINGER_BYTES);
     let _ = io::copy(&mut rest, &mut io::sink());
 }
 
@@ -681,7 +870,13 @@ fn answer_and_close(stream: &TcpStream, response: &[u8]) {
 const CONNECT_TIME: Duration = Duration::from_secs(2);
 const HELLO_TIME: Duration = Duration::from_secs(5);
 const REQUEST_TIME: Duration = Duration::from_secs(30);
-/// The most of an answer the client reads.
+/// How long the client looks whether the server closed the connection after the hello, before
+/// it sends the request. A server that closes does so right after its answer, so on loopback
+/// this is ample; on an open connection it is what the look costs.
+const STILL_OPEN_TIME: Duration = Duration::from_millis(2);
+/// The most of an answer's head the client reads.
+const MAX_ANSWER_HEAD_BYTES: usize = 16 * 1024;
+/// The most of an answer's body the client reads.
 const MAX_ANSWER_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
@@ -690,8 +885,8 @@ pub enum ClientError {
     #[error("Hangar Note is not running")]
     NotRunning,
     /// Something answers on the port but cannot prove that it knows the token (a program that
-    /// took the port of a crashed run, or a broken answer). Only the nonce was sent; the client
-    /// treats the app as not running.
+    /// took the port of a crashed run, or a broken answer), or the connection closed after the
+    /// hello. Only the nonce was sent; the client treats the app as not running.
     #[error("The program on Hangar Note's port did not prove itself")]
     NotProven,
     /// The content was sent, but no proven answer came back: it may not have arrived.
@@ -707,6 +902,8 @@ pub enum ClientError {
 struct Reply {
     status: u16,
     proof: Option<String>,
+    /// The server keeps the connection open for one more request.
+    keep_alive: bool,
     body: Vec<u8>,
 }
 
@@ -718,19 +915,20 @@ impl Reply {
     }
 }
 
-/// Why an exchange failed: before anything was sent, or after.
-enum Exchange {
-    Connect(io::Error),
-    Broken,
-}
-
-fn parse_reply(raw: &[u8]) -> io::Result<Reply> {
+/// Reads one answer: its head up to the blank line, then exactly `Content-Length` bytes, so the
+/// connection can carry the next request. Anything unusual is a broken answer.
+fn read_reply(reader: &mut impl BufRead) -> io::Result<Reply> {
     let broken = || io::Error::new(io::ErrorKind::InvalidData, "not an HTTP answer");
-    let split = raw
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .ok_or_else(broken)?;
-    let head = std::str::from_utf8(&raw[..split]).map_err(|_| broken())?;
+    let mut head = Vec::new();
+    while !head.ends_with(b"\r\n\r\n") {
+        if head.len() >= MAX_ANSWER_HEAD_BYTES {
+            return Err(broken());
+        }
+        let mut byte = [0u8; 1];
+        reader.read_exact(&mut byte)?;
+        head.push(byte[0]);
+    }
+    let head = std::str::from_utf8(&head[..head.len() - 4]).map_err(|_| broken())?;
     let mut lines = head.split("\r\n");
     let status_line = lines.next().ok_or_else(broken)?;
     let mut parts = status_line.split(' ');
@@ -745,73 +943,109 @@ fn parse_reply(raw: &[u8]) -> io::Result<Reply> {
     }
     let status = code.parse().map_err(|_| broken())?;
     let mut proof = None;
+    let mut length: Option<u64> = None;
+    let mut keep_alive = false;
     for line in lines {
-        if let Some((name, value)) = line.split_once(':') {
-            if name.trim().eq_ignore_ascii_case(proof::PROOF_HEADER) {
-                if proof.is_some() {
-                    return Err(broken());
-                }
-                proof = Some(value.trim().to_owned());
+        let Some((name, value)) = line.split_once(':') else {
+            return Err(broken());
+        };
+        let (name, value) = (name.trim(), value.trim());
+        if name.eq_ignore_ascii_case(proof::PROOF_HEADER) {
+            if proof.replace(value.to_owned()).is_some() {
+                return Err(broken());
             }
+        } else if name.eq_ignore_ascii_case("content-length") {
+            let parsed = value.parse().map_err(|_| broken())?;
+            if length.replace(parsed).is_some() {
+                return Err(broken());
+            }
+        } else if name.eq_ignore_ascii_case("connection") {
+            keep_alive = value.eq_ignore_ascii_case("keep-alive");
         }
+    }
+    let length = length.ok_or_else(broken)?;
+    if length > MAX_ANSWER_BYTES {
+        return Err(broken());
+    }
+    let mut body = Vec::new();
+    reader.take(length).read_to_end(&mut body)?;
+    if body.len() as u64 != length {
+        return Err(io::ErrorKind::UnexpectedEof.into());
     }
     Ok(Reply {
         status,
         proof,
-        body: raw[split + 4..].to_vec(),
+        keep_alive,
+        body,
     })
 }
 
-/// One request on a connection of its own. `token` is sent only on a real request, after the
-/// hello was proven.
-fn exchange(
-    endpoint: &EndpointFile,
-    path: &str,
-    nonce: &str,
-    token: Option<&str>,
-    body: &[u8],
-    time: Duration,
-) -> Result<Reply, Exchange> {
-    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, endpoint.port));
-    let mut stream =
-        TcpStream::connect_timeout(&address, CONNECT_TIME).map_err(Exchange::Connect)?;
-    let sent = (|| -> io::Result<Reply> {
-        stream.set_read_timeout(Some(time))?;
-        stream.set_write_timeout(Some(time))?;
-        let authorization = token
-            .map(|token| Zeroizing::new(format!("Authorization: Bearer {token}\r\n")))
-            .unwrap_or_default();
-        let head = Zeroizing::new(format!(
-            "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n{}Content-Type: application/json\r\n\
-             {}: {nonce}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            endpoint.port,
-            authorization.as_str(),
-            proof::NONCE_HEADER,
-            body.len()
-        ));
-        stream.write_all(head.as_bytes())?;
-        stream.write_all(body)?;
-        stream.flush()?;
-        let mut raw = Vec::new();
-        (&mut stream).take(MAX_ANSWER_BYTES).read_to_end(&mut raw)?;
-        parse_reply(&raw)
-    })();
-    sent.map_err(|_| Exchange::Broken)
+/// One request as the client sends it. `token` goes out only on a real request, after the hello
+/// was proven.
+struct Request<'a> {
+    path: &'a str,
+    nonce: &'a str,
+    token: Option<&'a str>,
+    body: &'a [u8],
+}
+
+fn write_request(
+    stream: &TcpStream,
+    port: u16,
+    request: &Request<'_>,
+    keep_alive: bool,
+) -> io::Result<()> {
+    let authorization = request
+        .token
+        .map(|token| Zeroizing::new(format!("Authorization: Bearer {token}\r\n")))
+        .unwrap_or_default();
+    let connection = if keep_alive { "keep-alive" } else { "close" };
+    let head = Zeroizing::new(format!(
+        "POST {} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{}Content-Type: application/json\r\n\
+         {}: {}\r\nContent-Length: {}\r\nConnection: {connection}\r\n\r\n",
+        request.path,
+        authorization.as_str(),
+        proof::NONCE_HEADER,
+        request.nonce,
+        request.body.len()
+    ));
+    let mut writer = stream;
+    writer.write_all(head.as_bytes())?;
+    writer.write_all(request.body)?;
+    writer.flush()
+}
+
+/// Whether the server still holds the connection open, with nothing unread from it. After the
+/// hello, a closed or reset connection, or bytes nobody asked for, end the exchange before the
+/// token or any content goes out.
+fn still_open(stream: &TcpStream, buffered: &[u8]) -> bool {
+    if !buffered.is_empty() || stream.set_read_timeout(Some(STILL_OPEN_TIME)).is_err() {
+        return false;
+    }
+    let mut probe = [0u8; 1];
+    match stream.peek(&mut probe) {
+        Ok(_) => false,
+        Err(error) => matches!(
+            error.kind(),
+            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+        ),
+    }
 }
 
 /// Sends one request to the running app (used by `hangar-note capture`) and returns the JSON
-/// answer. First the server proves on `/v1/hello` that it knows the token; only then do the token
-/// and `body` go out, and the answer counts only with a valid proof of its own.
+/// answer. Hello and request share one connection: first the server proves on `/v1/hello` that
+/// it knows the token; only then, and only while that connection is still open, do the token of
+/// the route's scope and `body` go out. The answer counts only with a valid proof of its own.
 pub fn post(
     endpoint: &EndpointFile,
     path: &str,
     body: &serde_json::Value,
 ) -> Result<serde_json::Value, ClientError> {
     let key = proof::key(&endpoint.token);
-    let hello_nonce = proof::new_nonce()?;
-    let hello = match exchange(endpoint, HELLO_PATH, &hello_nonce, None, b"", HELLO_TIME) {
-        Ok(reply) => reply,
-        Err(Exchange::Connect(error))
+    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, endpoint.port));
+    let stream = match TcpStream::connect_timeout(&address, CONNECT_TIME) {
+        Ok(stream) => stream,
+        Err(error)
             if matches!(
                 error.kind(),
                 io::ErrorKind::ConnectionRefused | io::ErrorKind::TimedOut
@@ -819,27 +1053,54 @@ pub fn post(
         {
             return Err(ClientError::NotRunning)
         }
-        Err(Exchange::Connect(error)) => return Err(error.into()),
-        Err(Exchange::Broken) => return Err(ClientError::NotProven),
+        Err(error) => return Err(error.into()),
     };
+    let mut reader = BufReader::new(&stream);
+
+    let hello_nonce = proof::new_nonce()?;
+    let hello = (|| -> io::Result<Reply> {
+        stream.set_read_timeout(Some(HELLO_TIME))?;
+        stream.set_write_timeout(Some(HELLO_TIME))?;
+        let hello = Request {
+            path: HELLO_PATH,
+            nonce: &hello_nonce,
+            token: None,
+            body: b"",
+        };
+        write_request(&stream, endpoint.port, &hello, true)?;
+        read_reply(&mut reader)
+    })()
+    .map_err(|_| ClientError::NotProven)?;
     if hello.status != 200 || !hello.proven(&key, &hello_nonce) {
         return Err(ClientError::NotProven);
     }
+    // The app proved itself but takes no request on this connection now.
+    if !hello.keep_alive {
+        return Err(ClientError::Refused(ErrorCode::Busy.as_str().to_owned()));
+    }
+    if !still_open(&stream, reader.buffer()) {
+        return Err(ClientError::NotProven);
+    }
+
     let nonce = proof::new_nonce()?;
     let text = Zeroizing::new(body.to_string());
-    let reply = match exchange(
-        endpoint,
-        path,
-        &nonce,
-        Some(&endpoint.token),
-        text.as_bytes(),
-        REQUEST_TIME,
-    ) {
-        Ok(reply) => reply,
-        // Nothing went out: the request was not delivered.
-        Err(Exchange::Connect(error)) => return Err(error.into()),
-        Err(Exchange::Broken) => return Err(ClientError::Unconfirmed),
+    let token = match route_scope(path) {
+        Scope::Notes => endpoint.token.as_str(),
+        Scope::Team => endpoint.team_token.as_str(),
     };
+    let reply = (|| -> io::Result<Reply> {
+        stream.set_read_timeout(Some(REQUEST_TIME))?;
+        stream.set_write_timeout(Some(REQUEST_TIME))?;
+        let request = Request {
+            path,
+            nonce: &nonce,
+            token: Some(token),
+            body: text.as_bytes(),
+        };
+        write_request(&stream, endpoint.port, &request, false)?;
+        read_reply(&mut reader)
+    })()
+    .map_err(|_| ClientError::Unconfirmed)?;
     if !reply.proven(&key, &nonce) {
         return Err(ClientError::Unconfirmed);
     }
@@ -868,7 +1129,11 @@ mod tests {
     struct Fake {
         calls: Mutex<Vec<String>>,
         read_only: bool,
+        /// Every call fails with this I/O error on a file named like a secret.
+        io_failure: Option<io::ErrorKind>,
     }
+
+    const SECRET_FILE: &str = "Secret plan.md";
 
     impl Fake {
         fn calls(&self) -> Vec<String> {
@@ -877,6 +1142,13 @@ mod tests {
 
         fn record(&self, call: String) -> Result<(), ServiceError> {
             self.calls.lock().unwrap().push(call);
+            if let Some(kind) = self.io_failure {
+                return Err(NotesError::Io {
+                    path: PathBuf::from(abs()).join(SECRET_FILE),
+                    source: kind.into(),
+                }
+                .into());
+            }
             if self.read_only {
                 Err(NotesError::ReadOnly.into())
             } else {
@@ -947,13 +1219,40 @@ mod tests {
         assert!(token_eq(a.as_bytes(), a.as_bytes()));
         assert!(!token_eq(a.as_bytes(), b.as_bytes()));
         assert!(!token_eq(a.as_bytes(), &a.as_bytes()[1..]));
-        // Neither the channel nor its endpoint file shows the token in a debug print.
+        // Neither the channel nor its endpoint file shows a token in a debug print.
         let channel = Channel {
             port: 1,
             token: a.clone(),
+            team_token: b.clone(),
         };
-        assert!(!format!("{channel:?}").contains(a.as_str()));
-        assert!(!format!("{:?}", channel.endpoint()).contains(a.as_str()));
+        for shown in [format!("{channel:?}"), format!("{:?}", channel.endpoint())] {
+            assert!(!shown.contains(a.as_str()), "{shown}");
+            assert!(!shown.contains(b.as_str()), "{shown}");
+        }
+    }
+
+    #[test]
+    fn team_routes_take_the_team_token_and_every_other_route_the_notes_token() {
+        let token = "1".repeat(64);
+        let team = "2".repeat(64);
+        for (path, scope) in [
+            ("/team/status", Scope::Team),
+            ("/team/open", Scope::Team),
+            ("/team/", Scope::Team),
+            ("/team", Scope::Notes),
+            ("/teams/open", Scope::Notes),
+            ("/search", Scope::Notes),
+            ("/flush", Scope::Notes),
+            (HELLO_PATH, Scope::Notes),
+        ] {
+            assert_eq!(route_scope(path), scope, "{path}");
+        }
+        assert!(authorized("/search", Some(&token), &token, &team));
+        assert!(!authorized("/search", Some(&team), &token, &team));
+        assert!(authorized("/team/status", Some(&team), &token, &team));
+        assert!(!authorized("/team/status", Some(&token), &token, &team));
+        assert!(!authorized("/team/status", None, &token, &team));
+        assert!(!authorized("/search", Some(""), &token, &team));
     }
 
     #[test]
@@ -1034,6 +1333,57 @@ mod tests {
         let (status, text) = route(&read_only, "/create", body.as_bytes());
         assert_eq!(status, Status::Conflict);
         assert_eq!(json(&text)["error"], "read-only");
+    }
+
+    #[test]
+    fn storage_failures_are_fixed_codes_without_path_or_os_text() {
+        let body = serde_json::json!({ "version": 1, "title": "x" }).to_string();
+        for (kind, status, code) in [
+            (io::ErrorKind::PermissionDenied, Status::Internal, "denied"),
+            (io::ErrorKind::StorageFull, Status::Internal, "disk-full"),
+            (io::ErrorKind::NotFound, Status::NotFound, "not-found"),
+            (
+                io::ErrorKind::FileTooLarge,
+                Status::PayloadTooLarge,
+                "too-large",
+            ),
+            (io::ErrorKind::InvalidData, Status::Internal, "io"),
+        ] {
+            let failing = Fake {
+                io_failure: Some(kind),
+                ..Fake::default()
+            };
+            let (got, text) = route(&failing, "/create", body.as_bytes());
+            assert_eq!(got, status, "{kind:?}");
+            assert_eq!(
+                json(&text),
+                serde_json::json!({ "version": 1, "error": code })
+            );
+            assert!(!text.contains(SECRET_FILE), "{text}");
+        }
+        // A note over the limit is too large, not malformed.
+        let error = ServiceError::Notes(NotesError::TooLarge { size: 2, max: 1 });
+        assert_eq!(ErrorCode::from(&error), ErrorCode::TooLarge);
+    }
+
+    /// One request on a connection of its own, which closes after the answer.
+    fn exchange(
+        endpoint: &EndpointFile,
+        path: &str,
+        nonce: &str,
+        token: Option<&str>,
+        body: &[u8],
+    ) -> Reply {
+        let stream = TcpStream::connect((Ipv4Addr::LOCALHOST, endpoint.port)).unwrap();
+        stream.set_read_timeout(Some(HELLO_TIME)).unwrap();
+        let request = Request {
+            path,
+            nonce,
+            token,
+            body,
+        };
+        write_request(&stream, endpoint.port, &request, false).unwrap();
+        read_reply(&mut BufReader::new(&stream)).unwrap()
     }
 
     fn raw(port: u16, request: &str) -> String {
@@ -1122,35 +1472,21 @@ mod tests {
         let endpoint = channel.endpoint();
         let key = proof::key(&endpoint.token);
         let nonce = proof::new_nonce().unwrap();
-        let reply = match exchange(&endpoint, HELLO_PATH, &nonce, None, b"", HELLO_TIME) {
-            Ok(reply) => reply,
-            Err(_) => panic!("hello failed"),
-        };
+        let reply = exchange(&endpoint, HELLO_PATH, &nonce, None, b"");
         assert_eq!(reply.status, 200);
+        // The client asked to close: so does the server.
+        assert!(!reply.keep_alive);
         assert_eq!(reply.body, br#"{"version":1}"#);
         assert!(reply.proven(&key, &nonce));
         // Another token's key, or another nonce, does not verify.
         assert!(!reply.proven(&proof::key(&"0".repeat(64)), &nonce));
         assert!(!reply.proven(&key, &proof::new_nonce().unwrap()));
         // Errors carry the proof as well, so a client can trust a refusal.
-        let refused = match exchange(
-            &endpoint,
-            "/flush",
-            &nonce,
-            None,
-            b"{\"version\":1}",
-            HELLO_TIME,
-        ) {
-            Ok(reply) => reply,
-            Err(_) => panic!("request failed"),
-        };
+        let refused = exchange(&endpoint, "/flush", &nonce, None, b"{\"version\":1}");
         assert_eq!(refused.status, 401);
         assert!(refused.proven(&key, &nonce));
         // The hello takes no body and calls nothing.
-        let with_body = match exchange(&endpoint, HELLO_PATH, &nonce, None, b"{}", HELLO_TIME) {
-            Ok(reply) => reply,
-            Err(_) => panic!("hello failed"),
-        };
+        let with_body = exchange(&endpoint, HELLO_PATH, &nonce, None, b"{}");
         assert_eq!(with_body.status, 413);
         assert!(fake.calls().is_empty());
     }
@@ -1174,7 +1510,8 @@ mod tests {
             .map(String::as_str)
             .collect();
         fields.sort_unstable();
-        assert_eq!(fields, ["pid", "port", "token", "version"]);
+        assert_eq!(fields, ["pid", "port", "teamToken", "token", "version"]);
+        assert_ne!(file["token"], file["teamToken"]);
         let text = "ä".repeat(400_000);
         let answer = post(
             &endpoint,
@@ -1199,6 +1536,60 @@ mod tests {
             Err(ClientError::NotRunning)
         ));
         assert!(read_endpoint(&dir.path().join("missing")).is_err());
+    }
+
+    #[test]
+    fn an_endpoint_file_needs_two_different_tokens() {
+        let dir = TempDir::new("channel-endpoint-tokens");
+        let token = "a".repeat(64);
+        let file = |team: Option<String>| {
+            let mut value =
+                serde_json::json!({ "version": 1, "port": 1, "pid": 1, "token": token });
+            if let Some(team) = team {
+                value["teamToken"] = team.into();
+            }
+            value
+        };
+        for (file, valid) in [
+            (file(Some("b".repeat(64))), true),
+            (file(None), false),
+            (file(Some(token.clone())), false),
+            (file(Some("short".into())), false),
+        ] {
+            std::fs::write(dir.path().join(ENDPOINT_FILE), file.to_string()).unwrap();
+            assert_eq!(read_endpoint(dir.path()).is_ok(), valid, "{file}");
+        }
+    }
+
+    #[test]
+    fn team_routes_refuse_the_notes_token_over_the_channel() {
+        let fake = Arc::new(Fake::default());
+        let channel = Channel::start(fake.clone()).unwrap();
+        let endpoint = channel.endpoint();
+        let key = proof::key(&endpoint.token);
+        let body = br#"{"version":1}"#;
+        for (path, token, status) in [
+            // No team route exists yet: the team token gets as far as the routes.
+            ("/team/status", endpoint.team_token.as_str(), 404),
+            ("/team/status", endpoint.token.as_str(), 401),
+            ("/flush", endpoint.team_token.as_str(), 401),
+            ("/flush", endpoint.token.as_str(), 200),
+        ] {
+            let nonce = proof::new_nonce().unwrap();
+            let reply = exchange(&endpoint, path, &nonce, Some(token), body);
+            assert_eq!(reply.status, status, "{path}");
+            assert!(reply.proven(&key, &nonce));
+        }
+        assert!(fake.calls().is_empty());
+        // The client sends the team token on a team route.
+        match post(
+            &endpoint,
+            "/team/status",
+            &serde_json::json!({ "version": 1 }),
+        ) {
+            Err(ClientError::Refused(code)) => assert_eq!(code, "unknown-route"),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
@@ -1257,6 +1648,15 @@ mod tests {
                     body.len()
                 );
                 let _ = stream.write_all(answer.as_bytes());
+                stream
+                    .set_read_timeout(Some(Duration::from_millis(300)))
+                    .unwrap();
+                while let Ok(n) = stream.read(&mut buffer) {
+                    if n == 0 {
+                        break;
+                    }
+                    got.extend_from_slice(&buffer[..n]);
+                }
                 seen.push(got);
             }
             seen
@@ -1266,6 +1666,7 @@ mod tests {
             port,
             pid: 1,
             token: new_token().unwrap(),
+            team_token: new_token().unwrap(),
         };
         let result = post(
             &stale,
@@ -1337,6 +1738,284 @@ mod tests {
         silent.clear();
     }
 
+    fn hello_request(nonce: &str) -> Request<'_> {
+        Request {
+            path: HELLO_PATH,
+            nonce,
+            token: None,
+            body: b"",
+        }
+    }
+
+    /// Hello and request on one connection, as the client does it; then the server closes.
+    #[test]
+    fn hello_and_request_travel_over_one_connection() {
+        let fake = Arc::new(Fake::default());
+        let channel = Channel::start(fake.clone()).unwrap();
+        let endpoint = channel.endpoint();
+        let key = proof::key(&endpoint.token);
+        let connect = || {
+            let stream = TcpStream::connect((Ipv4Addr::LOCALHOST, endpoint.port)).unwrap();
+            stream.set_read_timeout(Some(HELLO_TIME)).unwrap();
+            stream
+        };
+
+        let stream = connect();
+        let mut reader = BufReader::new(&stream);
+        let hello_nonce = proof::new_nonce().unwrap();
+        write_request(&stream, endpoint.port, &hello_request(&hello_nonce), true).unwrap();
+        let hello = read_reply(&mut reader).unwrap();
+        assert_eq!(hello.status, 200);
+        assert!(hello.keep_alive);
+        assert!(hello.proven(&key, &hello_nonce));
+        let nonce = proof::new_nonce().unwrap();
+        let flush = Request {
+            path: "/flush",
+            nonce: &nonce,
+            token: Some(&endpoint.token),
+            body: br#"{"version":1}"#,
+        };
+        write_request(&stream, endpoint.port, &flush, true).unwrap();
+        let reply = read_reply(&mut reader).unwrap();
+        assert_eq!(reply.status, 200);
+        assert!(reply.proven(&key, &nonce));
+        // The second request is the last, whatever the client asked for.
+        assert!(!reply.keep_alive);
+        let mut rest = Vec::new();
+        assert_eq!(reader.read_to_end(&mut rest).unwrap(), 0);
+
+        // At most two requests: a second hello is answered, and then the connection closes.
+        let stream = connect();
+        let mut reader = BufReader::new(&stream);
+        for keep_alive in [true, false] {
+            let nonce = proof::new_nonce().unwrap();
+            write_request(&stream, endpoint.port, &hello_request(&nonce), true).unwrap();
+            let reply = read_reply(&mut reader).unwrap();
+            assert_eq!(reply.status, 200);
+            assert_eq!(reply.keep_alive, keep_alive);
+        }
+        let mut rest = Vec::new();
+        assert_eq!(reader.read_to_end(&mut rest).unwrap(), 0);
+
+        // A request without a hello is answered and closes the connection, as before.
+        let stream = connect();
+        let mut reader = BufReader::new(&stream);
+        let nonce = proof::new_nonce().unwrap();
+        let flush = Request {
+            nonce: &nonce,
+            ..flush
+        };
+        write_request(&stream, endpoint.port, &flush, true).unwrap();
+        let reply = read_reply(&mut reader).unwrap();
+        assert_eq!(reply.status, 200);
+        assert!(!reply.keep_alive);
+    }
+
+    /// What a server that proves itself does after the hello, for the client tests.
+    #[derive(Clone, Copy, Debug)]
+    enum AfterHello {
+        /// Answers the request on the same connection.
+        Serve,
+        /// Closes its side right after the proven hello.
+        Close,
+        /// Says in the proven hello that the connection closes.
+        Busy,
+    }
+
+    /// A server that knows the token and answers the way `after` says. Returns its port and a
+    /// handle with everything it received and how many connections it accepted.
+    fn proving_server(
+        token: &str,
+        after: AfterHello,
+    ) -> (u16, thread::JoinHandle<(Vec<u8>, usize)>) {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let key = proof::key(token);
+        let handle = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut seen = Vec::new();
+            let mut reader = BufReader::new(&stream);
+            let answer = |reader: &mut BufReader<&TcpStream>,
+                          seen: &mut Vec<u8>,
+                          keep_alive: bool|
+             -> bool {
+                let Ok(head) = http::read_head(reader) else {
+                    return false;
+                };
+                let mut body = Vec::new();
+                let _ = reader.take(head.content_length).read_to_end(&mut body);
+                seen.extend_from_slice(head.path.as_bytes());
+                seen.extend_from_slice(if head.token.is_some() {
+                    b" Authorization "
+                } else {
+                    b" "
+                });
+                seen.extend_from_slice(&body);
+                let text = r#"{"version":1}"#;
+                let nonce = head.nonce.unwrap_or_default();
+                let claimed = proof::proof(&key, &nonce, 200, text.as_bytes());
+                let response = http::response(Status::Ok, text, Some(&claimed), keep_alive);
+                write_all(&stream, &response)
+            };
+            match after {
+                AfterHello::Serve => {
+                    answer(&mut reader, &mut seen, true);
+                    answer(&mut reader, &mut seen, false);
+                }
+                AfterHello::Close | AfterHello::Busy => {
+                    answer(&mut reader, &mut seen, matches!(after, AfterHello::Close));
+                    let _ = stream.shutdown(Shutdown::Write);
+                    // Whatever the client still sends shows up here.
+                    let mut rest = Vec::new();
+                    let _ = reader.read_to_end(&mut rest);
+                    seen.extend_from_slice(&rest);
+                }
+            }
+            // Any second connection would be counted.
+            listener.set_nonblocking(true).unwrap();
+            thread::sleep(Duration::from_millis(200));
+            let more = std::iter::from_fn(|| listener.accept().ok()).count();
+            (seen, 1 + more)
+        });
+        (port, handle)
+    }
+
+    fn endpoint_for(port: u16, token: &Zeroizing<String>) -> EndpointFile {
+        EndpointFile {
+            version: ENDPOINT_VERSION,
+            port,
+            pid: 1,
+            token: token.clone(),
+            team_token: new_token().unwrap(),
+        }
+    }
+
+    #[test]
+    fn the_client_sends_hello_and_request_over_one_connection() {
+        let token = new_token().unwrap();
+        let (port, server) = proving_server(&token, AfterHello::Serve);
+        let answer = post(
+            &endpoint_for(port, &token),
+            "/capture",
+            &serde_json::json!({ "version": 1, "folder": abs(), "text": "marker-one-9c2" }),
+        )
+        .unwrap();
+        assert_eq!(answer["version"], 1);
+        let (seen, connections) = server.join().unwrap();
+        let seen = String::from_utf8_lossy(&seen);
+        assert_eq!(connections, 1, "{seen}");
+        assert!(seen.starts_with(HELLO_PATH), "{seen}");
+        assert!(seen.contains("/capture Authorization "), "{seen}");
+        assert!(seen.contains("marker-one-9c2"), "{seen}");
+    }
+
+    /// Closed between hello and request (or the proven hello says it closes): the client sends
+    /// nothing more, neither token nor text, and opens no second connection.
+    #[test]
+    fn a_connection_that_ends_after_the_hello_gets_nothing_more() {
+        for after in [AfterHello::Close, AfterHello::Busy] {
+            let token = new_token().unwrap();
+            let (port, server) = proving_server(&token, after);
+            let result = post(
+                &endpoint_for(port, &token),
+                "/capture",
+                &serde_json::json!({ "version": 1, "folder": abs(), "text": "marker-gone-5b8" }),
+            );
+            match (after, &result) {
+                (AfterHello::Close, Err(ClientError::NotProven)) => {}
+                (AfterHello::Busy, Err(ClientError::Refused(code))) if code == "busy" => {}
+                _ => panic!("{after:?}: {result:?}"),
+            }
+            let (seen, connections) = server.join().unwrap();
+            let seen = String::from_utf8_lossy(&seen);
+            assert_eq!(connections, 1, "{after:?}: {seen}");
+            assert_eq!(seen, format!("{HELLO_PATH} "), "{after:?}");
+        }
+    }
+
+    /// Second security review, N-C: complete hellos, sent without pause by clients that then
+    /// neither read nor close, must not fill the slots; a valid exchange still gets 200.
+    #[test]
+    fn a_stream_of_finished_hellos_does_not_keep_a_valid_request_out() {
+        let fake = Arc::new(Fake::default());
+        let channel = Channel::start(fake.clone()).unwrap();
+        let endpoint = channel.endpoint();
+        let port = endpoint.port;
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hello = format!(
+            "POST {HELLO_PATH} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: \
+             application/json\r\n{}Content-Length: 0\r\nConnection: close\r\n\r\n",
+            nonce_header(&"ab".repeat(32))
+        );
+        let flooders: Vec<_> = (0..4)
+            .map(|_| {
+                let stop = Arc::clone(&stop);
+                let hello = hello.clone();
+                thread::spawn(move || {
+                    let mut held = std::collections::VecDeque::new();
+                    let mut sent = 0usize;
+                    while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                        if let Ok(mut stream) = TcpStream::connect((Ipv4Addr::LOCALHOST, port)) {
+                            if stream.write_all(hello.as_bytes()).is_ok() {
+                                sent += 1;
+                            }
+                            // Held open, never read.
+                            held.push_back(stream);
+                            if held.len() > 64 {
+                                held.pop_front();
+                            }
+                        }
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    sent
+                })
+            })
+            .collect();
+        thread::sleep(Duration::from_millis(300));
+        for _ in 0..3 {
+            let answer = post(&endpoint, "/flush", &serde_json::json!({ "version": 1 }));
+            assert!(
+                matches!(&answer, Ok(value) if value["saved"] == true),
+                "{answer:?}"
+            );
+            thread::sleep(Duration::from_millis(150));
+        }
+        stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        let sent: usize = flooders.into_iter().map(|f| f.join().unwrap()).sum();
+        // Well past what the slots hold within one linger time of the old code.
+        assert!(sent > 2 * slots::MAX_HEAD_THREADS, "{sent}");
+    }
+
+    /// Connections that sent a hello and then stay silent hold a head slot only for the short
+    /// grace after a hello; a valid exchange then takes the place of the oldest.
+    #[test]
+    fn connections_silent_after_their_hello_give_way() {
+        let fake = Arc::new(Fake::default());
+        let channel = Channel::start(fake.clone()).unwrap();
+        let endpoint = channel.endpoint();
+        let waiting: Vec<TcpStream> = (0..slots::MAX_HEAD_THREADS)
+            .map(|_| {
+                let stream = TcpStream::connect((Ipv4Addr::LOCALHOST, endpoint.port)).unwrap();
+                stream.set_read_timeout(Some(HELLO_TIME)).unwrap();
+                let nonce = proof::new_nonce().unwrap();
+                write_request(&stream, endpoint.port, &hello_request(&nonce), true).unwrap();
+                let reply = read_reply(&mut BufReader::new(&stream)).unwrap();
+                assert_eq!(reply.status, 200);
+                stream
+            })
+            .collect();
+        thread::sleep(AFTER_HELLO_GRACE + Duration::from_millis(200));
+        let answer = post(&endpoint, "/flush", &serde_json::json!({ "version": 1 }));
+        assert!(
+            matches!(&answer, Ok(value) if value["saved"] == true),
+            "{answer:?}"
+        );
+        drop(waiting);
+    }
+
     /// Windows lets a second socket with `SO_REUSEADDR` bind a port another one listens on unless
     /// the first holds it with `SO_EXCLUSIVEADDRUSE` (Microsoft's documentation).
     #[cfg(windows)]
@@ -1361,11 +2040,15 @@ mod tests {
         write_endpoint(dir.path(), &channel.endpoint()).unwrap();
         // Written twice: the replacement keeps the owner-only descriptor too.
         write_endpoint(dir.path(), &channel.endpoint()).unwrap();
-        let sddl = crate::winsec::dacl_sddl(&dir.path().join(ENDPOINT_FILE)).unwrap();
+        let path = dir.path().join(ENDPOINT_FILE);
+        let sddl = crate::winsec::dacl_sddl(&path).unwrap();
         assert!(sddl.starts_with("D:P"), "{sddl}");
         for foreign in [";;;BU)", ";;;WD)", ";;;AU)"] {
             assert!(!sddl.contains(foreign), "{foreign} in {sddl}");
         }
         assert_eq!(sddl.matches("(A;").count(), 2, "{sddl}");
+        // Medium integrity, no read, write or execute up (N-B), also after the replacement.
+        let label = crate::winsec::label_sddl(&path).unwrap();
+        assert!(label.contains("ML;;NWNRNX;;;ME"), "{label}");
     }
 }

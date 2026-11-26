@@ -25,6 +25,7 @@ use tauri::{
 
 use crate::bounds::{self, Area};
 use crate::export::ExportError;
+use crate::fsio::StorageCode;
 use crate::meta::{Bounds, MetaError, NoteLook};
 use crate::notes::{
     check_id, is_folder_key, NoteFolder, NotesError, GENERAL_KEY, MAX_NOTE_BYTES, READ_ONLY_CODE,
@@ -109,15 +110,43 @@ impl From<MetaError> for AppError {
     }
 }
 
+impl AppError {
+    /// The fixed code of a storage failure (`denied`, `disk-full`, `too-large`, `not-found`,
+    /// `io`), from every store the commands reach.
+    pub fn storage_code(&self) -> Option<StorageCode> {
+        match self {
+            Self::Service(ServiceError::Notes(error)) => error.storage_code(),
+            Self::Service(ServiceError::Meta(error)) => error.storage_code(),
+            Self::Settings(error) => error.storage_code(),
+            Self::Export(error) => error.storage_code(),
+            _ => None,
+        }
+    }
+
+    /// The fixed code the window acts on, `None` for the errors that keep their text.
+    pub fn code(&self) -> Option<&'static str> {
+        match self {
+            Self::NotSaved => Some(NOT_SAVED_CODE),
+            Self::OnDesktop => Some(ON_DESKTOP_CODE),
+            Self::Service(ServiceError::Notes(NotesError::ReadOnly)) => Some(READ_ONLY_CODE),
+            other => other.storage_code().map(StorageCode::as_str),
+        }
+    }
+}
+
+/// Every command error reaches the window through here, once. A storage failure arrives as its
+/// code only; its full text (the path and the OS error, never a note's content) goes to the log
+/// at this one place, so no command can forget it.
 impl Serialize for AppError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::NotSaved => serializer.serialize_str(NOT_SAVED_CODE),
-            Self::OnDesktop => serializer.serialize_str(ON_DESKTOP_CODE),
-            Self::Service(ServiceError::Notes(NotesError::ReadOnly)) => {
-                serializer.serialize_str(READ_ONLY_CODE)
+        match self.code() {
+            Some(code) => {
+                if self.storage_code().is_some() {
+                    eprintln!("hangar-note: {code}: {self}");
+                }
+                serializer.serialize_str(code)
             }
-            other => serializer.serialize_str(&other.to_string()),
+            None => serializer.serialize_str(&self.to_string()),
         }
     }
 }
@@ -964,6 +993,75 @@ mod tests {
         assert_eq!(
             code(AppError::NotAllowed),
             serde_json::json!("This window may not change that note")
+        );
+    }
+
+    #[test]
+    fn storage_failures_reach_the_window_as_codes_without_path_or_os_text() {
+        let code = |error: AppError| serde_json::to_value(error).unwrap();
+        let path = std::path::PathBuf::from(if cfg!(windows) {
+            r"C:\Users\someone\notes\general\Secret plan.md"
+        } else {
+            "/home/someone/notes/general/Secret plan.md"
+        });
+        let notes = |kind: std::io::ErrorKind| -> AppError {
+            NotesError::Io {
+                path: path.clone(),
+                source: kind.into(),
+            }
+            .into()
+        };
+        for (error, expected) in [
+            (notes(std::io::ErrorKind::PermissionDenied), "denied"),
+            (notes(std::io::ErrorKind::ReadOnlyFilesystem), "denied"),
+            (notes(std::io::ErrorKind::StorageFull), "disk-full"),
+            (notes(std::io::ErrorKind::NotFound), "not-found"),
+            (notes(std::io::ErrorKind::InvalidData), "io"),
+            (
+                NotesError::TooLarge {
+                    size: MAX_NOTE_BYTES + 1,
+                    max: MAX_NOTE_BYTES,
+                }
+                .into(),
+                "too-large",
+            ),
+            (NotesError::UnknownNote.into(), "not-found"),
+            (
+                MetaError::Io {
+                    path: path.clone(),
+                    source: std::io::Error::from_raw_os_error(if cfg!(windows) { 112 } else { 28 }),
+                }
+                .into(),
+                "disk-full",
+            ),
+            (
+                AppError::Settings(SettingsError::Io {
+                    path: path.clone(),
+                    source: std::io::ErrorKind::PermissionDenied.into(),
+                }),
+                "denied",
+            ),
+            (
+                AppError::Export(ExportError::Io {
+                    path: path.display().to_string(),
+                    source: std::io::Error::from_raw_os_error(if cfg!(windows) { 5 } else { 13 }),
+                }),
+                "denied",
+            ),
+        ] {
+            let text = error.to_string();
+            let sent = code(error);
+            assert_eq!(sent, serde_json::json!(expected), "{text}");
+            assert!(!sent.as_str().unwrap().contains("Secret plan"));
+        }
+        // The errors meant for the person keep their text.
+        assert_eq!(
+            code(NotesError::InvalidTitle("must not be empty").into()),
+            serde_json::json!("Invalid title: must not be empty")
+        );
+        assert_eq!(
+            code(AppError::Export(ExportError::NotAPath)),
+            serde_json::json!("The chosen location is not a file on this computer")
         );
     }
 

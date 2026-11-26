@@ -17,10 +17,14 @@ and `SO_EXCLUSIVEADDRUSE`), `src-tauri/src/cli.rs`, `src-tauri/src/install.rs`. 
 ## Files in Hangar Note's local data folder (`com.feoren.hangar-note`)
 - `install.json` `{ version: 1, contract: 1, exe, appVersion }`, written atomically on every start
   (a debug start writes the debug executable).
-- `endpoint.json` `{ version: 1, port, pid, token }`, written atomically on every start and
-  removed on quit if it is still this run's. Owner only: 0600 on Unix; on Windows created through
-  `CreateFileW` with an explicit protected DACL `D:P(A;;FA;;;SY)(A;;FA;;;<user SID>)`, so no ACE is
-  inherited from the folder. `token` is 64 lowercase hex digits (32 random bytes), new each start.
+- `endpoint.json` `{ version: 1, port, pid, token, teamToken }`, written atomically on every
+  start and removed on quit if it is still this run's. Owner only: 0600 on Unix; on Windows created
+  through `CreateFileW` with the descriptor
+  `D:P(A;;FA;;;SY)(A;;FA;;;<user SID>)S:(ML;;NWNRNX;;;ME)`: an explicit protected DACL, so no ACE
+  is inherited from the folder, and a medium integrity label, so no process below medium integrity
+  may read, write or execute it. `token` and `teamToken` are 64 lowercase hex digits each (32
+  random bytes), new each start; a file without `teamToken`, or with the same value twice, is
+  refused.
   A crash leaves the file behind; a client then finds nothing listening, or a program that took
   the port and cannot prove itself, and treats the app as not running.
 
@@ -60,25 +64,54 @@ tauri 2.12.7 and tauri-plugin-single-instance 2.5.5 for Windows and Linux.
 - `POST http://127.0.0.1:<port>/<route>`, `Host: 127.0.0.1:<port>`,
   `Content-Type: application/json`, `X-Channel-Nonce: <64 lowercase hex>`, `Content-Length`; for
   every route but the hello also `Authorization: Bearer <token>` and a JSON body with
-  `version: 1`. One request per connection, `Connection: close`.
+  `version: 1`.
+- **One exchange, one connection:** the hello goes out with `Connection: keep-alive`, the real
+  request on the same connection with `Connection: close`. The server keeps the connection after a
+  hello only if the client did not ask to close and a head slot for the request is free; it says
+  so with `Connection: keep-alive` in the hello's answer. The request after a hello is the last;
+  anything else (a request without a hello, a hello with `Connection: close`, HTTP/1.0 without
+  keep-alive) closes after its answer. Every answer carries `Content-Length`.
+- **Scopes:** every route under `/team/` takes `teamToken` only, every other route `token` only.
+  Phase 1 has no team route, so a team path with `teamToken` gets `unknown-route` (404) and with
+  `token` `unauthorized` (401). The proof key comes from `token` in both scopes.
 - Checked in this order: any `Origin` or `Sec-Fetch-*` header or another `Host` (403
   `forbidden`), a `Content-Type` other than `application/json` with optional parameters (415
-  `unsupported-media-type`), a missing or malformed nonce (400 `bad-request`), then the token in
-  constant time (401 `unauthorized`).
+  `unsupported-media-type`), a missing or malformed nonce (400 `bad-request`), then the token of
+  the route's scope in constant time (401 `unauthorized`).
 - Body limits: 0 for the hello, 8 MiB for `capture` and `create` (1 MiB of text, JSON escaping
   included), 64 KiB for the rest, checked before the body is read.
 - Connections: until its head is read, a connection holds one of 16 head slots and has 2 s for the
-  whole head. With all taken, a new one closes the oldest connection that waited at least 1 s with
-  nothing of its head arrived; past 32 head threads with none silent, a new one is closed
-  unanswered. An authenticated request then holds one of 16 slots (beyond: 503 `busy`) with 15 s
-  for its body. Taken from Hangar's gate (`gate_service.rs`).
+  whole head. With all taken, a new one closes the oldest silent connection (nothing of its head
+  arrived) whose grace is over: 1 s for a new connection, 250 ms for one waiting for its request
+  after a hello. Past 32 head threads with none silent, a new one is closed unanswered. A
+  connection gives its head slot back as soon as its head is read, before it is answered. An
+  authenticated request then holds one of 16 slots (beyond: 503 `busy`) with 15 s for its body,
+  and its answer waits up to 1 s for the client to finish. An answer without a valid token (a
+  hello that closes, any refusal) waits at most 100 ms, and only while fewer than 32 others do;
+  beyond, the socket closes at once. Taken from Hangar's gate (`gate_service.rs`), plus the second
+  security review (N-C: finished hellos must not fill the slots).
 - On Windows the socket is bound with `SO_EXCLUSIVEADDRUSE`, so no other socket can share the
   address while the app runs.
 - Answers always carry `version: 1`. Errors: `{ version: 1, error: <code> }` with the codes
   `bad-request`, `unsupported-version`, `unauthorized`, `forbidden`, `unknown-route`,
   `method-not-allowed`, `length-required`, `too-large`, `unsupported-media-type`,
   `headers-too-large`, `not-implemented`, `busy` (503), `read-only` (409), `unknown-note` (404),
-  `invalid`, `internal`.
+  `invalid`, `internal`, and the storage codes `denied` (500), `disk-full` (500), `not-found`
+  (404), `io` (500) and `too-large` (413, also for a note over 1 MiB in `create`). A storage code
+  never carries the OS text or a path; those go to Hangar Note's log.
+
+## Storage codes
+The same five codes reach the window (`src/api.ts` `storageError`, one sentence each in
+`src/i18n.ts` under `storage.*`) and the channel. Mapped in `src-tauri/src/fsio.rs`
+(`StorageCode::of`), the OS error number first, then the portable `io::ErrorKind`:
+
+| Code | Windows | Unix | Kind |
+|---|---|---|---|
+| `denied` | 5 access denied, 19 write protect, 32 sharing violation, 33 lock violation | `EACCES`, `EPERM`, `EROFS` | `PermissionDenied`, `ReadOnlyFilesystem` |
+| `disk-full` | 39, 112 | `ENOSPC` | `StorageFull`, `QuotaExceeded` |
+| `too-large` | | `EFBIG` | `FileTooLarge`; a note over 1 MiB |
+| `not-found` | 2, 3 | `ENOENT` | `NotFound`; an unknown note (window only) |
+| `io` | anything else | anything else | anything else |
 
 ## Server proof
 1. The client reads `endpoint.json`, makes a fresh nonce (32 random bytes as 64 lowercase hex) and
@@ -91,9 +124,13 @@ tauri 2.12.7 and tauri-plugin-single-instance 2.5.5 for Windows and Linux.
    `endpoint.json`, `nonce` the 64 ASCII hex digits as sent, `status` 3 ASCII digits, `body` the
    exact bytes after the blank line. The proof is 64 lowercase hex digits.
 3. The client compares in constant time. Without status 200 and a valid proof it sends nothing
-   else and treats the app as not running.
-4. The real request carries a new nonce and the token; its answer (errors included) carries the
-   proof over that nonce. An answer without a valid proof counts as not delivered.
+   else and treats the app as not running. A proven answer with `Connection: close` ends the
+   exchange as `busy` (the app runs but takes no request now). Before the request, the client
+   looks for 2 ms whether the server closed or reset the connection or sent anything more; then
+   it sends nothing and treats the app as not running.
+4. The real request carries a new nonce and the token of its scope, on the same connection; its
+   answer (errors included) carries the proof over that nonce. An answer without a valid proof
+   counts as not delivered.
 
 Known answer (computed with Python's `hashlib` and `hmac`, pinned in
 `src-tauri/src/channel/proof.rs`): token `0123456789abcdef` × 4, nonce `fedcba9876543210` × 4,
@@ -112,8 +149,9 @@ key `501e571e…4eabe0c`; status 200 with body `{"version":1}` gives
 | `search` | `query` | `{ hits: [{ folderKey, path, id, title, excerpt, updatedAt, color, onDesktop }] }` |
 | `excerpts` | `folder?`, `limit?` | `{ notes: [{ id, title, excerpt, updatedAt }] }`, newest first, at most 200 |
 | `flush` | none | `{ saved }`: every editor was asked to save, `true` once all answered saved |
+| `team/...` | | none in phase 1; takes `teamToken` only |
 
-Neither note text nor the token is ever logged; the request kinds log by name only. The token,
+Neither note text nor a token is ever logged; the request kinds log by name only. Both tokens,
 the proof key and the endpoint file's bytes are held in `Zeroizing` and never shown by `Debug`.
 
 ## Verified
@@ -125,6 +163,27 @@ the proof key and the endpoint file's bytes are held in `Zeroizing` and never sh
   `capture` arrives as `read-only`; a 400 000-character capture over a real socket; nobody
   listening; on Windows a second socket with `SO_REUSEADDR` cannot bind the address, and
   `endpoint.json`'s DACL is protected with exactly SYSTEM and the user (no `BU`, `WD`, `AU`).
+- Tests after the second security review (2026-11-26, Windows 11): hello and request on one
+  connection, both proven, then EOF; a second hello on the same connection is the last; the client
+  opens exactly one connection; a server that closes after a proven hello, or answers it with
+  `Connection: close`, sees nothing but the hello (no token, no text); four threads sending
+  complete hellos with `Connection: close` without pause, never reading or closing, and three
+  valid exchanges among them get 200 (with the old order, head slot held during a 1 s linger, the
+  same test fails with `NotProven`); 32 connections silent after their hello give way after
+  250 ms; team routes refuse `token`, `/flush` refuses `teamToken`; `endpoint.json` needs two
+  different tokens; storage failures over the channel arrive as codes without the file name; the
+  label reads back as `S:AI(ML;;NWNRNX;;;ME)` through `LABEL_SECURITY_INFORMATION`, also after the
+  file is replaced.
+- Manual check on 2026-11-26: a file written by `write_atomic_owner_only` under `tests/.tmp/`
+  shows in `icacls` SYSTEM and the user with `(F)` and
+  `Mandatory Label\Medium Mandatory Level:(NW,NR,NX)` (German Windows: "Verbindliche
+  Beschriftung\Mittlere Verbindlichkeitsstufe").
+
+> [!question] Unverified
+> That a process of low integrity is refused reading `endpoint.json` was not observed directly; it
+> follows from the label and Windows' mandatory integrity check. Errno values on macOS and Linux
+> were not run (the Unix test runs in CI only).
+
 - Manual run on Windows 11 on 2026-11-26 with a development root under `tests/.tmp/`:
   `endpoint.json` with `pid`, `icacls` shows SYSTEM and the user only; `hangar-note capture` from a
   pipe exits 0 and the note is found by `search`; an independent Python client verified the proof

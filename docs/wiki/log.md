@@ -56,3 +56,10 @@ Moved both open items of pages/syntheses/usability-pass.md to "Resolved after th
 Replaced `team/ring` by the operations `team/open` and `team/seal`, so the notes key ring never
 leaves Hangar; added the integrity label, one connection per exchange, a separate team token and
 fixed storage error codes, after the second security review.
+
+## [2026-11-26] update | Channel after the second security review
+Added to the section "Phase 1 as built" of pages/decisions/0002-hangar-notes-takeover.md how the
+integrity label, one connection per exchange, the slot release before answering, the team token
+and the storage codes (now with `not-found`) were built. Updated pages/syntheses/local-channel.md:
+`teamToken`, scopes, keep-alive after the hello, grace and linger times, a table of the storage
+codes per platform, new verified tests and the manual `icacls` check.

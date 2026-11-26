@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { NoteColor } from "./colors";
-import type { Language } from "./i18n";
+import type { Language, MessageKey } from "./i18n";
 
 /** A scope: a working folder (absolute) or `null` for "General". */
 export interface NoteFolder {
@@ -137,6 +137,33 @@ export function isNotSaved(error: unknown): boolean {
 
 export function isReadOnly(error: unknown): boolean {
   return error === READ_ONLY_ERROR;
+}
+
+/**
+ * Fixed codes of storage failures (`StorageCode` in fsio.rs). The backend sends only the code,
+ * never the operating system's text or a path; those go to its log.
+ */
+export const STORAGE_ERRORS = ["denied", "disk-full", "too-large", "not-found", "io"] as const;
+export type StorageError = (typeof STORAGE_ERRORS)[number];
+
+/** The storage failure an error of a command stands for, `null` for any other error. */
+export function storageError(error: unknown): StorageError | null {
+  return STORAGE_ERRORS.find((code) => code === error) ?? null;
+}
+
+/** The sentence for each storage failure, in `i18n.ts`. */
+export const STORAGE_ERROR_TEXTS: Readonly<Record<StorageError, MessageKey>> = {
+  denied: "storage.denied",
+  "disk-full": "storage.diskFull",
+  "too-large": "storage.tooLarge",
+  "not-found": "storage.notFound",
+  io: "storage.io",
+};
+
+/** The text key for a storage failure, `null` for any other error. */
+export function storageErrorText(error: unknown): MessageKey | null {
+  const code = storageError(error);
+  return code === null ? null : STORAGE_ERROR_TEXTS[code];
 }
 
 /** The backend's text of an error (always a string), for a message in the window. */
