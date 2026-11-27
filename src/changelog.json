@@ -4,18 +4,18 @@
     "date": null,
     "items": [
       {
-        "de": "Deine Hangar-Notizen sind gleich da, ohne Umzug. Bis Hangar sie an Hangar Note übergibt, kannst du sie lesen, aber nicht ändern.",
-        "en": "Your Hangar notes are right there, nothing to move. Until Hangar hands them over to Hangar Note, you can read them but not change them.",
-        "el": "Οι σημειώσεις σου από το Hangar είναι αμέσως εδώ, χωρίς μεταφορά. Μέχρι να τις παραδώσει το Hangar στο Hangar Note, τις διαβάζεις αλλά δεν τις αλλάζεις.",
-        "es": "Tus notas de Hangar están ahí al momento, sin mudanza. Hasta que Hangar se las pase a Hangar Note, puedes leerlas pero no cambiarlas.",
-        "fr": "Tes notes Hangar sont là tout de suite, sans déménagement. Tant que Hangar ne les a pas confiées à Hangar Note, tu peux les lire mais pas les modifier.",
-        "it": "Le tue note di Hangar sono subito qui, senza trasferimenti. Finché Hangar non le passa a Hangar Note, puoi leggerle ma non modificarle.",
-        "ja": "Hangar のメモは移行なしですぐに表示されます。Hangar が Hangar Note に引き渡すまでは、読むことはできますが変更はできません。",
-        "pl": "Twoje notatki z Hangara są od razu na miejscu, bez przenoszenia. Dopóki Hangar nie przekaże ich do Hangar Note, możesz je czytać, ale nie zmieniać.",
-        "pt": "Suas notas do Hangar já estão aqui, sem mudança. Até o Hangar passá-las para o Hangar Note, você pode lê-las, mas não alterá-las.",
-        "ru": "Твои заметки из Hangar сразу на месте, без переноса. Пока Hangar не передаст их в Hangar Note, ты можешь их читать, но не менять.",
-        "tr": "Hangar notların taşımadan hemen burada. Hangar onları Hangar Note'a devredene kadar okuyabilirsin ama değiştiremezsin.",
-        "zh": "你的 Hangar 笔记无需迁移即可直接使用。在 Hangar 将其交给 Hangar Note 之前，只能阅读，不能修改。"
+        "de": "Deine Hangar-Notizen sind gleich da, ohne Umzug, und du kannst sie sofort bearbeiten. Beide Apps nutzen denselben Ordner.",
+        "en": "Your Hangar notes are right there, nothing to move, and you can edit them at once. Both apps use the same folder.",
+        "el": "Οι σημειώσεις σου από το Hangar είναι αμέσως εδώ, χωρίς μεταφορά, και τις επεξεργάζεσαι αμέσως. Οι δύο εφαρμογές χρησιμοποιούν τον ίδιο φάκελο.",
+        "es": "Tus notas de Hangar están ahí al momento, sin mudanza, y puedes editarlas enseguida. Las dos apps usan la misma carpeta.",
+        "fr": "Tes notes Hangar sont là tout de suite, sans déménagement, et tu peux les modifier aussitôt. Les deux applis utilisent le même dossier.",
+        "it": "Le tue note di Hangar sono subito qui, senza trasferimenti, e puoi modificarle da subito. Le due app usano la stessa cartella.",
+        "ja": "Hangar のメモは移行なしですぐに表示され、そのまま編集できます。両方のアプリが同じフォルダーを使います。",
+        "pl": "Twoje notatki z Hangara są od razu na miejscu, bez przenoszenia, i możesz je od razu edytować. Obie aplikacje używają tego samego folderu.",
+        "pt": "Suas notas do Hangar já estão aqui, sem mudança, e você pode editá-las na hora. Os dois apps usam a mesma pasta.",
+        "ru": "Твои заметки из Hangar сразу на месте, без переноса, и их можно сразу редактировать. Оба приложения используют одну папку.",
+        "tr": "Hangar notların taşımadan hemen burada ve onları hemen düzenleyebilirsin. İki uygulama da aynı klasörü kullanır.",
+        "zh": "你的 Hangar 笔记无需迁移即可直接使用，并可立即编辑。两个应用使用同一个文件夹。"
       },
       {
         "de": "Leg jede Notiz als Haftnotiz auf deinen Desktop, in einem eigenen kleinen Fenster.",
@@ -60,18 +60,18 @@
         "zh": "按 Ctrl+Shift+N 新建快速笔记，标题取自第一行。按 F2 重命名。"
       },
       {
-        "de": "Schreib in Markdown mit Checklisten und Vorschau. Du siehst, wie viel erledigt ist und wie viele Wörter es sind.",
-        "en": "Write in Markdown with checklists and a preview. You see how much is done and how many words there are.",
-        "el": "Γράψε σε Markdown με λίστες ελέγχου και προεπισκόπηση. Βλέπεις πόσα έχουν γίνει και πόσες λέξεις έχει.",
-        "es": "Escribe en Markdown con listas de tareas y vista previa. Ves cuánto está hecho y cuántas palabras hay.",
-        "fr": "Écris en Markdown avec des listes de tâches et un aperçu. Tu vois ce qui est fait et combien de mots il y a.",
-        "it": "Scrivi in Markdown con checklist e anteprima. Vedi quanto è fatto e quante parole ci sono.",
-        "ja": "チェックリストとプレビュー付きの Markdown で書けます。完了した項目の数と単語数も表示されます。",
-        "pl": "Pisz w Markdown z listami zadań i podglądem. Widzisz, ile jest zrobione i ile jest słów.",
-        "pt": "Escreva em Markdown com listas de tarefas e pré-visualização. Você vê quanto já foi feito e quantas palavras há.",
-        "ru": "Пиши в Markdown со списками дел и предпросмотром. Видно, сколько сделано и сколько слов.",
-        "tr": "Kontrol listeleri ve önizlemeyle Markdown yaz. Ne kadarının bittiğini ve kaç kelime olduğunu görürsün.",
-        "zh": "用 Markdown 书写，支持清单和预览，并显示完成进度和字数。"
+        "de": "Schreib in Markdown mit Checklisten und Vorschau. Du siehst, wie viel erledigt ist.",
+        "en": "Write in Markdown with checklists and a preview. You see how much is done.",
+        "el": "Γράψε σε Markdown με λίστες ελέγχου και προεπισκόπηση. Βλέπεις πόσα έχουν γίνει.",
+        "es": "Escribe en Markdown con listas de tareas y vista previa. Ves cuánto está hecho.",
+        "fr": "Écris en Markdown avec des listes de tâches et un aperçu. Tu vois ce qui est fait.",
+        "it": "Scrivi in Markdown con checklist e anteprima. Vedi quanto è fatto.",
+        "ja": "チェックリストとプレビュー付きの Markdown で書けます。完了した項目の数も表示されます。",
+        "pl": "Pisz w Markdown z listami zadań i podglądem. Widzisz, ile jest zrobione.",
+        "pt": "Escreva em Markdown com listas de tarefas e pré-visualização. Você vê quanto já foi feito.",
+        "ru": "Пиши в Markdown со списками дел и предпросмотром. Видно, сколько сделано.",
+        "tr": "Kontrol listeleri ve önizlemeyle Markdown yaz. Ne kadarının bittiğini görürsün.",
+        "zh": "用 Markdown 书写，支持清单和预览，并显示完成进度。"
       },
       {
         "de": "Acht Farben ordnen deine Notizen. Filtere nach einer oder mehreren Farben und gib jeder Farbe einen eigenen Namen.",
@@ -170,6 +170,34 @@
         "ru": "Выбранная заметка в списке показана в своём цвете.",
         "tr": "Listede seçtiğin not kendi renginde görünür.",
         "zh": "列表中选中的笔记以其自身颜色显示。"
+      },
+      {
+        "de": "Neben dem Text stehen leise Zeilennummern.",
+        "en": "Quiet line numbers sit beside the text.",
+        "el": "Δίπλα στο κείμενο υπάρχουν διακριτικοί αριθμοί γραμμών.",
+        "es": "Junto al texto hay números de línea discretos.",
+        "fr": "Des numéros de ligne discrets accompagnent le texte.",
+        "it": "Accanto al testo ci sono discreti numeri di riga.",
+        "ja": "本文の横に控えめな行番号が付きます。",
+        "pl": "Obok tekstu widać dyskretne numery wierszy.",
+        "pt": "Números de linha discretos ficam ao lado do texto.",
+        "ru": "Рядом с текстом видны неброские номера строк.",
+        "tr": "Metnin yanında sade satır numaraları var.",
+        "zh": "正文旁显示低调的行号。"
+      },
+      {
+        "de": "Eine schmale Fußzeile in der Farbe der Notiz zeigt Zeile, Spalte, Zeichenzahl und deine Auswahl, auch auf dem Desktop.",
+        "en": "A thin footer in the note's color shows the line, column, character count and your selection, on the desktop too.",
+        "el": "Μια λεπτή γραμμή στο χρώμα της σημείωσης δείχνει γραμμή, στήλη, χαρακτήρες και την επιλογή σου, και στην επιφάνεια εργασίας.",
+        "es": "Un pie fino en el color de la nota muestra la línea, la columna, los caracteres y tu selección, también en el escritorio.",
+        "fr": "Un fin pied de page à la couleur de la note affiche ligne, colonne, caractères et ta sélection, aussi sur le bureau.",
+        "it": "Un sottile piè di pagina nel colore della nota mostra riga, colonna, caratteri e la tua selezione, anche sul desktop.",
+        "ja": "メモの色の細いフッターに、行、列、文字数、選択範囲が表示されます。デスクトップの付箋でも同じです。",
+        "pl": "Cienka stopka w kolorze notatki pokazuje wiersz, kolumnę, liczbę znaków i zaznaczenie, także na pulpicie.",
+        "pt": "Um rodapé fino na cor da nota mostra a linha, a coluna, os caracteres e sua seleção, também na área de trabalho.",
+        "ru": "Тонкая строка внизу в цвете заметки показывает строку, столбец, число символов и выделение, и на рабочем столе тоже.",
+        "tr": "Notun rengindeki ince alt bilgi; satırı, sütunu, karakter sayısını ve seçimini gösterir, masaüstünde de.",
+        "zh": "笔记颜色的细页脚显示行、列、字符数和所选内容，桌面便笺中也一样。"
       }
     ]
   }

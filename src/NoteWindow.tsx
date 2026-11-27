@@ -49,9 +49,11 @@ import {
   type Theme,
 } from "./colors";
 import { copyText } from "./clipboard";
+import { CursorFooter } from "./CursorFooter";
+import { createCursorStore } from "./cursorStats";
 import { createNoteEditor, type Format, type NoteEditor } from "./editor";
 import { errorMessage } from "./errors";
-import { DICTIONARIES, LANGUAGES, useT, type MessageKey } from "./i18n";
+import { DICTIONARIES, LANGUAGES, useT, type Language, type MessageKey } from "./i18n";
 import { BulletIcon, CheckIcon, CloseIcon, MoreIcon, PlusIcon, TaskIcon } from "./icons";
 import { createLeaveAnyway } from "./leaveAnyway";
 import type { Look } from "./looks";
@@ -67,6 +69,8 @@ interface Props {
   theme: Theme;
   colorNames: Partial<Record<NoteColor, string>>;
   look: Look;
+  /** The UI language, for the numbers of the status line. */
+  language: Language;
 }
 
 const PLATFORM = currentPlatform();
@@ -98,7 +102,7 @@ function createFileState() {
   };
 }
 
-export function NoteWindow({ label, theme, colorNames, look }: Props) {
+export function NoteWindow({ label, theme, colorNames, look, language }: Props) {
   const t = useT();
   const [note, setNote] = useState<OpenedNote | null>(null);
   const [writable, setWritable] = useState(true);
@@ -129,6 +133,8 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
    */
   const [file] = useState(createFileState);
   const [progress, setProgress] = useState<ChecklistProgress>({ done: 0, total: 0 });
+  /** The cursor's numbers for the status line; only the status line renders when they change. */
+  const [cursor] = useState(createCursorStore);
   const progressTimer = useRef<number | null>(null);
   const [leaveAnyway] = useState(() => createLeaveAnyway());
   const host = useRef<HTMLDivElement>(null);
@@ -206,6 +212,7 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
           placeholder: latest.current.t("note.placeholder"),
           taskLabel: latest.current.t("note.task"),
           readOnly: !canWrite,
+          onCursor: cursor.set,
           onChange: (text) => {
             textRef.current = text;
             if (progressTimer.current !== null) window.clearTimeout(progressTimer.current);
@@ -237,7 +244,7 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
       editor.current?.destroy();
       editor.current = null;
     };
-  }, [saver, retitle, file]);
+  }, [saver, retitle, file, cursor]);
 
   // Not disposed on unmount: StrictMode unmounts once in development, and the window's end is a
   // destroy anyway. What is still pending goes out right away.
@@ -795,6 +802,9 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
           )}
         </div>
       )}
+
+      {/* Under everything, so a notice or the formatting bar never pushes it out of place. */}
+      <CursorFooter key="footer" store={cursor} language={language} />
     </div>
   );
 }

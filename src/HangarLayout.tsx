@@ -1,8 +1,9 @@
 // Look "hangar" (direction C, ADR 0004): Hangar's own window. Beside the sidebar (Sidebar.tsx) two
 // columns: the dense list with the search and "+" at its top; on the right the note in its color,
 // its title and tools in a slim header that ends with the look switch (alone there while no note
-// is open). No status bar: notices float at the bottom (NotesArea.tsx) and the keys live in the
-// app menu's Help. Where the two columns do not fit, the window shows
+// is open). No status bar across the window: notices float at the bottom (NotesArea.tsx), the keys
+// live in the app menu's Help, and only the open note has its thin status line (NoteFooter) for the
+// cursor and the length. Where the two columns do not fit, the window shows
 // hangar's narrow layout instead (HangarNarrowLayout.tsx, looks.ts).
 
 import { colorName, noteTone, toneVariables } from "./colors";
@@ -14,6 +15,7 @@ import {
   HeldPanel,
   ListMessages,
   ListTop,
+  NoteFooter,
   NotePage,
   NoteRowItem,
   OnDesktopPanel,
@@ -159,6 +161,7 @@ export function HangarLayout({ m }: { m: NotesModel }) {
         <div className="note-body" hidden={note === null || note.onDesktop}>
           <NotePage m={m} heading={false} />
         </div>
+        <NoteFooter m={m} />
       </section>
     </div>
   );

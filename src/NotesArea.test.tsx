@@ -999,6 +999,33 @@ async function leaveNote(look: Variant) {
 const ALL_LOOKS: readonly Variant[] = ["hangarNarrow", "paper", "hangar"];
 
 describe.each(ALL_LOOKS)("notes area, shared behaviour in the look %s", (look) => {
+  it("shows the cursor and the length in a status line below the scrolling page", async () => {
+    await render(look);
+    await click(rowButton("Einkaufen"));
+    await act(async () => {
+      editor.options?.onCursor?.({ line: 2, column: 5, selected: 0, length: 1234 });
+      await Promise.resolve();
+    });
+    const footer = container.querySelector<HTMLElement>(".note-pane .cursor-footer");
+    if (!footer) throw new Error("status line missing");
+    expect(footer.textContent).toContain("Ze 2, Sp 5");
+    expect(footer.textContent).toContain("1.234 Zeichen");
+    expect(footer.title).toBe("Zeile 2, Spalte 5, 1.234 Zeichen");
+    expect(footer.getAttribute("role")).toBe("group");
+    expect(footer.getAttribute("aria-label")).toBe(t("footer.label"));
+    // Information only: no Tab stop, nothing read aloud on every keystroke, in the note's color.
+    expect(footer.querySelector("[tabindex], button, [aria-live]")).toBeNull();
+    expect(footer.hasAttribute("aria-live")).toBe(false);
+    expect(footer.style.getPropertyValue("--note-head")).not.toBe("");
+    // Outside the page that scrolls, so it stays in place.
+    expect(footer.closest(".note-body")).toBeNull();
+    await act(async () => {
+      editor.options?.onCursor?.({ line: 2, column: 9, selected: 4, length: 1234 });
+      await Promise.resolve();
+    });
+    expect(footer.textContent).toContain("(4 ausgewählt)");
+  });
+
   it("saves the open note before it switches to another", async () => {
     await render(look);
     await click(rowButton("Einkaufen"));
@@ -1048,6 +1075,7 @@ describe.each(ALL_LOOKS)("notes area, shared behaviour in the look %s", (look) =
     expect(container.textContent).toContain(t("notes.onDesktopHint"));
     expect(container.querySelector<HTMLElement>(".note-body")?.hidden).toBe(true);
     expect(container.querySelector(".cm-content")).toBeNull();
+    expect(container.querySelector(".cursor-footer")).toBeNull();
   });
 
   it("deletes from the row's menu and brings the note back with Undo", async () => {

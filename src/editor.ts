@@ -25,6 +25,7 @@ import {
   EditorState,
   type Extension,
   type Range,
+  type Text,
 } from "@codemirror/state";
 import {
   Decoration,
@@ -40,6 +41,7 @@ import {
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 
+import { countChars, countLines, type CursorStats } from "./cursorStats";
 import { editorText, taskMarkOffset, toggleLinePrefix, toggleWrap } from "./noteText";
 
 /**
@@ -89,7 +91,17 @@ export interface EditorOptions {
    * since a small note on the desktop has no width to spare.
    */
   lineNumbers?: boolean;
+  /**
+   * Where the cursor stands, what is selected and how long the text is, for the status line
+   * under the note. Called once the editor holds a text and whenever the selection or the text
+   * changes; a long text is recounted only after typing pauses (`RECOUNT_DELAY_MS`).
+   */
+  onCursor?: (stats: CursorStats) => void;
 }
+
+/** Texts up to this many UTF-16 units are recounted at once; longer ones after a pause. */
+const RECOUNT_AT_ONCE = 50_000;
+const RECOUNT_DELAY_MS = 200;
 
 const MARKS: Record<"bold" | "italic" | "strike", string> = {
   bold: "**",
@@ -321,8 +333,58 @@ function readOnlyLock(readOnly: boolean): Extension {
   ];
 }
 
+/**
+ * Reports the cursor's numbers to `onCursor`. The cursor and the selection are measured on every
+ * call (one line and the selected text); the length of the whole text is kept per document, and
+ * a long document is recounted only once typing pauses, so every keystroke stays cheap.
+ */
+function cursorReporter(onCursor: ((stats: CursorStats) => void) | undefined) {
+  let counted: { doc: Text; length: number } | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const lengthOf = (doc: Text) => {
+    const length = countLines(doc.iterLines());
+    counted = { doc, length };
+    return length;
+  };
+  /** `now`: count at once whatever the length (a new text, not a keystroke). */
+  const report = (view: EditorView, now = false) => {
+    if (onCursor === undefined) return;
+    const { state } = view;
+    const { doc } = state;
+    let length = counted?.doc === doc ? counted.length : null;
+    if (length === null && (now || counted === null || doc.length <= RECOUNT_AT_ONCE)) {
+      length = lengthOf(doc);
+    } else if (length === null) {
+      // Until the pause, the last count stands; the line and column are current already.
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        report(view, true);
+      }, RECOUNT_DELAY_MS);
+    }
+    // `from` and `to`, not `anchor` and `head`: a selection made backwards has its head first,
+    // and `sliceDoc` gives nothing for a reversed range.
+    const { head, from, to } = state.selection.main;
+    const line = doc.lineAt(head);
+    onCursor({
+      line: line.number,
+      column: countChars(line.text.slice(0, head - line.from)) + 1,
+      selected: from === to ? 0 : countChars(state.sliceDoc(from, to)),
+      length: length ?? counted?.length ?? 0,
+    });
+  };
+  return {
+    report,
+    stop: () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+    },
+  };
+}
+
 export function createNoteEditor(parent: HTMLElement, options: EditorOptions): NoteEditor {
   let readOnly = options.readOnly === true;
+  const cursor = cursorReporter(options.onCursor);
   const lock = new Compartment();
   const allowed = styleNonce(parent.ownerDocument);
   const nonce: Extension = allowed === null ? [] : EditorView.cspNonce.of(allowed);
@@ -350,12 +412,14 @@ export function createNoteEditor(parent: HTMLElement, options: EditorOptions): N
         theme,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) options.onChange(update.state.doc.toString());
+          if (update.docChanged || update.selectionSet) cursor.report(update.view);
           if (update.focusChanged) options.onFocus(update.view.hasFocus);
         }),
       ],
     });
   };
   const view = new EditorView({ parent, state: state(options.text) });
+  cursor.report(view, true);
   return {
     focus: () => {
       view.focus();
@@ -366,6 +430,7 @@ export function createNoteEditor(parent: HTMLElement, options: EditorOptions): N
     },
     load: (text) => {
       view.setState(state(text));
+      cursor.report(view, true);
     },
     toggleTask: (index) => {
       const number = index + 1;
@@ -384,6 +449,7 @@ export function createNoteEditor(parent: HTMLElement, options: EditorOptions): N
       EDIT_COMMANDS[command](view);
     },
     destroy: () => {
+      cursor.stop();
       view.destroy();
     },
   };

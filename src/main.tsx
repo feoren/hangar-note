@@ -46,6 +46,7 @@ function Root() {
             theme={app.theme}
             colorNames={app.settings.colorNames}
             look={app.look}
+            language={app.language}
           />
         ) : (
           <NotesArea app={app} />

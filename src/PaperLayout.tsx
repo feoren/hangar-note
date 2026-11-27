@@ -14,6 +14,7 @@ import {
   HeldPanel,
   ListMessages,
   ListTop,
+  NoteFooter,
   NotePage,
   OnDesktopPanel,
   PreviewToggle,
@@ -198,6 +199,7 @@ export function PaperLayout({ m }: { m: NotesModel }) {
             <div className="note-body" hidden={note.onDesktop}>
               <NotePage m={m} />
             </div>
+            <NoteFooter m={m} />
             <div className="notice-float sheet-notice">{m.noticeSlot}</div>
           </section>
         </>

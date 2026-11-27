@@ -30,6 +30,9 @@
   --brand-mark: #f2e3c6;
   /* The height of the sidebar's head, so the line below it has a known place. */
   --side-head: 52px;
+  /* The height of the sidebar's footer (a 1 px line, 8 px, a 32 px button, 8 px), shared with the
+     status line under the open note, so both footers end on one line with their tops flush. */
+  --foot-height: 49px;
   /* Hangar's round fold button on the crossing of that line and the sidebar's edge. Odd, so its
      middle falls on a pixel center like the 1 px lines it sits on. */
   --edge-toggle-size: 23px;
@@ -552,6 +555,79 @@ kbd {
 @keyframes fade-in {
   from {
     opacity: 0;
+  }
+}
+
+/* The status line under a note (CursorFooter.tsx), in the sticky note and the notes area alike:
+   thin, in the note's color a step softer than its header, the numbers small and quiet. Digits
+   keep their width, so nothing jumps while the cursor moves. It is a container: in a narrow note
+   the line and column give way to a selection first, and on the narrowest only the length stays. */
+.cursor-footer {
+  --footer-height: 23px;
+  container-type: inline-size;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  height: var(--footer-height);
+  padding: 0 12px;
+  border-top: 1px solid color-mix(in srgb, var(--note-text) 10%, transparent);
+  background: color-mix(in srgb, var(--note-head) 60%, var(--note-bg));
+  color: var(--note-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+.cursor-footer-text {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.cursor-where {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cursor-sep {
+  flex: none;
+  width: 1px;
+  height: 11px;
+  margin-inline: 8px;
+  background: color-mix(in srgb, var(--note-muted) 45%, transparent);
+}
+
+.cursor-chars {
+  flex: none;
+}
+
+/* In the notes area as tall as the sidebar's footer, line included; the sticky note stays slim. */
+.note-pane > .cursor-footer {
+  --footer-height: var(--foot-height);
+  padding-inline: 16px;
+}
+
+/* A notice floats above the open note's status line, not over it. */
+.shell-main:has(.note-pane > .cursor-footer) > .notice-float {
+  bottom: calc(var(--foot-height) + 16px);
+}
+
+@container (max-width: 260px) {
+  .cursor-footer-text:has(.cursor-selected) .cursor-position {
+    display: none;
+  }
+}
+
+@container (max-width: 170px) {
+  .cursor-where:not(:has(.cursor-selected)),
+  .cursor-where:not(:has(.cursor-selected)) + .cursor-sep {
+    display: none;
   }
 }
 
@@ -1182,8 +1258,10 @@ kbd {
   flex: none;
   gap: 4px;
   margin: 0;
+  align-items: center;
+  height: var(--foot-height);
   /* The first icon lines up with the icons of the entries above (10 px in). */
-  padding: 8px 12px;
+  padding: 0 12px;
   border-top: 1px solid var(--border);
   list-style: none;
 }
@@ -3094,9 +3172,9 @@ kbd {
   border-color: color-mix(in srgb, var(--note-text) 25%, transparent);
 }
 
-/* Notices of an open sheet float at its bottom. */
+/* Notices of an open sheet float at its bottom, above the status line. */
 .sheet-notice {
-  bottom: 20px;
+  bottom: calc(var(--foot-height) + 16px);
 }
 /* The picture of the empty paper look: three slips on the table. */
 .paper-stack {
@@ -3390,7 +3468,7 @@ kbd {
 
 /* A narrow note column (760 to about 1000 px wide windows) keeps the title readable and "…" in
    reach: "On the desktop" shows only its icon (its name stays for screen readers and in the
-   tooltip). Below 320 px the progress moves to the status bar (NARROW_NOTE, HangarLayout.tsx). */
+   tooltip). */
 @container (max-width: 460px) {
   .hangar-desktop {
     justify-content: center;
@@ -3450,7 +3528,8 @@ kbd {
 .note[data-look="paper"] .format-slot {
   position: absolute;
   right: 0;
-  bottom: 12px;
+  /* Above the status line (23 px). */
+  bottom: 35px;
   left: 0;
   display: flex;
   justify-content: center;

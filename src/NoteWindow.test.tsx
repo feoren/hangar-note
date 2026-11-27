@@ -135,7 +135,7 @@ async function render(look: Look = "hangar") {
   await act(async () => {
     root.render(
       <I18nContext.Provider value={t}>
-        <NoteWindow label={LABEL} theme="light" colorNames={{}} look={look} />
+        <NoteWindow label={LABEL} theme="light" colorNames={{}} look={look} language="de" />
       </I18nContext.Provider>,
     );
     await Promise.resolve();
@@ -148,7 +148,7 @@ async function rerender(look: Look) {
   await act(async () => {
     root.render(
       <I18nContext.Provider value={t}>
-        <NoteWindow label={LABEL} theme="light" colorNames={{}} look={look} />
+        <NoteWindow label={LABEL} theme="light" colorNames={{}} look={look} language="de" />
       </I18nContext.Provider>,
     );
     await Promise.resolve();
@@ -233,6 +233,29 @@ describe("note window", () => {
     expect(editor.options).not.toBeNull();
     expect(editor.options?.lineNumbers).not.toBe(true);
   });
+
+  it.each(["hangar", "paper"] as const)(
+    "shows the cursor and the length in a status line at the bottom (%s)",
+    async (look) => {
+      await render(look);
+      await act(async () => {
+        editor.options?.onCursor?.({ line: 3, column: 811, selected: 12, length: 851 });
+        await Promise.resolve();
+      });
+      const footer = get(".note > .cursor-footer", HTMLElement);
+      expect(footer.textContent).toContain("Ze 3, Sp 811");
+      expect(footer.textContent).toContain("(12 ausgewählt)");
+      expect(footer.textContent).toContain("851 Zeichen");
+      expect(footer.title).toBe("Zeile 3, Spalte 811, 12 von 851 Zeichen ausgewählt");
+      expect(footer.getAttribute("aria-label")).toBe(t("footer.label"));
+      expect(footer.querySelector("[tabindex], button, [aria-live]")).toBeNull();
+      // The last part of the note, below the formatting bar, inside the note's colors.
+      expect(footer.parentElement?.lastElementChild).toBe(footer);
+      expect(footer.closest<HTMLElement>(".note")?.style.getPropertyValue("--note-head")).not.toBe(
+        "",
+      );
+    },
+  );
 
   it("names the list shortcuts in the formatting bar", async () => {
     await render();

@@ -47,6 +47,20 @@ const de = {
   "note.loadFailed": "Diese Notiz konnte nicht geladen werden.",
   "note.saveFailed": "Nicht gespeichert. Tipp weiter, dann wird es erneut versucht.",
   "note.tooLarge": "Die Notiz ist zu groß. Gespeichert wird höchstens 1 MiB.",
+  "footer.label": "Statusleiste",
+  "footer.position": "Ze {line}, Sp {column}",
+  "footer.selected.one": "({count} ausgewählt)",
+  "footer.selected.other": "({count} ausgewählt)",
+  "footer.chars.one": "{count} Zeichen",
+  "footer.chars.other": "{count} Zeichen",
+  "footer.full.one": "Zeile {line}, Spalte {column}, {chars} Zeichen",
+  "footer.full.other": "Zeile {line}, Spalte {column}, {chars} Zeichen",
+  "footer.fullSelected.one":
+    "Zeile {line}, Spalte {column}, {selected} von {chars} Zeichen ausgewählt",
+  "footer.fullSelected.other":
+    "Zeile {line}, Spalte {column}, {selected} von {chars} Zeichen ausgewählt",
+  "footer.charsFull.one": "{count} Zeichen",
+  "footer.charsFull.other": "{count} Zeichen",
 
   "format.bar": "Formatierung",
   "format.bold": "Fett",
@@ -271,6 +285,20 @@ const en: Record<MessageKey, string> = {
   "note.loadFailed": "This note could not be loaded.",
   "note.saveFailed": "Not saved. Keep typing to try again.",
   "note.tooLarge": "This note is too large. At most 1 MiB is saved.",
+  "footer.label": "Status bar",
+  "footer.position": "Ln {line}, Col {column}",
+  "footer.selected.one": "({count} selected)",
+  "footer.selected.other": "({count} selected)",
+  "footer.chars.one": "{count} char",
+  "footer.chars.other": "{count} chars",
+  "footer.full.one": "Line {line}, column {column}, {chars} character",
+  "footer.full.other": "Line {line}, column {column}, {chars} characters",
+  "footer.fullSelected.one":
+    "Line {line}, column {column}, {selected} of {chars} character selected",
+  "footer.fullSelected.other":
+    "Line {line}, column {column}, {selected} of {chars} characters selected",
+  "footer.charsFull.one": "{count} character",
+  "footer.charsFull.other": "{count} characters",
 
   "format.bar": "Formatting",
   "format.bold": "Bold",
@@ -489,6 +517,20 @@ const el: Record<MessageKey, string> = {
   "note.loadFailed": "Δεν ήταν δυνατή η φόρτωση αυτής της σημείωσης.",
   "note.saveFailed": "Δεν αποθηκεύτηκε. Συνέχισε να γράφεις και θα γίνει νέα προσπάθεια.",
   "note.tooLarge": "Η σημείωση είναι πολύ μεγάλη. Αποθηκεύεται έως 1 MiB.",
+  "footer.label": "Γραμμή κατάστασης",
+  "footer.position": "Γρ {line}, Στ {column}",
+  "footer.selected.one": "({count} επιλεγμένος)",
+  "footer.selected.other": "({count} επιλεγμένοι)",
+  "footer.chars.one": "{count} χαρακτ.",
+  "footer.chars.other": "{count} χαρακτ.",
+  "footer.full.one": "Γραμμή {line}, στήλη {column}, {chars} χαρακτήρας",
+  "footer.full.other": "Γραμμή {line}, στήλη {column}, {chars} χαρακτήρες",
+  "footer.fullSelected.one":
+    "Γραμμή {line}, στήλη {column}, επιλεγμένος {selected} από {chars} χαρακτήρα",
+  "footer.fullSelected.other":
+    "Γραμμή {line}, στήλη {column}, επιλεγμένοι {selected} από {chars} χαρακτήρες",
+  "footer.charsFull.one": "{count} χαρακτήρας",
+  "footer.charsFull.other": "{count} χαρακτήρες",
 
   "format.bar": "Μορφοποίηση",
   "format.bold": "Έντονα",
@@ -713,6 +755,20 @@ const es: Record<MessageKey, string> = {
   "note.loadFailed": "No se pudo cargar esta nota.",
   "note.saveFailed": "No se guardó. Sigue escribiendo para volver a intentarlo.",
   "note.tooLarge": "La nota es demasiado grande. Se guarda como máximo 1 MiB.",
+  "footer.label": "Barra de estado",
+  "footer.position": "Lín {line}, col {column}",
+  "footer.selected.one": "({count} seleccionado)",
+  "footer.selected.other": "({count} seleccionados)",
+  "footer.chars.one": "{count} caract.",
+  "footer.chars.other": "{count} caract.",
+  "footer.full.one": "Línea {line}, columna {column}, {chars} carácter",
+  "footer.full.other": "Línea {line}, columna {column}, {chars} caracteres",
+  "footer.fullSelected.one":
+    "Línea {line}, columna {column}, {selected} de {chars} carácter seleccionado",
+  "footer.fullSelected.other":
+    "Línea {line}, columna {column}, {selected} de {chars} caracteres seleccionados",
+  "footer.charsFull.one": "{count} carácter",
+  "footer.charsFull.other": "{count} caracteres",
 
   "format.bar": "Formato",
   "format.bold": "Negrita",
@@ -931,6 +987,20 @@ const fr: Record<MessageKey, string> = {
   "note.loadFailed": "Impossible de charger cette note.",
   "note.saveFailed": "Non enregistré. Continue à écrire pour réessayer.",
   "note.tooLarge": "La note est trop volumineuse. 1 Mio au maximum est enregistré.",
+  "footer.label": "Barre d’état",
+  "footer.position": "Li {line}, col {column}",
+  "footer.selected.one": "({count} sélectionné)",
+  "footer.selected.other": "({count} sélectionnés)",
+  "footer.chars.one": "{count} car.",
+  "footer.chars.other": "{count} car.",
+  "footer.full.one": "Ligne {line}, colonne {column}, {chars} caractère",
+  "footer.full.other": "Ligne {line}, colonne {column}, {chars} caractères",
+  "footer.fullSelected.one":
+    "Ligne {line}, colonne {column}, {selected} sur {chars} caractère sélectionné",
+  "footer.fullSelected.other":
+    "Ligne {line}, colonne {column}, {selected} sur {chars} caractères sélectionnés",
+  "footer.charsFull.one": "{count} caractère",
+  "footer.charsFull.other": "{count} caractères",
 
   "format.bar": "Mise en forme",
   "format.bold": "Gras",
@@ -1153,6 +1223,20 @@ const it: Record<MessageKey, string> = {
   "note.loadFailed": "Impossibile caricare questa nota.",
   "note.saveFailed": "Non salvato. Continua a scrivere per riprovare.",
   "note.tooLarge": "La nota è troppo grande. Viene salvato al massimo 1 MiB.",
+  "footer.label": "Barra di stato",
+  "footer.position": "Ri {line}, col {column}",
+  "footer.selected.one": "({count} selezionato)",
+  "footer.selected.other": "({count} selezionati)",
+  "footer.chars.one": "{count} car.",
+  "footer.chars.other": "{count} car.",
+  "footer.full.one": "Riga {line}, colonna {column}, {chars} carattere",
+  "footer.full.other": "Riga {line}, colonna {column}, {chars} caratteri",
+  "footer.fullSelected.one":
+    "Riga {line}, colonna {column}, {selected} di {chars} carattere selezionato",
+  "footer.fullSelected.other":
+    "Riga {line}, colonna {column}, {selected} di {chars} caratteri selezionati",
+  "footer.charsFull.one": "{count} carattere",
+  "footer.charsFull.other": "{count} caratteri",
 
   "format.bar": "Formattazione",
   "format.bold": "Grassetto",
@@ -1373,6 +1457,18 @@ const ja: Record<MessageKey, string> = {
   "note.loadFailed": "このメモを読み込めませんでした。",
   "note.saveFailed": "保存されませんでした。入力を続けると再試行します。",
   "note.tooLarge": "メモが大きすぎます。保存できるのは最大 1 MiB です。",
+  "footer.label": "ステータスバー",
+  "footer.position": "行 {line}、列 {column}",
+  "footer.selected.one": "（{count} 選択）",
+  "footer.selected.other": "（{count} 選択）",
+  "footer.chars.one": "{count} 文字",
+  "footer.chars.other": "{count} 文字",
+  "footer.full.one": "{line} 行目、{column} 列目、{chars} 文字",
+  "footer.full.other": "{line} 行目、{column} 列目、{chars} 文字",
+  "footer.fullSelected.one": "{line} 行目、{column} 列目、{chars} 文字中 {selected} 文字を選択",
+  "footer.fullSelected.other": "{line} 行目、{column} 列目、{chars} 文字中 {selected} 文字を選択",
+  "footer.charsFull.one": "{count} 文字",
+  "footer.charsFull.other": "{count} 文字",
 
   "format.bar": "書式",
   "format.bold": "太字",
@@ -1591,6 +1687,20 @@ const pl: Record<MessageKey, string> = {
   "note.loadFailed": "Nie udało się wczytać tej notatki.",
   "note.saveFailed": "Nie zapisano. Pisz dalej, aby spróbować ponownie.",
   "note.tooLarge": "Notatka jest za duża. Zapisywany jest najwyżej 1 MiB.",
+  "footer.label": "Pasek stanu",
+  "footer.position": "Wr {line}, kol {column}",
+  "footer.selected.one": "(zazn. {count})",
+  "footer.selected.other": "(zazn. {count})",
+  "footer.chars.one": "Znaki: {count}",
+  "footer.chars.other": "Znaki: {count}",
+  "footer.full.one": "Wiersz {line}, kolumna {column}, znaki: {chars}",
+  "footer.full.other": "Wiersz {line}, kolumna {column}, znaki: {chars}",
+  "footer.fullSelected.one":
+    "Wiersz {line}, kolumna {column}, zaznaczone znaki: {selected} z {chars}",
+  "footer.fullSelected.other":
+    "Wiersz {line}, kolumna {column}, zaznaczone znaki: {selected} z {chars}",
+  "footer.charsFull.one": "Znaki: {count}",
+  "footer.charsFull.other": "Znaki: {count}",
 
   "format.bar": "Formatowanie",
   "format.bold": "Pogrubienie",
@@ -1809,6 +1919,20 @@ const pt: Record<MessageKey, string> = {
   "note.loadFailed": "Não foi possível carregar esta nota.",
   "note.saveFailed": "Não salvo. Continue digitando para tentar de novo.",
   "note.tooLarge": "A nota é grande demais. No máximo 1 MiB é salvo.",
+  "footer.label": "Barra de status",
+  "footer.position": "Ln {line}, col {column}",
+  "footer.selected.one": "({count} selecionado)",
+  "footer.selected.other": "({count} selecionados)",
+  "footer.chars.one": "{count} caract.",
+  "footer.chars.other": "{count} caract.",
+  "footer.full.one": "Linha {line}, coluna {column}, {chars} caractere",
+  "footer.full.other": "Linha {line}, coluna {column}, {chars} caracteres",
+  "footer.fullSelected.one":
+    "Linha {line}, coluna {column}, {selected} de {chars} caractere selecionado",
+  "footer.fullSelected.other":
+    "Linha {line}, coluna {column}, {selected} de {chars} caracteres selecionados",
+  "footer.charsFull.one": "{count} caractere",
+  "footer.charsFull.other": "{count} caracteres",
 
   "format.bar": "Formatação",
   "format.bold": "Negrito",
@@ -2030,6 +2154,20 @@ const ru: Record<MessageKey, string> = {
   "note.loadFailed": "Не удалось загрузить эту заметку.",
   "note.saveFailed": "Не сохранено. Продолжай печатать, чтобы попробовать снова.",
   "note.tooLarge": "Заметка слишком большая. Сохраняется не больше 1 МиБ.",
+  "footer.label": "Строка состояния",
+  "footer.position": "Стр {line}, стлб {column}",
+  "footer.selected.one": "(выделено: {count})",
+  "footer.selected.other": "(выделено: {count})",
+  "footer.chars.one": "Символов: {count}",
+  "footer.chars.other": "Символов: {count}",
+  "footer.full.one": "Строка {line}, столбец {column}, символов: {chars}",
+  "footer.full.other": "Строка {line}, столбец {column}, символов: {chars}",
+  "footer.fullSelected.one":
+    "Строка {line}, столбец {column}, выделено символов: {selected} из {chars}",
+  "footer.fullSelected.other":
+    "Строка {line}, столбец {column}, выделено символов: {selected} из {chars}",
+  "footer.charsFull.one": "Символов: {count}",
+  "footer.charsFull.other": "Символов: {count}",
 
   "format.bar": "Форматирование",
   "format.bold": "Жирный",
@@ -2248,6 +2386,20 @@ const tr: Record<MessageKey, string> = {
   "note.loadFailed": "Bu not yüklenemedi.",
   "note.saveFailed": "Kaydedilmedi. Yeniden denemek için yazmaya devam et.",
   "note.tooLarge": "Not çok büyük. En fazla 1 MiB kaydedilir.",
+  "footer.label": "Durum çubuğu",
+  "footer.position": "Sat {line}, Süt {column}",
+  "footer.selected.one": "({count} seçili)",
+  "footer.selected.other": "({count} seçili)",
+  "footer.chars.one": "{count} karakter",
+  "footer.chars.other": "{count} karakter",
+  "footer.full.one": "Satır {line}, sütun {column}, {chars} karakter",
+  "footer.full.other": "Satır {line}, sütun {column}, {chars} karakter",
+  "footer.fullSelected.one":
+    "Satır {line}, sütun {column}, {chars} karakterden {selected} tanesi seçili",
+  "footer.fullSelected.other":
+    "Satır {line}, sütun {column}, {chars} karakterden {selected} tanesi seçili",
+  "footer.charsFull.one": "{count} karakter",
+  "footer.charsFull.other": "{count} karakter",
 
   "format.bar": "Biçimlendirme",
   "format.bold": "Kalın",
@@ -2464,6 +2616,20 @@ const zh: Record<MessageKey, string> = {
   "note.loadFailed": "无法加载此便笺。",
   "note.saveFailed": "未保存。继续输入即可重试。",
   "note.tooLarge": "便笺过大。最多保存 1 MiB。",
+  "footer.label": "状态栏",
+  "footer.position": "行 {line}，列 {column}",
+  "footer.selected.one": "（已选 {count}）",
+  "footer.selected.other": "（已选 {count}）",
+  "footer.chars.one": "{count} 个字符",
+  "footer.chars.other": "{count} 个字符",
+  "footer.full.one": "第 {line} 行，第 {column} 列，共 {chars} 个字符",
+  "footer.full.other": "第 {line} 行，第 {column} 列，共 {chars} 个字符",
+  "footer.fullSelected.one":
+    "第 {line} 行，第 {column} 列，已选择 {chars} 个字符中的 {selected} 个",
+  "footer.fullSelected.other":
+    "第 {line} 行，第 {column} 列，已选择 {chars} 个字符中的 {selected} 个",
+  "footer.charsFull.one": "{count} 个字符",
+  "footer.charsFull.other": "{count} 个字符",
 
   "format.bar": "格式",
   "format.bold": "粗体",
@@ -2699,6 +2865,32 @@ export function translate(language: Language, key: MessageKey, params?: Params):
 
 export function createTranslator(language: Language): Translate {
   return (key, params) => translate(language, key, params);
+}
+
+/**
+ * Texts with a number come as a pair, `<base>.one` and `<base>.other`, in every language: "one"
+ * is the form for one thing (or 0 and 1 in French and Portuguese, as CLDR says), "other" the form
+ * for everything else. Languages with more forms (Polish, Russian) word the pair so that "other"
+ * reads right for every other count; languages with one form give both the same text.
+ */
+export type PluralKey = {
+  [K in MessageKey]: K extends `${infer Base}.one`
+    ? `${Base}.other` extends MessageKey
+      ? Base
+      : never
+    : never;
+}[MessageKey];
+
+const pluralRules = new Map<Language, Intl.PluralRules>();
+
+/** The key of `base` in the form `count` takes in `language`. */
+export function pluralKey(language: Language, base: PluralKey, count: number): MessageKey {
+  let rules = pluralRules.get(language);
+  if (rules === undefined) {
+    rules = new Intl.PluralRules(language);
+    pluralRules.set(language, rules);
+  }
+  return rules.select(count) === "one" ? `${base}.one` : `${base}.other`;
 }
 
 /**

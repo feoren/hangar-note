@@ -10,6 +10,7 @@ import {
   LANGUAGE_NAMES,
   LANGUAGES,
   placeholders,
+  pluralKey,
   translate,
   type MessageKey,
 } from "./i18n";
@@ -98,5 +99,26 @@ describe("detectLanguage", () => {
     expect(detectLanguage(undefined)).toBe("en");
     expect(isLanguage("ja")).toBe(true);
     expect(isLanguage("xx")).toBe(false);
+  });
+});
+
+describe("pluralKey", () => {
+  it("finds a .other for every .one and a .one for every .other", () => {
+    const ones = deKeys.filter((key) => key.endsWith(".one")).map((key) => key.slice(0, -4));
+    const others = deKeys.filter((key) => key.endsWith(".other")).map((key) => key.slice(0, -6));
+    expect(ones.length).toBeGreaterThan(0);
+    expect(ones).toEqual(others);
+  });
+
+  it("picks the form a count takes in each language", () => {
+    expect(pluralKey("en", "footer.chars", 1)).toBe("footer.chars.one");
+    expect(pluralKey("en", "footer.chars", 0)).toBe("footer.chars.other");
+    expect(pluralKey("en", "footer.chars", 2)).toBe("footer.chars.other");
+    // French and Brazilian Portuguese use the singular for zero as well.
+    expect(pluralKey("fr", "footer.chars", 0)).toBe("footer.chars.one");
+    expect(pluralKey("pt", "footer.chars", 0)).toBe("footer.chars.one");
+    // Russian "one" also covers 21; the pair is worded so that both forms read right.
+    expect(pluralKey("ru", "footer.chars", 21)).toBe("footer.chars.one");
+    expect(pluralKey("ja", "footer.chars", 1)).toBe("footer.chars.other");
   });
 });

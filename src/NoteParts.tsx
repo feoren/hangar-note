@@ -4,7 +4,8 @@
 
 import { useId, useLayoutEffect, useRef, useState } from "react";
 
-import { noteTone, rowToneVariables, type NoteColor, type Theme } from "./colors";
+import { noteTone, rowToneVariables, toneVariables, type NoteColor, type Theme } from "./colors";
+import { CursorFooter } from "./CursorFooter";
 import { relativeTime } from "./format";
 import {
   CloseIcon,
@@ -450,6 +451,23 @@ export function NotePage({ m, heading = true }: { m: NotesModel; heading?: boole
       )}
       <EditorHost attach={m.attachEditorHost} hidden={m.preview} />
     </div>
+  );
+}
+
+/**
+ * The status line under the open note, in the note's color. It sits below the scrolling page, so
+ * it stays in place while the text scrolls; a note on the desktop has none here.
+ */
+export function NoteFooter({ m }: { m: NotesModel }) {
+  const { note } = m;
+  if (note === null || note.onDesktop) return null;
+  return (
+    <CursorFooter
+      store={m.cursor}
+      language={m.language}
+      position={!m.preview}
+      style={toneVariables(noteTone(note.color, m.theme))}
+    />
   );
 }
 

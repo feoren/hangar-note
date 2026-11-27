@@ -49,6 +49,7 @@ import {
 import { settingsWith, toggledTheme, type AppSettings } from "./appSettings";
 import { copyText } from "./clipboard";
 import { colorName, NOTE_COLORS, swatchColor, withColorName, type NoteColor } from "./colors";
+import { createCursorStore } from "./cursorStats";
 import { createNoteEditor, type EditCommand, type NoteEditor } from "./editor";
 import { errorActionLabel, errorMessage, type ErrorAction, type ErrorMessage } from "./errors";
 import { captureStamp } from "./format";
@@ -323,6 +324,8 @@ export function useNotesArea(app: AppSettings) {
   const creating = useRef<Promise<boolean> | null>(null);
   const generation = useRef(0);
   const editorHost = useRef<HTMLDivElement>(null);
+  /** The cursor's numbers for the status line; only the status line renders when they change. */
+  const [cursor] = useState(createCursorStore);
   const editor = useRef<NoteEditor | null>(null);
   /** The element the editor lives in, to notice when React replaced it. */
   const editorOn = useRef<HTMLElement | null>(null);
@@ -729,6 +732,7 @@ export function useNotesArea(app: AppSettings) {
       placeholder: t("notes.placeholder"),
       taskLabel: t("notes.task"),
       lineNumbers: true,
+      onCursor: cursor.set,
       onChange: (text) => {
         onEditorChangeRef.current(text);
       },
@@ -738,7 +742,7 @@ export function useNotesArea(app: AppSettings) {
       },
     });
     return editor.current;
-  }, [flush, t]);
+  }, [flush, t, cursor]);
 
   useEffect(
     () => () => {
@@ -2505,6 +2509,7 @@ export function useNotesArea(app: AppSettings) {
     togglePreview,
     attachEditorHost,
     focusEditor,
+    cursor,
     held,
     copyOpenText,
     unsaved,

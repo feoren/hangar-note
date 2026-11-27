@@ -349,3 +349,14 @@ the chosen row's tone variables and their contrast) and in headless Chrome again
 mocked Tauri API (hangar at 320, 760 and 1100 px, light and dark, folded and shown, paper, the
 settings). Pages at 360 to 480 px do not scroll sideways; a wider `scrollWidth` came from the
 preview harness's own debug output.
+
+## Status line under the note
+
+| Area | Finding | Change | Reason |
+| --- | --- | --- | --- |
+| Status line | Neither the notes area nor the sticky note said where the cursor stands or how long a note is. | A status line in the note's color, 23 px in the sticky note and in the notes area as tall as the sidebar's footer (`--foot-height`, 49 px with its line, tops flush), (its header tone mixed 60 % into the body, muted text, a hairline on top) below the note in every look and in the sticky note: "Ln 3, Col 811 \| 851 chars", "(12 selected)" while there is a selection, numbers in the UI language's format with tabular digits. It sits below the scrolling page, is no Tab stop and no live region; its group is named "Status bar", the full words are its tooltip and screen reader text. Characters are grapheme clusters (an emoji, a flag or `\r\n` counts once; `src/cursorStats.ts`). The editor reports through `onCursor` (`src/editor.ts`) into a small store, so only the line renders on a cursor move; a text over 50,000 units is recounted 200 ms after typing pauses. In a sticky note narrower than 260 px a selection replaces line and column. Counts take the singular for one ("1 char", "1 carácter"): every counted text is a `.one`/`.other` pair picked with `Intl.PluralRules` (`pluralKey` in `src/i18n.ts`). Notices float above the status line. | The numbers people expect from an editor, without noise for screen readers or cost while typing. |
+
+Checked with tests (`cursorStats` with CRLF, emoji and selections, `onCursor` in the real
+CodeMirror including the delayed recount, the status line in all three notes area variants and
+both sticky looks) and in headless Chrome against Vite with a mocked Tauri API (hangar at 360, 760
+and 1200 px, paper light and dark, sticky notes at 200 to 300 px with focus and a selection).

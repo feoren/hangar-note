@@ -14,6 +14,7 @@ import {
   HeldPanel,
   ListMessages,
   ListTop,
+  NoteFooter,
   NotePage,
   NoteRowItem,
   OnDesktopPanel,
@@ -143,6 +144,7 @@ export function HangarNarrowLayout({ m, narrow }: { m: NotesModel; narrow: boole
         <div className="note-body" hidden={note === null || note.onDesktop}>
           <NotePage m={m} />
         </div>
+        <NoteFooter m={m} />
       </section>
     </div>
   );

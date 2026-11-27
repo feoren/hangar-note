@@ -223,3 +223,14 @@ Added the section "Sidebar footer, round fold button and one head line" to
 pages/syntheses/usability-pass.md: icon footer with a light and dark switch, Hangar's round fold
 button on the head line's crossing, the head line through every column, the chosen row in its
 note's color. Updated index.md.
+
+## [2026-11-27] update | Status line under the note
+Added the section "Status line under the note" to pages/syntheses/usability-pass.md: line,
+column, selection and character count in a thin line in the note's color below the notes area's
+page and the sticky note, counted as grapheme clusters, reported by the editor's `onCursor`.
+Updated index.md.
+
+## [2026-11-27] update | Status line review
+Updated the section "Status line under the note" in pages/syntheses/usability-pass.md: the notes
+area's status line takes the sidebar footer's height (`--foot-height`), counts use singular and
+plural pairs (`pluralKey`), notices float above the status line.
