@@ -228,6 +228,12 @@ describe("note window", () => {
     expect(bar()).toBeNull();
   });
 
+  it("leaves the line numbers out of the small sticky note", async () => {
+    await render();
+    expect(editor.options).not.toBeNull();
+    expect(editor.options?.lineNumbers).not.toBe(true);
+  });
+
   it("names the list shortcuts in the formatting bar", async () => {
     await render();
     await focus(get(".cm-content", HTMLElement));

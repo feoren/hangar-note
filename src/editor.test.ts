@@ -25,6 +25,28 @@ describe("createNoteEditor", () => {
     parent.remove();
   });
 
+  it("shows line numbers only when asked, hidden from screen readers and outside the text", () => {
+    const parent = document.createElement("div");
+    document.body.append(parent);
+    const text = ["eins", "zwei"].join("\n");
+    const plain = createNoteEditor(parent, { ...options, text });
+    expect(parent.querySelector(".cm-lineNumbers")).toBeNull();
+    plain.destroy();
+    const numbered = createNoteEditor(parent, {
+      ...options,
+      text,
+      lineNumbers: true,
+    });
+    const gutter = parent.querySelector(".cm-lineNumbers");
+    expect(gutter).not.toBeNull();
+    expect(gutter?.closest(".cm-gutters")?.getAttribute("aria-hidden")).toBe("true");
+    // The numbers live beside the editable text, so they are neither edited nor copied with it.
+    expect(parent.querySelector(".cm-content")?.contains(gutter ?? null)).toBe(false);
+    expect(parent.querySelector(".cm-content")?.textContent).toBe("einszwei");
+    numbered.destroy();
+    parent.remove();
+  });
+
   it("tells screen readers when the note is read only", () => {
     const parent = document.createElement("div");
     document.body.append(parent);

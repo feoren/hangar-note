@@ -29,7 +29,9 @@ import {
 import {
   Decoration,
   EditorView,
+  highlightActiveLineGutter,
   keymap,
+  lineNumbers as lineNumberGutter,
   placeholder,
   ViewPlugin,
   WidgetType,
@@ -82,6 +84,11 @@ export interface EditorOptions {
   onChange: (text: string) => void;
   onFocus: (focused: boolean) => void;
   readOnly?: boolean;
+  /**
+   * Line numbers at the left edge. The notes area shows them; the sticky notes leave them out,
+   * since a small note on the desktop has no width to spare.
+   */
+  lineNumbers?: boolean;
 }
 
 const MARKS: Record<"bold" | "italic" | "strike", string> = {
@@ -120,6 +127,41 @@ const theme = EditorView.theme({
   },
   ".cm-placeholder": { color: "var(--note-muted)" },
 });
+
+// Line numbers sit quietly beside the text: fainter than the muted tone, no surface of their own,
+// only a hint of a rule, the same size and line height as the text so a number stands on the first
+// line of a wrapped paragraph. About 19px lie between a number and the text (10px, the rule, 8px).
+// The column hangs into the page's side padding (`--page-pad` of the notes area), keeping a little
+// room to the page's edge, so the text keeps its reading width; where the padding is narrower than
+// the column (small windows), the text moves in by the rest instead of running off the page.
+const NUMBER_GAP = "10px";
+const TEXT_GAP = "8px";
+const LINE_NUMBER_COLUMN = `(2ch + ${NUMBER_GAP} + 1px + ${TEXT_GAP})`;
+const LINE_NUMBER_EDGE = "12px";
+const lineNumberTheme = EditorView.theme({
+  ".cm-gutters": {
+    marginInlineStart: `calc(-1 * clamp(0px, var(--page-pad, 0px) - ${LINE_NUMBER_EDGE}, ${LINE_NUMBER_COLUMN}))`,
+    marginInlineEnd: TEXT_GAP,
+    border: "none",
+    borderInlineEnd: "1px solid color-mix(in srgb, var(--note-muted) 12%, transparent)",
+    backgroundColor: "transparent",
+    color: "color-mix(in srgb, var(--note-muted) 55%, transparent)",
+    userSelect: "none",
+  },
+  ".cm-lineNumbers .cm-gutterElement": {
+    minWidth: `calc(2ch + ${NUMBER_GAP})`,
+    padding: `0 ${NUMBER_GAP} 0 0`,
+    fontVariantNumeric: "tabular-nums",
+  },
+  ".cm-activeLineGutter": { backgroundColor: "transparent" },
+  "&.cm-focused .cm-activeLineGutter": {
+    color: "color-mix(in srgb, var(--note-muted) 85%, transparent)",
+  },
+});
+
+function lineNumberColumn(on: boolean): Extension {
+  return on ? [lineNumberGutter(), highlightActiveLineGutter(), lineNumberTheme] : [];
+}
 
 class TaskWidget extends WidgetType {
   constructor(
@@ -303,6 +345,7 @@ export function createNoteEditor(parent: HTMLElement, options: EditorOptions): N
         taskPlugin(options.taskLabel),
         EditorView.lineWrapping,
         placeholder(options.placeholder),
+        lineNumberColumn(options.lineNumbers === true),
         EditorView.contentAttributes.of({ "aria-label": options.label, spellcheck: "true" }),
         theme,
         EditorView.updateListener.of((update) => {

@@ -458,6 +458,14 @@ describe("notes area", () => {
     await render();
     expect(api.createNote).not.toHaveBeenCalled();
     await act(async () => {
+  it("asks for line numbers beside the open note", async () => {
+    await render();
+    const first = container.querySelector(".note-row");
+    if (!(first instanceof HTMLButtonElement)) throw new Error("row missing");
+    await click(first);
+    expect(editor.options?.lineNumbers).toBe(true);
+  });
+
       editor.options?.onChange("# Einkaufsliste\n- Milch");
       await Promise.resolve();
     });

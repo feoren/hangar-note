@@ -728,6 +728,7 @@ export function useNotesArea(app: AppSettings) {
       label: t("note.editorLabel"),
       placeholder: t("notes.placeholder"),
       taskLabel: t("notes.task"),
+      lineNumbers: true,
       onChange: (text) => {
         onEditorChangeRef.current(text);
       },
