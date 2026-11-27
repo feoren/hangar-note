@@ -30,6 +30,18 @@
   --brand-mark: #f2e3c6;
   /* The height of the sidebar's head, so the line below it has a known place. */
   --side-head: 52px;
+  /* Hangar's round fold button on the crossing of that line and the sidebar's edge. Odd, so its
+     middle falls on a pixel center like the 1 px lines it sits on. */
+  --edge-toggle-size: 23px;
+  /* Its place at the window's left edge while the sidebar is away, and the room the notes' top
+     row leaves it there. */
+  --edge-toggle-inset: 8px;
+  --edge-room: 40px;
+  /* The rows of a column (the sidebar's entries, the notes list): the inset from the column's
+     edges, the gap between rows and their radius, the same in both, so the two never drift. */
+  --row-inset: 10px;
+  --row-gap: 1px;
+  --row-radius: 6px;
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   --space-1: 8px;
   --space-2: 16px;
@@ -563,6 +575,7 @@ kbd {
    in 180 ms, which reduced motion turns into a jump. */
 .notes-shell {
   --side-width: 248px;
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   height: 100%;
@@ -950,22 +963,13 @@ kbd {
   }
 }
 
-.side-fold {
-  color: var(--muted);
-}
-
-.side-fold:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-/* Everything scrolls as one; the trash and the settings sit at the bottom while there is room. */
+/* The levels stay above and the bottom row below; the entries between them scroll as one. */
 .nav-scroll {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
-  padding: 10px;
+  padding: var(--row-inset);
   overflow: auto;
 }
 
@@ -973,7 +977,7 @@ kbd {
 .nav-colors {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--row-gap);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -988,7 +992,7 @@ kbd {
   min-height: 36px;
   padding: 0 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--row-radius);
   background: transparent;
   color: var(--text);
   text-align: start;
@@ -1171,14 +1175,31 @@ kbd {
   transform: rotate(180deg);
 }
 
-.nav-fill {
-  flex: 1 1 auto;
-  min-height: 20px;
+/* One row of icon buttons fixed below the list, behind a line across the whole sidebar (as below
+   the head): the trash, the settings, light or dark. */
+.nav-foot {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  margin: 0;
+  /* The first icon lines up with the icons of the entries above (10 px in). */
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  list-style: none;
 }
 
-.nav-foot {
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
+.nav-foot-button {
+  color: var(--muted);
+}
+
+.nav-foot-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.nav-foot-button[aria-current="page"] {
+  background: var(--selected);
+  color: var(--accent);
 }
 /* A narrow window: the sidebar slides in over the notes, which wait behind a veil. */
 .nav-layer {
@@ -1227,7 +1248,8 @@ kbd {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 12px 12px 8px;
+  /* Inset like the rows below it (the head-line rule at the end sets its height). */
+  padding: 12px var(--row-inset) 8px;
 }
 
 .list-top .search {
@@ -1312,11 +1334,11 @@ kbd {
   padding: 6px 8px 0;
 }
 
-/* The sidebar folded away: its button floats at the top left, so the list's top and the trash's
-   and the settings' heading (with their "Back") make room. */
+/* The sidebar folded away: its round button waits at the window's left edge, so the list's top and
+   the trash's and the settings' heading (with their "Back") make room. */
 .notes-shell[data-side="closed"] .list-top,
 .notes-shell[data-side="closed"] .pane-head {
-  padding-inline-start: 56px;
+  padding-inline-start: var(--edge-room);
 }
 /* Read only is a state, not a fault: a quiet outline, no warning color. */
 .ro-chip-wrap {
@@ -1503,11 +1525,13 @@ kbd {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 2px 8px 12px;
+  /* Inset like the sidebar's entries: a chosen row sits free in the column, its focus ring
+     inside it (outline-offset -2px), so nothing is cut at the scroll edges. */
+  padding: var(--row-inset);
 }
 
 .single-wrap {
-  padding: 4px 16px 16px;
+  padding: 12px 16px 16px;
 }
 
 .notes-message {
@@ -1615,9 +1639,14 @@ kbd {
   list-style: none;
 }
 
+/* Spaced and rounded like the sidebar's entries. */
+.note-list {
+  gap: var(--row-gap);
+}
+
 .note-item {
   position: relative;
-  border-radius: var(--radius);
+  border-radius: var(--row-radius);
 }
 
 /* The note's color as a thin edge (colors.ts keeps it at 3 : 1 on every surface). */
@@ -1641,7 +1670,7 @@ kbd {
   min-height: 56px;
   padding: 9px 10px 9px 16px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--row-radius);
   background: transparent;
   text-align: start;
   transition: background-color 120ms var(--ease-out);
@@ -1655,8 +1684,21 @@ kbd {
   background: var(--panel);
 }
 
+/* The chosen row in its note's color (colors.ts, rowToneVariables); hovering the others stays
+   neutral. The focus ring keeps the app's accent, which holds 3 : 1 on every note tone. */
 .note-item.active .note-row {
-  background: var(--hover);
+  background: var(--row-bg, var(--hover));
+  color: var(--row-text, var(--text));
+}
+
+.note-item.active .note-row-meta,
+.note-item.active .note-row-excerpt,
+.note-item.active .note-progress {
+  color: var(--row-muted, var(--muted));
+}
+
+.note-item.active .note-progress.complete {
+  color: var(--row-accent, var(--accent));
 }
 
 .note-row-head {
@@ -1732,7 +1774,7 @@ kbd {
   display: flex;
   align-items: center;
   padding: 2px;
-  border-radius: var(--radius);
+  border-radius: var(--row-radius);
   background: var(--panel);
   box-shadow: -16px 0 12px -4px var(--panel);
   color: var(--muted);
@@ -1759,8 +1801,9 @@ kbd {
 }
 
 .note-item.active .row-tools {
-  background: var(--hover);
-  box-shadow: -16px 0 12px -4px var(--hover);
+  background: var(--row-bg, var(--hover));
+  box-shadow: -16px 0 12px -4px var(--row-bg, var(--hover));
+  color: var(--row-muted, var(--muted));
 }
 
 .row-tools .icon-button:hover {
@@ -1769,7 +1812,8 @@ kbd {
 }
 
 .note-item.active .row-tools .icon-button:hover {
-  background: var(--bg);
+  background: var(--row-head, var(--bg));
+  color: var(--row-text, var(--text));
 }
 
 /* ---- The open note, read like a page ---- */
@@ -1860,7 +1904,7 @@ kbd {
 .note-page {
   max-width: var(--page-max);
   margin-inline: auto;
-  padding: 4px var(--page-pad) 32px;
+  padding: 12px var(--page-pad) 32px;
 }
 
 .note-heading {
@@ -2131,23 +2175,77 @@ kbd {
   font-weight: 600;
 }
 
-/* The sidebar folded away: a small button at the top left of the notes brings it back. */
-.side-float {
+/* Folding the sidebar away and back, as in Hangar: a small circle centered on the crossing of the
+   sidebar's right edge and the line below its head (the line is the head's last pixel row, the
+   edge the sidebar's last pixel column). It slides with the sidebar; while the sidebar is away it
+   waits at the window's left edge. Over the notes in a narrow window the
+   sidebar brings its own at its edge. */
+.edge-toggle {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 5;
-  width: 34px;
-  height: 34px;
+  top: calc(var(--side-head) - 1px + (1px - var(--edge-toggle-size)) / 2);
+  left: calc(var(--side-width) - (var(--edge-toggle-size) + 1px) / 2);
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: var(--edge-toggle-size);
+  height: var(--edge-toggle-size);
+  padding: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 50%;
   background: var(--panel-raised);
-  color: var(--text);
-  box-shadow: 0 2px 8px var(--shadow);
+  box-shadow: 0 1px 3px var(--shadow);
+  color: var(--muted);
+  transition:
+    left 180ms var(--ease-out),
+    top 180ms var(--ease-out),
+    color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out);
 }
 
-.side-float:hover {
-  background: var(--hover);
+/* The circle is small; the pointer may miss it by a few pixels (a 31 px target). */
+.edge-toggle::before {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  content: "";
+}
+
+/* Shown, the chevron points left (fold away); away, it points right (bring back). */
+.edge-toggle svg {
+  transform: rotate(90deg);
+}
+
+.edge-toggle.collapsed svg {
+  transform: rotate(-90deg);
+}
+
+/* Away, there is no edge to sit on (no rail as in Hangar): on the line at the window's edge it
+   would cover the first note row, so it waits in the head row, in the room the head leaves it. */
+.edge-toggle.collapsed {
+  top: calc((var(--side-head) - 1px - var(--edge-toggle-size)) / 2);
+  left: var(--edge-toggle-inset);
+}
+
+.edge-toggle:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* The overlay has no border: `right` counts from the panel's outer edge. Centered on its last
+   pixel column, as on the bordered edge beside the notes, so the circle starts on a whole pixel. */
+.nav-overlay .edge-toggle {
+  left: auto;
+  right: calc((var(--edge-toggle-size) - 1px) / -2);
+}
+
+.notes-shell:has(.side-resize.dragging) .edge-toggle {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edge-toggle {
+    transition: none;
+  }
 }
 
 /* The keyboard shortcuts (the app menu's Help) and the hangar look's empty note column. */
@@ -2307,7 +2405,7 @@ kbd {
 }
 
 .notes-shell[data-side="closed"] .single-main .pane-head {
-  padding-inline-start: max(56px, calc((100% - 880px) / 2));
+  padding-inline-start: max(var(--edge-room), calc((100% - 880px) / 2));
 }
 
 .field select {
@@ -2649,7 +2747,7 @@ kbd {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 4px 24px 80px;
+  padding: 16px 24px 80px;
 }
 
 .paper-grid {
@@ -2977,8 +3075,9 @@ kbd {
 }
 
 .paper-sheet .note-page {
+  --page-pad: 28px;
   max-width: none;
-  padding: 8px 28px 24px;
+  padding: 8px var(--page-pad) 24px;
 }
 
 .paper-sheet .note-title:not(:disabled):hover {
@@ -3059,7 +3158,7 @@ kbd {
     margin: 0;
   }
   .paper-board {
-    padding: 4px 16px 80px;
+    padding: 12px 16px 80px;
   }
 
   .paper-grid {
@@ -3085,7 +3184,8 @@ kbd {
   }
 
   .paper-sheet .note-page {
-    padding: 4px 16px 24px;
+    --page-pad: 16px;
+    padding: 4px var(--page-pad) 24px;
   }
 }
 
@@ -3105,11 +3205,11 @@ kbd {
 }
 
 .layout-hangar .list-top {
-  padding: 10px 10px 6px;
+  padding: 10px var(--row-inset) 6px;
 }
 
 .notes-shell[data-side="closed"] .layout-hangar .list-top {
-  padding-inline-start: 56px;
+  padding-inline-start: var(--edge-room);
 }
 
 .layout-hangar .search {
@@ -3119,14 +3219,9 @@ kbd {
   background: var(--bg);
 }
 
-.layout-hangar .list-wrap {
-  padding: 0 6px 8px;
-}
-
 .layout-hangar .note-row {
   min-height: 52px;
   padding: 7px 10px 7px 16px;
-  border-radius: 6px;
   gap: 1px;
   transition: background-color 100ms var(--ease-out);
 }
@@ -3146,7 +3241,7 @@ kbd {
 }
 
 .layout-hangar .note-item.active .note-row {
-  background: var(--selected);
+  background: var(--row-bg, var(--selected));
 }
 
 /* No tools cover the meta here (the context menu and the keys do their work). */
@@ -3479,13 +3574,14 @@ kbd {
     padding: 8px 8px 0;
   }
 
-  /* The note fills the room: "Back" moves beside the floating sidebar button. */
+  /* The note fills the room: "Back" moves beside the sidebar's round button. */
   .notes-shell[data-side="closed"] .note-bar {
-    padding-inline-start: 56px;
+    padding-inline-start: var(--edge-room);
   }
 
   .note-page {
-    padding: 4px 16px 24px;
+    --page-pad: 16px;
+    padding: 12px var(--page-pad) 24px;
   }
 
   .note-held {
@@ -3555,4 +3651,18 @@ kbd {
   .menu-swatch:hover .swatch-dot {
     transform: none;
   }
+}
+
+/* ---- One line below the heads, across the whole window ---- */
+
+/* The head row of every column (the list's search, the open note's bar, the look switch where no
+   bar is, the heading of the trash and the settings, the paper look's top) is exactly as tall as
+   the sidebar's head and ends in the same hairline. So the line below the sidebar's head runs on
+   at one height through the list and the note, and the round fold button sits on a real crossing,
+   folded away too. Last in the file, so it holds over each layout's own paddings. */
+.notes-shell :is(.list-top, .pane-tools, .pane-head, .note-bar, .hangar-head) {
+  height: var(--side-head);
+  min-height: 0;
+  padding-block: 0;
+  border-bottom: 1px solid var(--border);
 }

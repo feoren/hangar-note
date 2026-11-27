@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HubRequest, NoteRow, OpenedNote, Status } from "./api";
 import type { AppSettings } from "./appSettings";
+import { NOTE_TONES } from "./colors";
 import type { EditorOptions } from "./editor";
 import { HANGAR_MIN_WIDTH, type Look } from "./looks";
 import { createTranslator, I18nContext } from "./i18n";
@@ -204,9 +205,10 @@ const NARROW_HANGAR_WIDTH = HANGAR_MIN_WIDTH - 4;
 const WIDE_WIDTH = 1024;
 let windowWidth = WIDE_WIDTH;
 
-async function render(variant: Variant = "hangarNarrow") {
+/** `extra`: app settings beyond the look, such as the shown theme. */
+async function render(variant: Variant = "hangarNarrow", extra: Partial<AppSettings> = {}) {
   windowWidth = variant === "hangarNarrow" ? NARROW_HANGAR_WIDTH : WIDE_WIDTH;
-  app = withLook(variant === "hangarNarrow" ? "hangar" : variant);
+  app = { ...withLook(variant === "hangarNarrow" ? "hangar" : variant), ...extra };
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -263,7 +265,10 @@ function menuItem(label: string): HTMLButtonElement {
 /** An entry of the sidebar by its visible name (the count aside). */
 function navItem(label: string): HTMLButtonElement {
   const found = Array.from(container.querySelectorAll<HTMLButtonElement>(".nav button")).find(
-    (element) => element.querySelector(".nav-label")?.textContent === label,
+    // The bottom row's icon buttons carry their name as their label only.
+    (element) =>
+      (element.querySelector(".nav-label")?.textContent ?? element.getAttribute("aria-label")) ===
+      label,
   );
   if (!found) throw new Error(`sidebar entry ${label} missing`);
   return found;
@@ -331,7 +336,8 @@ function chosenTabs(): string[] {
 /** The sidebar entries marked as the current place. */
 function currentPlaces(): string[] {
   return Array.from(container.querySelectorAll('.nav [aria-current="page"]')).map(
-    (element) => element.querySelector(".nav-label")?.textContent ?? "",
+    (element) =>
+      element.querySelector(".nav-label")?.textContent ?? element.getAttribute("aria-label") ?? "",
   );
 }
 
@@ -390,6 +396,21 @@ afterEach(() => {
 });
 
 describe("notes area", () => {
+  it("tints the chosen row in its note's color and leaves the others plain", async () => {
+    await render("hangar");
+    await click(rowButton("Einkaufen"));
+    const items = Array.from(container.querySelectorAll<HTMLElement>(".note-item"));
+    const chosen = items.find((item) => item.classList.contains("active"));
+    expect(chosen?.textContent).toContain("Einkaufen");
+    // Every row carries its tone; styles.css tints only the chosen one with it.
+    const mint = NOTE_TONES.light.mint;
+    expect(chosen?.style.getPropertyValue("--row-bg")).toBe(mint.background);
+    expect(chosen?.style.getPropertyValue("--row-text")).toBe(mint.text);
+    expect(chosen?.style.getPropertyValue("--note-edge")).toBe(mint.edge);
+    const other = items.find((item) => !item.classList.contains("active"));
+    expect(other?.style.getPropertyValue("--row-bg")).toBe(NOTE_TONES.light.sky.background);
+  });
+
   it("lists the notes with their checklist progress", async () => {
     await render();
     expect(titles()).toEqual(["Einkaufen", "Projekt"]);
@@ -437,6 +458,14 @@ describe("notes area", () => {
     expect(container.textContent).not.toContain(t("notes.pick"));
   });
 
+  it("asks for line numbers beside the open note", async () => {
+    await render();
+    const first = container.querySelector(".note-row");
+    if (!(first instanceof HTMLButtonElement)) throw new Error("row missing");
+    await click(first);
+    expect(editor.options?.lineNumbers).toBe(true);
+  });
+
   it("shows a note that sits on the desktop instead of a second editor", async () => {
     api.listNotes.mockResolvedValue([row(A, "Einkaufen", "mint", { onDesktop: true })]);
     api.readNote.mockResolvedValue(opened(A, "Einkaufen", { onDesktop: true }));
@@ -458,14 +487,6 @@ describe("notes area", () => {
     await render();
     expect(api.createNote).not.toHaveBeenCalled();
     await act(async () => {
-  it("asks for line numbers beside the open note", async () => {
-    await render();
-    const first = container.querySelector(".note-row");
-    if (!(first instanceof HTMLButtonElement)) throw new Error("row missing");
-    await click(first);
-    expect(editor.options?.lineNumbers).toBe(true);
-  });
-
       editor.options?.onChange("# Einkaufsliste\n- Milch");
       await Promise.resolve();
     });
@@ -1813,8 +1834,6 @@ describe.each(ALL_LOOKS)("notes area, the sidebar in the look %s", (look) => {
     ).toEqual([
       [t("note.allNotes"), "3"],
       ["shop", "1"],
-      [t("notes.trash"), null],
-      [t("notes.settings"), null],
     ]);
     // The tooltip names the full path.
     expect(navItem("shop").title).toBe(SHOP);
@@ -1841,9 +1860,54 @@ describe.each(ALL_LOOKS)("notes area, the sidebar in the look %s", (look) => {
     await press(navItem(t("note.allNotes")), "ArrowDown");
     expect(document.activeElement).toBe(navItem("shop"));
     await press(navItem("shop"), "End");
+    expect(document.activeElement).toBe(navItem(t("nav.darkTheme")));
+    // The bottom row lies left to right: Left goes back along it, Right goes on.
+    await press(navItem(t("nav.darkTheme")), "ArrowLeft");
     expect(document.activeElement).toBe(navItem(t("notes.settings")));
-    await press(navItem(t("notes.settings")), "ArrowDown");
+    await press(navItem(t("notes.settings")), "ArrowLeft");
+    expect(document.activeElement).toBe(navItem(t("notes.trash")));
+    await press(navItem(t("notes.trash")), "ArrowRight");
+    expect(document.activeElement).toBe(navItem(t("notes.settings")));
+    await press(navItem(t("notes.settings")), "End");
+    await press(navItem(t("nav.darkTheme")), "ArrowDown");
     expect(document.activeElement).toBe(navItem(t("note.allNotes")));
+  });
+
+  it("ends in a row of named icon buttons, the current place marked", async () => {
+    await render(look);
+    const row = Array.from(container.querySelectorAll<HTMLButtonElement>(".nav-foot button"));
+    expect(row.map((item) => [item.getAttribute("aria-label"), item.title])).toEqual([
+      [t("notes.trash"), t("notes.trash")],
+      [t("notes.settings"), t("notes.settings")],
+      [t("nav.darkTheme"), t("nav.darkTheme")],
+    ]);
+    // Icons only: no visible text.
+    expect(row.map((item) => item.textContent)).toEqual(["", "", ""]);
+    await click(navItem(t("notes.settings")));
+    expect(currentPlaces()).toEqual([t("notes.settings")]);
+    expect(navItem(t("notes.settings")).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("switches between light and dark from the sidebar and saves the choice outright", async () => {
+    await render(look);
+    const toggle = navItem(t("nav.darkTheme"));
+    expect(toggle.getAttribute("role")).toBe("switch");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    await click(toggle);
+    expect(api.setSettings).toHaveBeenLastCalledWith(expect.objectContaining({ theme: "dark" }));
+  });
+
+  it("switches a dark window to light, also over the system setting", async () => {
+    // The system is dark and the settings follow it.
+    const settings =
+      baseApp.settings === null ? null : { ...baseApp.settings, theme: "system" as const };
+    await render(look, { theme: "dark", settings });
+    const toggle = navItem(t("nav.darkTheme"));
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await click(toggle);
+    expect(api.setSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ theme: "light", look: app.look }),
+    );
   });
 
   it("chooses a level with Ctrl+1 to Ctrl+3, from the trash too", async () => {
@@ -1920,8 +1984,7 @@ describe("notes area: a narrow window", () => {
       withProjects();
       await render();
       expect(container.querySelector(".nav")).toBeNull();
-      const opener = container.querySelector<HTMLButtonElement>(".side-float");
-      if (!opener) throw new Error("sidebar button missing");
+      const opener = edgeToggle();
       expect(opener.getAttribute("aria-label")).toBe(t("nav.show"));
       expect(opener.getAttribute("aria-expanded")).toBe("false");
       expect(opener.getAttribute("aria-haspopup")).toBe("dialog");
@@ -1929,10 +1992,22 @@ describe("notes area: a narrow window", () => {
       const dialog = container.querySelector('[role="dialog"]');
       expect(dialog?.getAttribute("aria-modal")).toBe("true");
       expect(container.querySelector(".shell-main")?.hasAttribute("inert")).toBe(true);
+      // Behind the sidebar its button waits too; the sidebar brings its own at its edge.
+      expect(opener.hasAttribute("inert")).toBe(true);
+      const close = dialog?.querySelector<HTMLButtonElement>(".edge-toggle");
+      expect(close?.getAttribute("aria-label")).toBe(t("nav.close"));
+      expect(close?.getAttribute("aria-expanded")).toBe("true");
       await click(navItem("shop"));
       expect(container.querySelector(".nav")).toBeNull();
       expect(heading()).toBe("shop");
-      expect(document.activeElement).toBe(container.querySelector(".side-float"));
+      expect(document.activeElement).toBe(opener);
+      // Its round button closes it and gives the focus back.
+      await click(opener);
+      const closeButton = container.querySelector<HTMLButtonElement>(".nav-dialog .edge-toggle");
+      if (!closeButton) throw new Error("close button missing");
+      await click(closeButton);
+      expect(container.querySelector(".nav")).toBeNull();
+      expect(document.activeElement).toBe(opener);
       // Escape closes it as well, and so does Ctrl+Shift+S.
       await click(opener);
       const nav = container.querySelector(".nav");
@@ -1953,8 +2028,7 @@ describe("notes area: a narrow window", () => {
     try {
       withProjects();
       await render();
-      const opener = container.querySelector<HTMLButtonElement>(".side-float");
-      if (!opener) throw new Error("sidebar button missing");
+      const opener = edgeToggle();
       await click(opener);
       await openAppMenu(t("menu.edit"));
       await click(appMenuItem(t("menu.find")));
@@ -2085,16 +2159,13 @@ function projectTabLabel(): string {
   return container.querySelector(".level-project-name .level-label")?.textContent ?? "";
 }
 
-/** The sidebar's fold button at the right of its head (while it is shown). */
-function sideFold(): HTMLButtonElement {
-  const found = container.querySelector<HTMLButtonElement>(".nav-head .side-fold");
-  if (!found) throw new Error("fold button missing");
-  return found;
-}
-
-/** The button floating at the top left of the notes while the sidebar is folded away. */
-function sideFloat(): HTMLButtonElement | null {
-  return container.querySelector<HTMLButtonElement>(".side-float");
+/** The one round button on the sidebar's edge (at the window's edge while it is away). */
+function edgeToggle(): HTMLButtonElement {
+  const found = container.querySelectorAll<HTMLButtonElement>(".notes-shell > .edge-toggle");
+  expect(found).toHaveLength(1);
+  const button = found[0];
+  if (!button) throw new Error("edge button missing");
+  return button;
 }
 
 function separator(): HTMLElement {
@@ -2106,12 +2177,14 @@ function separator(): HTMLElement {
 describe("notes area: folding the sidebar away", () => {
   it("folds and shows it with its button and Ctrl+Shift+S, and stores the choice", async () => {
     await render();
-    const fold = sideFold();
+    const fold = edgeToggle();
     const side = document.getElementById(fold.getAttribute("aria-controls") ?? "");
     expect(side?.tagName).toBe("NAV");
+    expect(fold.getAttribute("aria-label")).toBe(t("nav.hide"));
+    expect(fold.getAttribute("aria-expanded")).toBe("true");
     expect(fold.title).toBe(`${t("nav.hide")} (Strg+Umschalt+S)`);
-    // Shown, nothing floats over the notes.
-    expect(sideFloat()).toBeNull();
+    // The sidebar's head has no button of its own beside the app menu any more.
+    expect(container.querySelectorAll(".nav-head button")).toHaveLength(1);
     await act(async () => {
       fold.focus();
       await Promise.resolve();
@@ -2120,15 +2193,16 @@ describe("notes area: folding the sidebar away", () => {
     expect(container.querySelector(".notes-shell")?.getAttribute("data-side")).toBe("closed");
     expect(container.querySelector(".shell-side")?.hasAttribute("inert")).toBe(true);
     expect(api.setSidebarOpen).toHaveBeenLastCalledWith(false);
-    // The button that brings it back floats at the top left and takes the focus.
-    const opener = sideFloat();
-    if (!opener) throw new Error("floating sidebar button missing");
+    // The same button brings it back: it stays, turned around, and keeps the focus.
+    const opener = edgeToggle();
+    expect(opener).toBe(fold);
+    expect(opener.classList.contains("collapsed")).toBe(true);
     expect(opener.getAttribute("aria-expanded")).toBe("false");
     expect(opener.title).toBe(`${t("nav.show")} (Strg+Umschalt+S)`);
     expect(document.activeElement).toBe(opener);
     await click(opener);
     expect(container.querySelector(".notes-shell")?.getAttribute("data-side")).toBe("open");
-    expect(document.activeElement).toBe(sideFold());
+    expect(document.activeElement).toBe(edgeToggle());
     // From the editor too: the key is none of the editor's.
     await click(button(t("notes.new")));
     await pressWindow("S", { code: "KeyS", ctrlKey: true, shiftKey: true });
@@ -2136,23 +2210,22 @@ describe("notes area: folding the sidebar away", () => {
     expect(api.setSidebarOpen).toHaveBeenLastCalledWith(false);
     await pressWindow("S", { code: "KeyS", ctrlKey: true, shiftKey: true });
     expect(container.querySelector(".notes-shell")?.getAttribute("data-side")).toBe("open");
-    // Folded from inside the sidebar: the focus goes to the floating button, not to the page.
+    // Folded from inside the sidebar: the focus goes to the edge button, not to the page.
     const entry = container.querySelector<HTMLElement>(".shell-side nav .nav-item");
     entry?.focus();
     expect(document.activeElement).toBe(entry);
     await pressWindow("S", { code: "KeyS", ctrlKey: true, shiftKey: true });
     expect(container.querySelector(".notes-shell")?.getAttribute("data-side")).toBe("closed");
-    expect(document.activeElement).toBe(sideFloat());
+    expect(document.activeElement).toBe(edgeToggle());
   });
 
   it("starts folded when the settings say so, and keeps working without the stored setting", async () => {
     stored = { sidebarOpen: false };
     api.setSidebarOpen.mockRejectedValue("Command set_sidebar_open not found");
     await render();
-    const opener = sideFloat();
-    if (!opener) throw new Error("floating sidebar button missing");
-    await click(opener);
-    expect(sideFloat()).toBeNull();
+    expect(edgeToggle().getAttribute("aria-expanded")).toBe("false");
+    await click(edgeToggle());
+    expect(edgeToggle().getAttribute("aria-expanded")).toBe("true");
     expect(container.querySelector(".notes-shell")?.getAttribute("data-side")).toBe("open");
     // An older backend (before a restart) refuses to store it: nothing alarming is said.
     expect(container.querySelector(".notice")).toBeNull();
@@ -2541,6 +2614,7 @@ describe("notes area: the sidebar's colors", () => {
       "colors-all",
       "trash",
       "settings",
+      "theme",
     ]);
     await press(navItem(t("note.allNotes")), "ArrowDown");
     const heading = container.querySelector(".nav-section-toggle");
@@ -2556,11 +2630,11 @@ describe("notes area: the sidebar's colors", () => {
 });
 
 describe("notes area: the app menu", () => {
-  it("has the logo, the name and the version with beta, and the fold button at the right", async () => {
+  it("has the logo, the name and the version with beta", async () => {
     await render();
     const head = container.querySelector(".nav-head");
     expect(head?.firstElementChild?.classList.contains("app-menu")).toBe(true);
-    expect(head?.lastElementChild?.classList.contains("side-fold")).toBe(true);
+    expect(head?.lastElementChild?.classList.contains("brand")).toBe(true);
     expect(head?.querySelector(".brand-name")?.textContent).toBe("Hangar Note");
     expect(head?.querySelector(".brand-version")?.textContent).toMatch(
       new RegExp(`^\\d+\\.\\d+\\.\\d+(-\\d+)?${t("version.beta")}$`),

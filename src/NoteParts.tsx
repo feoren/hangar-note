@@ -4,7 +4,7 @@
 
 import { useId, useLayoutEffect, useRef, useState } from "react";
 
-import { noteTone, type NoteColor, type Theme } from "./colors";
+import { noteTone, rowToneVariables, type NoteColor, type Theme } from "./colors";
 import { relativeTime } from "./format";
 import {
   CloseIcon,
@@ -293,7 +293,7 @@ export function NoteRowItem({
   return (
     <li
       className={active ? "note-item active" : "note-item"}
-      style={edgeStyle(row.color, m.theme)}
+      style={rowToneVariables(noteTone(row.color, m.theme))}
       onContextMenu={(event) => {
         m.onRowContextMenu(row, event);
       }}

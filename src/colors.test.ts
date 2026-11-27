@@ -3,7 +3,14 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { colorLabelKey, contrastRatio, isNoteColor, NOTE_COLORS, NOTE_TONES } from "./colors";
+import {
+  colorLabelKey,
+  contrastRatio,
+  isNoteColor,
+  NOTE_COLORS,
+  NOTE_TONES,
+  rowToneVariables,
+} from "./colors";
 import { DICTIONARIES } from "./i18n";
 
 describe("note colors", () => {
@@ -69,6 +76,35 @@ describe("note colors", () => {
       expect(new Set(backgrounds).size).toBe(NOTE_COLORS.length);
     }
   });
+
+  it.each(["light", "dark"] as const)(
+    "keep a chosen list row readable in its color in the %s theme",
+    (theme) => {
+      for (const color of NOTE_COLORS) {
+        const row = rowToneVariables(NOTE_TONES[theme][color]);
+        const v = (name: string): string => {
+          const value = row[name];
+          expect(value, `${theme} ${color} ${name}`).toMatch(/^#[0-9a-f]{6}$/i);
+          return value ?? "";
+        };
+        // [what, foreground, background, minimum]: 4.5 for the title, and the meta, the excerpt,
+        // the checklist count and the tool icons hold it as well (3 would be enough for them).
+        for (const [name, foreground, background, minimum] of [
+          ["title", v("--row-text"), v("--row-bg"), 4.5],
+          ["meta and excerpt", v("--row-muted"), v("--row-bg"), 4.5],
+          ["finished checklist count", v("--row-accent"), v("--row-bg"), 4.5],
+          ["color edge", v("--note-edge"), v("--row-bg"), 3],
+          ["tool icon on its hover surface", v("--row-text"), v("--row-head"), 4.5],
+          ["tool icon at rest", v("--row-muted"), v("--row-bg"), 3],
+        ] as const) {
+          expect(
+            contrastRatio(foreground, background),
+            `${theme} ${color}: ${name}`,
+          ).toBeGreaterThanOrEqual(minimum);
+        }
+      }
+    },
+  );
 
   it("have a name in every language", () => {
     for (const color of NOTE_COLORS) {

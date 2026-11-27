@@ -137,6 +137,22 @@ export function toneVariables(tone: NoteTone): Record<string, string> {
   };
 }
 
+/**
+ * The tone as CSS custom properties for a row of the notes list: the edge always, the rest tints
+ * the row while it is the chosen one (styles.css). Text, meta and the checklist count keep 4.5 : 1
+ * on the row, the tools' hover surface is the header tone (colors.test.ts).
+ */
+export function rowToneVariables(tone: NoteTone): Record<string, string> {
+  return {
+    "--note-edge": tone.edge,
+    "--row-bg": tone.background,
+    "--row-head": tone.header,
+    "--row-text": tone.text,
+    "--row-muted": tone.muted,
+    "--row-accent": tone.accent,
+  };
+}
+
 function channel(value: number): number {
   const c = value / 255;
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;

@@ -20,7 +20,6 @@ import { HangarLayout } from "./HangarLayout";
 import { HangarNarrowLayout } from "./HangarNarrowLayout";
 import type { AppMenuGroup, AppMenuItem } from "./AppMenu";
 import { appMenuGroups } from "./appMenuItems";
-import { SidebarIcon } from "./icons";
 import { KeysDialog } from "./KeysDialog";
 import { LEVEL_PANEL_ID, levelTabId, TeamLevel } from "./LevelBar";
 import { layoutFor, narrowRoom, navFolded, type Layout } from "./looks";
@@ -28,7 +27,7 @@ import { LookSwitch } from "./LookSwitch";
 import { NotesSettings } from "./NotesSettings";
 import { PaperLayout } from "./PaperLayout";
 import { matchSidebarShortcut, sidebarShortcutLabel } from "./shortcuts";
-import { Sidebar } from "./Sidebar";
+import { EdgeToggle, Sidebar } from "./Sidebar";
 import {
   clampSidebarWidth,
   separatorWidth,
@@ -95,8 +94,8 @@ export function NotesArea({ app }: { app: AppSettings }) {
 
   const [keysShown, setKeysShown] = useState(false);
   /**
-   * Whether the fold button's counterpart takes the focus once the sidebar opened or folded away
-   * (the button used goes away with the change).
+   * Whether the round edge button takes the focus once the sidebar opened or folded away: a focus
+   * inside the folded sidebar would otherwise fall to the page.
    */
   const refocus = useRef(false);
 
@@ -110,9 +109,8 @@ export function NotesArea({ app }: { app: AppSettings }) {
       setOverlay((shown) => !shown);
       return;
     }
-    // The button that was used goes away with the change (the sidebar's own one, or the one
-    // floating over the notes): its counterpart takes the focus, as does a focus inside the sidebar
-    // that would otherwise fall to the page.
+    // The edge button stays where it is in both states and keeps its focus; a focus inside the
+    // sidebar moves onto it.
     const active = document.activeElement;
     refocus.current =
       active instanceof HTMLElement &&
@@ -127,11 +125,7 @@ export function NotesArea({ app }: { app: AppSettings }) {
   useEffect(() => {
     if (!refocus.current) return;
     refocus.current = false;
-    document
-      .querySelector<HTMLElement>(
-        side.open ? '[data-focus-id="nav-fold"]' : '[data-focus-id="nav"]',
-      )
-      ?.focus();
+    document.querySelector<HTMLElement>('[data-focus-id="nav"]')?.focus();
   }, [side.open]);
 
   // Ctrl+Shift+S from anywhere in the window, the editor too (it has no use for it).
@@ -198,7 +192,8 @@ export function NotesArea({ app }: { app: AppSettings }) {
         setKeysShown(true);
       },
     );
-  const sideLabel = `${m.t("nav.show")} (${sidebarShortcutLabel(PLATFORM, m.t)})`;
+  /** Whether the sidebar is shown beside the notes, where the edge button folds it away. */
+  const besideShown = !folded && side.open;
 
   return (
     <div
@@ -209,14 +204,7 @@ export function NotesArea({ app }: { app: AppSettings }) {
     >
       {!folded && (
         <div className="shell-side" ref={sideRef} inert={behindSheet || !side.open}>
-          <Sidebar
-            m={m}
-            id={SIDEBAR_ID}
-            menu={menu}
-            onFold={() => {
-              toggle(null);
-            }}
-          />
+          <Sidebar m={m} id={SIDEBAR_ID} menu={menu} />
           <ResizeHandle
             label={m.t("nav.resize")}
             hint={m.t("nav.resizeHint")}
@@ -227,25 +215,19 @@ export function NotesArea({ app }: { app: AppSettings }) {
           />
         </div>
       )}
+      {/* One button in one place: on the sidebar's edge, at the window's edge while it is away. */}
+      <EdgeToggle
+        open={besideShown}
+        label={m.t(besideShown ? "nav.hide" : "nav.show")}
+        keys={sidebarShortcutLabel(PLATFORM, m.t)}
+        controls={folded ? undefined : SIDEBAR_ID}
+        dialog={folded}
+        expanded={folded ? shownOverlay : side.open}
+        focusId="nav"
+        inert={behindSheet || shownOverlay}
+        onToggle={toggle}
+      />
       <main className="shell-main" inert={shownOverlay}>
-        {!sideShown && (
-          <button
-            type="button"
-            className="icon-button side-float"
-            data-focus-id="nav"
-            aria-label={m.t("nav.show")}
-            aria-expanded={shownOverlay}
-            aria-controls={folded ? undefined : SIDEBAR_ID}
-            aria-haspopup={folded ? "dialog" : undefined}
-            title={sideLabel}
-            inert={behindSheet}
-            onClick={(event) => {
-              toggle(event.currentTarget);
-            }}
-          >
-            <SidebarIcon size={16} />
-          </button>
-        )}
         <div
           className="level-panel"
           id={LEVEL_PANEL_ID}

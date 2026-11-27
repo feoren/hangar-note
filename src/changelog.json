@@ -142,6 +142,34 @@
         "ru": "Два вида на выбор: Hangar и Бумага.",
         "tr": "Seçebileceğin iki görünüm: Hangar ve Kâğıt.",
         "zh": "两种外观可选：Hangar 和纸张。"
+      },
+      {
+        "de": "Hell oder Dunkel wechselst du mit einem Klick unten in der Seitenleiste. Der runde Knopf an ihrer Kante klappt sie ein und aus.",
+        "en": "Switch between light and dark with one click at the bottom of the sidebar. The round button on its edge folds it away and back.",
+        "el": "Εναλλάσσεις φωτεινό και σκοτεινό με ένα κλικ στο κάτω μέρος της πλαϊνής στήλης. Το στρογγυλό κουμπί στην άκρη της την κλείνει και την ανοίγει.",
+        "es": "Cambia entre claro y oscuro con un clic abajo en la barra lateral. El botón redondo de su borde la pliega y la despliega.",
+        "fr": "Passe du clair au sombre d'un clic en bas de la barre latérale. Le bouton rond sur son bord la replie et la déplie.",
+        "it": "Passa da chiaro a scuro con un clic in fondo alla barra laterale. Il pulsante rotondo sul suo bordo la chiude e la riapre.",
+        "ja": "サイドバー下部のワンクリックでライトとダークを切り替えられます。端の丸いボタンでサイドバーを折りたたんだり開いたりできます。",
+        "pl": "Przełączaj jasny i ciemny wygląd jednym kliknięciem na dole paska bocznego. Okrągły przycisk na jego krawędzi zwija go i rozwija.",
+        "pt": "Alterne entre claro e escuro com um clique na parte de baixo da barra lateral. O botão redondo na borda dela a recolhe e expande.",
+        "ru": "Переключай светлую и тёмную тему одним щелчком внизу боковой панели. Круглая кнопка на её краю сворачивает и разворачивает её.",
+        "tr": "Kenar çubuğunun altında tek tıkla açık ve koyu arasında geçiş yap. Kenarındaki yuvarlak düğme onu daraltır ve geri açar.",
+        "zh": "在侧边栏底部一键切换浅色和深色。侧边栏边缘的圆形按钮可将其收起和展开。"
+      },
+      {
+        "de": "Die gewählte Notiz in der Liste leuchtet in ihrer Farbe.",
+        "en": "The chosen note in the list shows in its own color.",
+        "el": "Η επιλεγμένη σημείωση στη λίστα εμφανίζεται στο δικό της χρώμα.",
+        "es": "La nota elegida en la lista se muestra en su color.",
+        "fr": "La note choisie dans la liste prend sa couleur.",
+        "it": "La nota scelta nell'elenco si mostra nel suo colore.",
+        "ja": "リストで選んだメモは、そのメモの色で表示されます。",
+        "pl": "Wybrana notatka na liście pokazuje się w swoim kolorze.",
+        "pt": "A nota escolhida na lista aparece na cor dela.",
+        "ru": "Выбранная заметка в списке показана в своём цвете.",
+        "tr": "Listede seçtiğin not kendi renginde görünür.",
+        "zh": "列表中选中的笔记以其自身颜色显示。"
       }
     ]
   }

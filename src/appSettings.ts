@@ -28,6 +28,14 @@ export function resolveTheme(setting: ThemeSetting, systemDark: boolean): Theme 
   return systemDark ? "dark" : "light";
 }
 
+/**
+ * The theme the sidebar's switch saves: the opposite of the one shown, always chosen outright, so
+ * it overrides "Same as system" (the settings page still offers that).
+ */
+export function toggledTheme(shown: Theme): ThemeSetting {
+  return shown === "dark" ? "light" : "dark";
+}
+
 export function resolveLanguage(setting: Language | null, systemTag: string | undefined): Language {
   return setting !== null && isLanguage(setting) ? setting : detectLanguage(systemTag);
 }

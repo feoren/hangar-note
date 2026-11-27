@@ -46,7 +46,7 @@ import {
   type OpenedNote,
   type Status,
 } from "./api";
-import { settingsWith, type AppSettings } from "./appSettings";
+import { settingsWith, toggledTheme, type AppSettings } from "./appSettings";
 import { copyText } from "./clipboard";
 import { colorName, NOTE_COLORS, swatchColor, withColorName, type NoteColor } from "./colors";
 import { createNoteEditor, type EditCommand, type NoteEditor } from "./editor";
@@ -2290,6 +2290,14 @@ export function useNotesArea(app: AppSettings) {
       .catch(fail);
   };
 
+  /** Light or dark for every window, from the sidebar's switch: the opposite of the shown theme. */
+  const toggleTheme = () => {
+    if (!settings) return;
+    setSettings(settingsWith(settings, app.look, { theme: toggledTheme(theme) }))
+      .then(app.applySaved)
+      .catch(fail);
+  };
+
   /** Undo, redo or select all in the open note, from the app menu. */
   const canEdit = writable && note !== null && !note.onDesktop && view === "browse";
   const editNote = (command: EditCommand) => {
@@ -2454,6 +2462,7 @@ export function useNotesArea(app: AppSettings) {
     // The look and the app menu
     look,
     chooseLook,
+    toggleTheme,
     canEdit,
     editNote,
     exportOpen,

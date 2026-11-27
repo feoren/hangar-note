@@ -171,7 +171,9 @@ export function GearIcon(props: IconProps) {
   return (
     <Svg {...props}>
       <circle cx="8" cy="8" r="2" />
-      <path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1" />
+      {/* A cog with eight teeth, not spokes: beside the sun of the theme switch it must not read
+          as a second sun. */}
+      <path d="M6.63 3.29 7 1.68 9 1.68 9.37 3.29 10.36 3.71 11.76 2.82 13.18 4.24 12.29 5.64 12.71 6.63 14.32 7 14.32 9 12.71 9.37 12.29 10.36 13.18 11.76 11.76 13.18 10.36 12.29 9.37 12.71 9 14.32 7 14.32 6.63 12.71 5.64 12.29 4.24 13.18 2.82 11.76 3.71 10.36 3.29 9.37 1.68 9 1.68 7 3.29 6.63 3.71 5.64 2.82 4.24 4.24 2.82 5.64 3.71z" />
     </Svg>
   );
 }
@@ -203,16 +205,6 @@ export function InfoIcon(props: IconProps) {
     <Svg {...props}>
       <circle cx="8" cy="8" r="6" />
       <path d="M8 7.4v3.8M8 5.1v.1" />
-    </Svg>
-  );
-}
-
-/** The sidebar, for the button that opens it in a narrow window. */
-export function SidebarIcon(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" />
-      <path d="M6 2.75v10.5M3.5 5.5h1M3.5 7.5h1" />
     </Svg>
   );
 }
@@ -286,6 +278,23 @@ export function HangarLookIcon(props: IconProps) {
     <Svg {...props}>
       <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" />
       <path d="M6.25 2.75v10.5M6.25 6h8" />
+    </Svg>
+  );
+}
+
+export function SunIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="2.75" />
+      <path d="M8 1.5v1.25M8 13.25v1.25M1.5 8h1.25M13.25 8h1.25M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9" />
+    </Svg>
+  );
+}
+
+export function MoonIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M13.5 9.6A5.75 5.75 0 0 1 6.4 2.5a5.75 5.75 0 1 0 7.1 7.1z" />
     </Svg>
   );
 }

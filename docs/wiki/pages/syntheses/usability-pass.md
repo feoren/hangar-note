@@ -329,3 +329,23 @@ Undo; the backend reads `"calm"` as hangar and writes hangar with the next save)
 preview against Vite with a mocked Tauri API (hangar at 360, 760, 1100 and 1600 px; paper light
 and dark, cards and an opened sheet).
 
+## Sidebar footer, round fold button and one head line
+
+The owner asked for icon buttons in the sidebar's footer with a light and dark switch, Hangar's
+round fold button at its place, one line below the heads across the window, and the chosen note
+row in its note's color.
+
+| Area | Finding | Change | Reason |
+| --- | --- | --- | --- |
+| Sidebar footer | "Recently deleted" and "Settings" were two text rows inside the scrolling list, the line above them inset by its padding. | One row of icon buttons fixed below the list (trash, settings, a light and dark switch), each with its name as label and tooltip, the current place marked; the line runs edge to edge. Left and Right move along the row in the sidebar's arrow-key order. | Less text, the theme one click away, the row always in reach. |
+| Theme switch | The theme was only in the settings. | A real switch (`role="switch"`, on is dark, sun or moon shows the state) that saves the opposite of the shown theme outright (`toggledTheme`); "Same as system" stays in the settings. | One click for the common case, the system choice still there. |
+| Fold button | A sidebar icon in the head, and a second button floating over the notes while folded. | One round 23 px button with a chevron on the crossing of the sidebar's edge and the head line, as in Hangar; folded, it waits in the head row at the window's left edge (no rail to sit on; on the line it would cover the first row). Over the notes in a narrow window the sidebar brings its own at its edge. | One button in one place, keyboard focus kept on it. |
+| Head line | Only the sidebar's head had a line. | Every column's head row (list top, note bar, Hangar's note head, look switch row, trash and settings heading, paper top) is as tall as the sidebar's head and ends in the same hairline, through the note column as in Hangar's main bar. | The button sits on a real crossing; one calm line across the window. |
+| Chosen row | The chosen row was gray; only a 3 px edge showed the color. | The chosen row takes its note's tone (background, text, muted, accent; row tools and their hover match). Hover on other rows stays neutral. Slate is the neutral tone; every note has a color. The rows keep the sidebar entries' inset, gap and radius (`--row-inset`, `--row-gap`, `--row-radius`), so the tinted row sits free in the column; the search row above the list keeps the same inset. | The color is easy to see without hurting legibility (4.5 : 1 measured for all colors in both themes). |
+
+Checked with tests (`toggledTheme`, the switch saves dark and light, named footer buttons, arrow
+keys along the row, the single edge button with its focus, the narrow window's own close button,
+the chosen row's tone variables and their contrast) and in headless Chrome against Vite with a
+mocked Tauri API (hangar at 320, 760 and 1100 px, light and dark, folded and shown, paper, the
+settings). Pages at 360 to 480 px do not scroll sideways; a wider `scrollWidth` came from the
+preview harness's own debug output.

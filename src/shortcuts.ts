@@ -153,7 +153,9 @@ export function tabTarget(
 /**
  * Where the arrow keys, Home and End move the focus inside the sidebar: the index of the entry to
  * focus among `count` entries, or `null` for any other key. Up and Left go back, Down and Right go
- * on; the ends wrap, as in a menu.
+ * on; the ends wrap, as in a menu. The list runs top to bottom and ends in a row of icon buttons
+ * left to right, so both pairs move the way they point there too. None of the UI languages is
+ * written right to left, so the row never flips.
  */
 export function sidebarTarget(
   event: Pick<KeyInfo, "key" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey">,

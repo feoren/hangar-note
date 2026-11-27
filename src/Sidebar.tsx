@@ -1,12 +1,16 @@
 // The one navigation of the notes area, the same in every look (ADR 0004). At the top, as in
-// Hangar, the app menu (the three lines), the logo, the name with the version, and at the right
-// edge the button that folds the sidebar away (Ctrl+Shift+S); a line across the whole sidebar
-// below. Under it the three levels ("Private", "Project", "Team", LevelBar.tsx), then "All notes",
+// Hangar, the app menu (the three lines), the logo and the name with the version; a line across the
+// whole sidebar below. Where that line meets the sidebar's right edge sits Hangar's round button
+// that folds the sidebar away and back (Ctrl+Shift+S, EdgeToggle below; NotesArea.tsx places it). Under it the three levels ("Private", "Project", "Team", LevelBar.tsx), then "All notes",
 // the project folders by their name (choosing one shows it in the "Project" level; the section is
 // called "Project folders" so it never reads as a second "Project"), the colors as
-// a category list (sidebarColors.ts), and at the bottom "Recently deleted" and "Settings". The
-// current place is marked (`aria-current`). The arrow keys, Home and End move between the entries
-// (one Tab stop for all of them). Below NAV_MIN_WIDTH the sidebar opens over the notes instead,
+// a category list (sidebarColors.ts), and fixed at the bottom, behind a line, one row of icon buttons
+// without text (the name is their label and tooltip): "Recently deleted", "Settings" and the switch
+// between light and dark (on is dark; it saves the opposite of the shown theme outright, the
+// settings page keeps "Same as system"). The current place is marked (`aria-current`). The arrow
+// keys, Home and End move between the entries, the row's buttons included (one Tab stop for all of
+// them; Up and Left go back, Down and Right go on, so in the bottom row the arrows point where they
+// move, shortcuts.ts). Below NAV_MIN_WIDTH the sidebar opens over the notes instead,
 // and choosing a place closes it.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -25,8 +29,9 @@ import {
   ChevronDownIcon,
   FolderIcon,
   GearIcon,
+  MoonIcon,
   NotesIcon,
-  SidebarIcon,
+  SunIcon,
   TrashIcon,
 } from "./icons";
 import { LevelBar } from "./LevelBar";
@@ -42,9 +47,57 @@ import { PLATFORM, type NotesModel, type ScopeEntry } from "./useNotesArea";
 import { APP_VERSION, versionParts } from "./version";
 
 /**
+ * The round button on the sidebar's edge, as in Hangar: a small circle with a chevron on the
+ * crossing of the sidebar's right edge and the line below its head (styles.css). `open`: the
+ * sidebar beside it is shown, the chevron points left (fold away); otherwise it points right.
+ */
+export function EdgeToggle({
+  open,
+  label,
+  keys,
+  controls,
+  dialog = false,
+  expanded = open,
+  focusId,
+  inert,
+  onToggle,
+}: {
+  open: boolean;
+  label: string;
+  /** The shortcut for the tooltip ("Strg+Umschalt+S"). */
+  keys?: string;
+  /** The sidebar's element id, while it is in the page. */
+  controls?: string | undefined;
+  /** Whether it opens the sidebar as a dialog over the notes (a narrow window). */
+  dialog?: boolean;
+  expanded?: boolean;
+  focusId?: string;
+  inert?: boolean;
+  onToggle: (button: HTMLButtonElement) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={open ? "edge-toggle" : "edge-toggle collapsed"}
+      data-focus-id={focusId}
+      aria-label={label}
+      aria-expanded={expanded}
+      aria-controls={controls}
+      aria-haspopup={dialog ? "dialog" : undefined}
+      title={keys === undefined ? label : `${label} (${keys})`}
+      inert={inert}
+      onClick={(event) => {
+        onToggle(event.currentTarget);
+      }}
+    >
+      <ChevronDownIcon size={12} />
+    </button>
+  );
+}
+
+/**
  * The sidebar. `overlay`: shown over the notes in a narrow window, as a modal dialog that
- * `onClose` closes (Escape, its fold button, a click beside it, or a choice). `onFold` folds the
- * sidebar away in a wide window.
+ * `onClose` closes (Escape, its round edge button, a click beside it, or a choice).
  */
 export function Sidebar({
   m,
@@ -52,7 +105,6 @@ export function Sidebar({
   menu,
   overlay = false,
   onClose,
-  onFold,
 }: {
   m: NotesModel;
   /** The element id the fold buttons name in `aria-controls`. */
@@ -61,18 +113,23 @@ export function Sidebar({
   menu: () => AppMenuGroup[];
   overlay?: boolean;
   onClose?: () => void;
-  onFold?: () => void;
 }) {
   const { t } = m;
-  const list = useRef<HTMLDivElement>(null);
+  /** The whole sidebar: the entries of the roving focus lie in the list and in the bottom row. */
+  const list = useRef<HTMLElement>(null);
   const currentKey = m.place ?? m.scopeEntries.find((entry) => m.isShownScope(entry))?.key ?? "all";
   /** The entry that takes the sidebar's one Tab stop: the last focused, else the current one. */
   const [tabKey, setTabKey] = useState<string | null>(null);
   const colors = useColorSection(m);
-  const keys = [...m.scopeEntries.map((entry) => entry.key), ...colors.keys, "trash", "settings"];
+  const keys = [
+    ...m.scopeEntries.map((entry) => entry.key),
+    ...colors.keys,
+    "trash",
+    "settings",
+    "theme",
+  ];
   const stop = tabKey !== null && keys.includes(tabKey) ? tabKey : currentKey;
   const { number, beta } = versionParts(APP_VERSION);
-  const foldLabel = `${t("nav.hide")} (${sidebarShortcutLabel(PLATFORM, t)})`;
 
   // Opened over the notes, the focus goes onto the current place.
   useEffect(() => {
@@ -142,6 +199,7 @@ export function Sidebar({
       id={id}
       className={overlay ? "nav nav-overlay" : "nav"}
       aria-label={t("notes.scopes")}
+      ref={list}
       onKeyDown={onKeyDown}
     >
       <div className="nav-head">
@@ -154,25 +212,13 @@ export function Sidebar({
             {beta && <span className="beta-badge">{t("version.beta")}</span>}
           </span>
         </span>
-        <button
-          type="button"
-          className="icon-button side-fold"
-          data-focus-id={overlay ? undefined : "nav-fold"}
-          aria-label={t(overlay ? "nav.close" : "nav.hide")}
-          aria-expanded="true"
-          aria-controls={id}
-          title={overlay ? t("nav.close") : foldLabel}
-          onClick={overlay ? close : onFold}
-        >
-          <SidebarIcon size={16} />
-        </button>
       </div>
 
       <div className="nav-levels">
         <LevelBar m={m} onChosen={close} />
       </div>
 
-      <div className="nav-scroll" ref={list}>
+      <div className="nav-scroll">
         <ul className="nav-list">{main.map((entry) => area(entry, <NotesIcon size={16} />))}</ul>
 
         {projects.length > 0 && (
@@ -187,44 +233,69 @@ export function Sidebar({
         )}
 
         {colors.shown && <ColorList m={m} colors={colors} entryProps={entryProps} list={list} />}
-
-        <span className="nav-fill" />
-
-        <ul className="nav-list nav-foot">
-          <li>
-            <button
-              type="button"
-              className="nav-item"
-              data-focus-id="trash"
-              aria-current={m.place === "trash" ? "page" : undefined}
-              {...entryProps("trash")}
-              onClick={() => {
-                m.openPlace("trash");
-                close();
-              }}
-            >
-              <TrashIcon size={16} />
-              <span className="nav-label">{t("notes.trash")}</span>
-            </button>
-          </li>
-          <li>
-            <button
-              type="button"
-              className="nav-item"
-              data-focus-id="settings"
-              aria-current={m.place === "settings" ? "page" : undefined}
-              {...entryProps("settings")}
-              onClick={() => {
-                m.openPlace("settings");
-                close();
-              }}
-            >
-              <GearIcon size={16} />
-              <span className="nav-label">{t("notes.settings")}</span>
-            </button>
-          </li>
-        </ul>
       </div>
+
+      {/* Outside the scrolling list: it stays at the bottom and its line runs edge to edge. */}
+      <ul className="nav-foot">
+        <li>
+          <button
+            type="button"
+            className="icon-button nav-foot-button"
+            data-focus-id="trash"
+            aria-current={m.place === "trash" ? "page" : undefined}
+            aria-label={t("notes.trash")}
+            title={t("notes.trash")}
+            {...entryProps("trash")}
+            onClick={() => {
+              m.openPlace("trash");
+              close();
+            }}
+          >
+            <TrashIcon size={16} />
+          </button>
+        </li>
+        <li>
+          <button
+            type="button"
+            className="icon-button nav-foot-button"
+            data-focus-id="settings"
+            aria-current={m.place === "settings" ? "page" : undefined}
+            aria-label={t("notes.settings")}
+            title={t("notes.settings")}
+            {...entryProps("settings")}
+            onClick={() => {
+              m.openPlace("settings");
+              close();
+            }}
+          >
+            <GearIcon size={16} />
+          </button>
+        </li>
+        <li>
+          {/* Stays open over the notes: the change shows at once, nothing to close for. */}
+          <button
+            type="button"
+            className="icon-button nav-foot-button"
+            role="switch"
+            aria-checked={m.theme === "dark"}
+            aria-label={t("nav.darkTheme")}
+            title={t("nav.darkTheme")}
+            {...entryProps("theme")}
+            onClick={m.toggleTheme}
+          >
+            {m.theme === "dark" ? <MoonIcon size={16} /> : <SunIcon size={16} />}
+          </button>
+        </li>
+      </ul>
+      {/* Over the notes the sidebar brings its own: the one beside the notes waits behind it. */}
+      {overlay && (
+        <EdgeToggle
+          open
+          label={t("nav.close")}
+          keys={sidebarShortcutLabel(PLATFORM, t)}
+          onToggle={close}
+        />
+      )}
     </nav>
   );
 }
@@ -294,7 +365,7 @@ function ColorList({
     tabIndex: number;
     onFocus: () => void;
   };
-  list: React.RefObject<HTMLDivElement | null>;
+  list: React.RefObject<HTMLElement | null>;
 }) {
   const { t } = m;
   const { section, setSection, rows, more } = colors;

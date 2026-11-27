@@ -217,3 +217,9 @@ pages/decisions/0004-switchable-looks.md (two looks, default hangar, a stored "c
 hangar, hangar's narrow layout, one drag header on the sticky note, the paper sheet rule) and the
 section "Two looks and a paper sheet only by choice" to pages/syntheses/usability-pass.md. Updated
 index.md.
+
+## [2026-11-27] update | Sidebar footer, round fold button, one head line, tinted rows
+Added the section "Sidebar footer, round fold button and one head line" to
+pages/syntheses/usability-pass.md: icon footer with a light and dark switch, Hangar's round fold
+button on the head line's crossing, the head line through every column, the chosen row in its
+note's color. Updated index.md.

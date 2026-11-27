@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveLanguage, resolveTheme, settingsWith, trayLabels } from "./appSettings";
+import {
+  resolveLanguage,
+  resolveTheme,
+  settingsWith,
+  toggledTheme,
+  trayLabels,
+} from "./appSettings";
 import { createTranslator } from "./i18n";
 
 describe("settings", () => {
@@ -22,6 +28,15 @@ describe("settings", () => {
       tooltip: "Hangar Note",
       untitled: "Notiz",
     });
+  });
+});
+
+describe("toggledTheme", () => {
+  it("chooses the opposite of the shown theme outright, never the system", () => {
+    expect(toggledTheme("light")).toBe("dark");
+    expect(toggledTheme("dark")).toBe("light");
+    // Shown dark because the system is dark: the switch makes it light for good.
+    expect(toggledTheme(resolveTheme("system", true))).toBe("light");
   });
 });
 
