@@ -30,6 +30,24 @@ pnpm format:check && pnpm lint && pnpm test && pnpm build
 
 `pnpm tauri build` builds an installer.
 
+## Releases (maintainers)
+
+Releases are built with `py -3 tools/release.py` on Windows and published first on the project's
+own Forgejo instance, later on GitHub. The steps are separate and the script never commits:
+
+```sh
+py -3 tools/release.py --version 0.1.0 --dry-run   # what a release would do
+py -3 tools/release.py --version 0.1.0             # date the changelog, set 0.1.0+B, build
+# commit the version files and the changelog as one release commit
+py -3 tools/release.py --publish forgejo --prerelease --allow-unsigned --draft
+py -3 tools/release.py --publish github --release 0.1.0 --prerelease --allow-unsigned   # the same files, no new build
+py -3 tools/release.py --next 0.2.0                # start the upcoming version
+```
+
+Every release ships `SHA256SUMS.txt`. An installer without an Authenticode signature is built or
+published only with `--allow-unsigned`. The Forgejo step reads `FORGEJO_URL` and `FORGEJO_TOKEN`
+from the environment or from the git-ignored `.env`. Details: [`docs/wiki/pages/syntheses/release-process.md`](docs/wiki/pages/syntheses/release-process.md).
+
 ## Guidelines
 
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org) in English

@@ -6,7 +6,7 @@ superseded_by:
 tags: [release, version, changelog, updater, windows]
 sources: ["[[version-number-wikipedia]]"]
 created: 2026-11-26
-updated: 2026-11-26
+updated: 2026-11-27
 ---
 
 # ADR 0003: Version scheme Major.Minor.Revision-Build
@@ -48,11 +48,11 @@ What the scheme has to fit, as Hangar found it:
 - **Every release raises X, Y or Z.** The updater ignores build metadata, so a release that
   differs only in B would not be offered as an update.
 - **Internal form** in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` (with `Cargo.lock`),
-  `package.json` and `latest.json`: `X.Y.Z+B`, e.g. `0.1.0+14`. NSIS turns it into the Windows
+  `package.json` and `latest.json` (no updater yet, see the addendum): `X.Y.Z+B`, e.g. `0.1.0+14`. NSIS turns it into the Windows
   file version `0.1.0.14`.
 - **Displayed form** and file names: `X.Y.Z-B`, e.g. `0.1.0-14` and
   `Hangar Note_0.1.0-14_x64-setup.exe` (file name pattern as Hangar's, to be confirmed with the
-  first build). A `+` breaks download URLs, because forms and query strings read it as a space.
+  first build; published as `Hangar-Note_0.1.0-14_x64-setup.exe`, see the addendum). A `+` breaks download URLs, because forms and query strings read it as a space.
 - **The build number is set only when building, as in Hangar.** Between releases the files carry
   `X.Y.Z` without B. The release script writes `X.Y.Z+B` into the files right before the build, the
   release commit keeps that state, and the step "next version" afterwards sets the files to the
@@ -86,7 +86,8 @@ What the scheme has to fit, as Hangar found it:
     than the files, or is not higher than the last release (the highest dated changelog entry or a
     folder under `release/`);
   - dates the changelog entry, writes `X.Y.Z+B` into the four files, builds, signs, and writes
-    `latest.json` with `X.Y.Z+B` and the German items as notes;
+    `latest.json` with `X.Y.Z+B` and the German items as notes (no updater yet: no `latest.json`,
+    see the addendum);
   - offers `--next X.Y.Z`: files to the new version without B, a new empty, undated changelog entry
     on top, refused while the current top entry is not released.
 
@@ -100,7 +101,7 @@ What the scheme has to fit, as Hangar found it:
     non-empty, trimmed texts of at most 160 characters without en or em dash.
   The same file checks the checker with broken examples, so a check that silently passes fails.
   `latest.json` does not exist before the first release; the script writes it from the same
-  version.
+  version (no updater yet: the script as built writes none, see the addendum).
 - In release builds `install.json` carries `appVersion` in the internal form `X.Y.Z+B`
   (`env!("CARGO_PKG_VERSION")`, `src-tauri/src/install.rs`). Hangar reads that field; whoever
   shows it converts `+` to `-`.
@@ -140,9 +141,28 @@ updater ships code onto the person's computer, so these hold from its first buil
 > the `updater:*` permissions) are those of the Tauri 2 updater plugin as known from Hangar; check
 > them against the plugin version added with the first release.
 
+## Addendum 2026-11-27: the release script as built
+`tools/release.py` (details: [[release-process]]) differs from the plan above in four points; the
+rest of this decision stands.
+- **Installer name with a hyphen.** Tauri names the installer `Hangar Note_X.Y.Z+B_x64-setup.exe`
+  (unverified until the first build). The script copies it to `release/X.Y.Z-B/` as
+  `Hangar-Note_X.Y.Z-B_x64-setup.exe`, because a space in a release asset name becomes `%20` in
+  download links. The displayed form `X.Y.Z-B` is unchanged.
+- **No `latest.json` (no updater yet).** Hangar Note has no `tauri-plugin-updater` and no
+  `plugins.updater` in `src-tauri/tauri.conf.json`, so the script writes no `latest.json` and no
+  updater signature. Every mention of `latest.json` in this decision applies once the updater is
+  added, together with the section "Updater rules for the first release". Instead, every release
+  ships `SHA256SUMS.txt`.
+- **Release notes in English.** The release pages belong to the public repository, so the notes
+  are the English items of the changelog entry, not the German ones.
+- **Unsigned only on purpose.** Without an Authenticode setting the script refuses to build or
+  publish unless `--allow-unsigned` is given; it then warns and adds a line to the release notes
+  asking users to check the installer against `SHA256SUMS.txt`. The owner decided that the first
+  release, 0.1.0, ships unsigned as a pre-release.
+
 ## Evidence
 - [[version-number-wikipedia]] (parts, build number from version control, never reset, major 0).
 - Hangar's ADR 0002 "Version scheme" and its code (`tools/release.py`, `src/versionSync.test.ts`,
   `src/changelog.ts`, `src/version.ts`, `vite.config.ts`), read on 2026-11-26 at Hangar 0.17.0.
 - `try_add_numeric_build_number` in the Tauri bundler, tag `tauri-cli-v2.12.6` (see Context).
-- Code: `src/versionSync.test.ts`, `src/changelog.json`.
+- Code: `src/versionSync.test.ts`, `src/changelog.json`, `tools/release.py`, `tools/test_release.py`.

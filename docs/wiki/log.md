@@ -234,3 +234,11 @@ Updated index.md.
 Updated the section "Status line under the note" in pages/syntheses/usability-pass.md: the notes
 area's status line takes the sidebar footer's height (`--foot-height`), counts use singular and
 plural pairs (`pluralKey`), notices float above the status line.
+
+## [2026-11-27] query | Release process
+Added pages/syntheses/release-process.md: the release script `tools/release.py` (build with
+`--version`, publish on Forgejo first and on GitHub later, `--next`), the safety rules taken from
+Hangar, the rules for two targets and unsigned builds. Added the addendum of 2026-11-27 to
+pages/decisions/0003-version-scheme.md (installer name with a hyphen, no `latest.json` while
+there is no updater, English release notes, unsigned only with `--allow-unsigned`). Updated
+index.md.
