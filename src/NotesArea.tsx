@@ -1,12 +1,13 @@
 // The notes area (ADR 0002, phase 1) in the look the settings name (ADR 0004). Its logic lives
-// once in useNotesArea.tsx; this file lays out the one sidebar (Sidebar.tsx) beside the level bar
-// (LevelBar.tsx: the sidebar button and the tabs "Private", "Project", "Team") and the view below
-// it (notes, team, trash, settings) in the layout of the look: calm (CalmLayout), paper
-// (PaperLayout) or hangar (HangarLayout), which falls back to calm's layout where its columns do
-// not fit. The sidebar can be folded away and widened by dragging its edge; both are stored in
-// settings.json. A narrow window folds it away always and opens it over the notes instead.
-// Switching the look keeps the open note, its unsaved text and its pending save; only the
-// editor's element changes, and the editor follows it.
+// once in useNotesArea.tsx; this file lays out the one sidebar (Sidebar.tsx: the app menu, the
+// levels "Private", "Project", "Team", the places and the colors) beside the view (notes, team,
+// trash, settings) in the layout of the look: calm (CalmLayout), paper (PaperLayout) or hangar
+// (HangarLayout), which falls back to calm's layout where its columns do not fit. Beside the
+// sidebar there is no bar: the notes and the note, nothing else; notices float at the bottom. The
+// sidebar can be folded away (a small button at the top left brings it back) and widened by
+// dragging its edge; both are stored in settings.json. A narrow window folds it away always and
+// opens it over the notes instead. Switching the look keeps the open note, its unsaved text and
+// its pending save; only the editor's element changes, and the editor follows it.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -14,11 +15,15 @@ import { setSidebarOpen, setSidebarWidth } from "./api";
 import type { AppSettings } from "./appSettings";
 import { CalmLayout } from "./CalmLayout";
 import { HangarLayout } from "./HangarLayout";
-import { LEVEL_PANEL_ID, LevelBar, levelTabId, TeamLevel, type SideToggle } from "./LevelBar";
+import type { AppMenuGroup, AppMenuItem } from "./AppMenu";
+import { appMenuGroups } from "./appMenuItems";
+import { SidebarIcon } from "./icons";
+import { KeysDialog } from "./KeysDialog";
+import { LEVEL_PANEL_ID, levelTabId, TeamLevel } from "./LevelBar";
 import { layoutFor, navFolded, type Look } from "./looks";
 import { NotesSettings } from "./NotesSettings";
 import { PaperLayout } from "./PaperLayout";
-import { matchSidebarShortcut } from "./shortcuts";
+import { matchSidebarShortcut, sidebarShortcutLabel } from "./shortcuts";
 import { Sidebar } from "./Sidebar";
 import {
   clampSidebarWidth,
@@ -83,6 +88,13 @@ export function NotesArea({ app }: { app: AppSettings }) {
   const [overlay, setOverlay] = useState(false);
   const opener = useRef<HTMLElement | null>(null);
 
+  const [keysShown, setKeysShown] = useState(false);
+  /**
+   * Whether the fold button's counterpart takes the focus once the sidebar opened or folded away
+   * (the button used goes away with the change).
+   */
+  const refocus = useRef(false);
+
   const closeOverlay = () => {
     setOverlay(false);
   };
@@ -93,15 +105,29 @@ export function NotesArea({ app }: { app: AppSettings }) {
       setOverlay((shown) => !shown);
       return;
     }
-    // Folding it away makes the sidebar inert: a focus inside it (Ctrl+Shift+S from a sidebar
-    // entry) would fall to the page, so it moves to the button that brings the sidebar back.
-    if (side.open && sideRef.current?.contains(document.activeElement)) from?.focus();
+    // The button that was used goes away with the change (the sidebar's own one, or the one
+    // floating over the notes): its counterpart takes the focus, as does a focus inside the sidebar
+    // that would otherwise fall to the page.
+    const active = document.activeElement;
+    refocus.current =
+      active instanceof HTMLElement &&
+      (sideRef.current?.contains(active) === true || active.dataset.focusId === "nav");
     side.setOpen(!side.open);
   };
   const toggleRef = useRef(toggle);
   useEffect(() => {
     toggleRef.current = toggle;
   });
+
+  useEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    document
+      .querySelector<HTMLElement>(
+        side.open ? '[data-focus-id="nav-fold"]' : '[data-focus-id="nav"]',
+      )
+      ?.focus();
+  }, [side.open]);
 
   // Ctrl+Shift+S from anywhere in the window, the editor too (it has no use for it).
   useEffect(() => {
@@ -126,17 +152,48 @@ export function NotesArea({ app }: { app: AppSettings }) {
     if (from?.isConnected && (active === null || active === document.body)) from.focus();
   }, [overlay]);
   const shownOverlay = folded && overlay;
-  /** The paper look's open note is a modal sheet: the sidebar and the tabs wait behind it. */
+  /** The paper look's open note is a modal sheet: the sidebar waits behind it. */
   const behindSheet = layout === "paper" && m.view === "browse" && m.note !== null;
 
   /** The sidebar's width for styles.css (`--side-width`). */
   const shellStyle: Record<string, string> = { "--side-width": `${String(sideWidth)}px` };
-  const toggleState: SideToggle = {
-    expanded: folded ? shownOverlay : side.open,
-    folded,
-    controls: folded ? undefined : SIDEBAR_ID,
-    onToggle: toggle,
+  const toggleSide = () => {
+    toggle(document.querySelector<HTMLElement>('[data-focus-id="nav"]'));
   };
+  /**
+   * An app menu choice made in the sidebar over the notes closes it first: what it does (a new
+   * note, the search) happens in the notes, which are inert while it is open. The choice runs once
+   * the notes are back, after the focus returned to the opener. The sidebar's own toggle is left
+   * as it is, it closes the sidebar itself.
+   */
+  const fromOverlay = (groups: AppMenuGroup[]): AppMenuGroup[] => {
+    if (!shownOverlay) return groups;
+    const wrap = (item: AppMenuItem): AppMenuItem => {
+      if (item.type === "submenu") return { ...item, items: item.items.map(wrap) };
+      if (item.type !== "action" || item.run === toggleSide) return item;
+      const run = item.run;
+      return {
+        ...item,
+        run: () => {
+          closeOverlay();
+          requestAnimationFrame(run);
+        },
+      };
+    };
+    return groups.map((group) => ({ ...group, items: group.items.map(wrap) }));
+  };
+  /** Built when the menu opens, so it always shows the current state. */
+  const menu = () => fromOverlay(menuGroups());
+  const menuGroups = (): AppMenuGroup[] =>
+    appMenuGroups(
+      m,
+      { shown: folded ? shownOverlay : side.open, toggle: toggleSide },
+      app.look,
+      () => {
+        setKeysShown(true);
+      },
+    );
+  const sideLabel = `${m.t("nav.show")} (${sidebarShortcutLabel(PLATFORM, m.t)})`;
 
   return (
     <div
@@ -147,7 +204,14 @@ export function NotesArea({ app }: { app: AppSettings }) {
     >
       {!folded && (
         <div className="shell-side" ref={sideRef} inert={behindSheet || !side.open}>
-          <Sidebar m={m} id={SIDEBAR_ID} />
+          <Sidebar
+            m={m}
+            id={SIDEBAR_ID}
+            menu={menu}
+            onFold={() => {
+              toggle(null);
+            }}
+          />
           <ResizeHandle
             label={m.t("nav.resize")}
             hint={m.t("nav.resizeHint")}
@@ -159,17 +223,34 @@ export function NotesArea({ app }: { app: AppSettings }) {
         </div>
       )}
       <main className="shell-main" inert={shownOverlay}>
-        <div className="level-row" inert={behindSheet}>
-          <LevelBar m={m} side={toggleState} />
-        </div>
+        {!sideShown && (
+          <button
+            type="button"
+            className="icon-button side-float"
+            data-focus-id="nav"
+            aria-label={m.t("nav.show")}
+            aria-expanded={shownOverlay}
+            aria-controls={folded ? undefined : SIDEBAR_ID}
+            aria-haspopup={folded ? "dialog" : undefined}
+            title={sideLabel}
+            inert={behindSheet}
+            onClick={(event) => {
+              toggle(event.currentTarget);
+            }}
+          >
+            <SidebarIcon size={16} />
+          </button>
+        )}
         <div
           className="level-panel"
           id={LEVEL_PANEL_ID}
-          role={m.level === null || m.view !== "browse" ? undefined : "tabpanel"}
-          aria-labelledby={m.level === null ? undefined : levelTabId(m.level)}
+          role={m.level === null || m.view !== "browse" || !sideShown ? undefined : "tabpanel"}
+          aria-labelledby={m.level === null || !sideShown ? undefined : levelTabId(m.level)}
         >
           <View m={m} app={app} layout={layout} />
         </div>
+        {/* The one notice place, floating at the bottom; the paper look's sheet holds its own. */}
+        {!behindSheet && <div className="notice-float">{m.noticeSlot}</div>}
       </main>
       {shownOverlay && (
         <div className="nav-layer">
@@ -180,9 +261,17 @@ export function NotesArea({ app }: { app: AppSettings }) {
             aria-modal="true"
             aria-label={m.t("notes.scopes")}
           >
-            <Sidebar m={m} overlay onClose={closeOverlay} />
+            <Sidebar m={m} menu={menu} overlay onClose={closeOverlay} />
           </div>
         </div>
+      )}
+      {keysShown && (
+        <KeysDialog
+          m={m}
+          onClose={() => {
+            setKeysShown(false);
+          }}
+        />
       )}
       {m.popup}
     </div>
@@ -299,7 +388,6 @@ function View({ m, app, layout }: { m: NotesModel; app: AppSettings; layout: Loo
             />
           )}
         </div>
-        <footer className="area-foot">{m.noticeSlot}</footer>
       </div>
     );
   }
@@ -311,7 +399,6 @@ function View({ m, app, layout }: { m: NotesModel; app: AppSettings; layout: Loo
         <div className="single-main">
           <TeamLevel m={m} />
         </div>
-        <footer className="area-foot">{m.noticeSlot}</footer>
       </div>
     );
   }

@@ -5,38 +5,26 @@
 import { useId, useState } from "react";
 
 import { setAutostart, setSettings, type Settings, type ThemeSetting } from "./api";
-import type { AppSettings } from "./appSettings";
+import { settingsWith, type AppSettings } from "./appSettings";
 import { errorMessage } from "./errors";
-import { colorLabelKey, colorName, NOTE_COLORS, swatchColor, type NoteColor } from "./colors";
+import {
+  colorLabelKey,
+  colorName,
+  MAX_COLOR_NAME_LENGTH,
+  NOTE_COLORS,
+  swatchColor,
+  withColorName,
+  type NoteColor,
+} from "./colors";
 import { LANGUAGE_NAMES, LANGUAGES, useT, type MessageKey } from "./i18n";
 import { BackIcon, CheckIcon } from "./icons";
 import { LOOK_HINTS, LOOK_NAMES, LOOKS, type Look } from "./looks";
-
-/** The backend's limit (`MAX_COLOR_NAME_CHARS` in settings.rs). */
-export const MAX_COLOR_NAME_LENGTH = 40;
 
 const THEMES: readonly { value: ThemeSetting; label: MessageKey }[] = [
   { value: "system", label: "settings.themeSystem" },
   { value: "light", label: "settings.themeLight" },
   { value: "dark", label: "settings.themeDark" },
 ];
-
-/** The names with `color` set to `name`; a blank name removes the color's own name. */
-export function withColorName(
-  names: Partial<Record<NoteColor, string>>,
-  color: NoteColor,
-  name: string,
-): Partial<Record<NoteColor, string>> {
-  const clean = Array.from(name.replace(/\s+/g, " ").trim())
-    .slice(0, MAX_COLOR_NAME_LENGTH)
-    .join("");
-  const next: Partial<Record<NoteColor, string>> = {};
-  for (const other of NOTE_COLORS) {
-    const value = other === color ? clean : names[other];
-    if (value !== undefined && value !== "") next[other] = value;
-  }
-  return next;
-}
 
 /** The sentence for a failed change: the code's own one (errors.ts), else the general one. */
 export function settingsError(error: unknown): MessageKey {
@@ -53,15 +41,7 @@ export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () =>
   if (!settings) return null;
 
   const save = (change: Partial<Settings>) => {
-    const next: Settings = {
-      language: settings.language,
-      theme: settings.theme,
-      newNoteColor: settings.newNoteColor,
-      colorNames: settings.colorNames,
-      look: app.look,
-      ...change,
-    };
-    setSettings(next)
+    setSettings(settingsWith(settings, app.look, change))
       .then((saved) => {
         applySaved(saved);
         setFailed(null);

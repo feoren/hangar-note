@@ -93,6 +93,26 @@ export function colorName(
   return own !== undefined && own !== "" ? own : t(colorLabelKey(color));
 }
 
+/** The backend's limit (`MAX_COLOR_NAME_CHARS` in settings.rs). */
+export const MAX_COLOR_NAME_LENGTH = 40;
+
+/** The names with `color` set to `name`; a blank name removes the color's own name. */
+export function withColorName(
+  names: Partial<Record<NoteColor, string>>,
+  color: NoteColor,
+  name: string,
+): Partial<Record<NoteColor, string>> {
+  const clean = Array.from(name.replace(/\s+/g, " ").trim())
+    .slice(0, MAX_COLOR_NAME_LENGTH)
+    .join("");
+  const next: Partial<Record<NoteColor, string>> = {};
+  for (const other of NOTE_COLORS) {
+    const value = other === color ? clean : names[other];
+    if (value !== undefined && value !== "") next[other] = value;
+  }
+  return next;
+}
+
 export function noteTone(color: NoteColor, theme: Theme): NoteTone {
   return NOTE_TONES[theme][color];
 }

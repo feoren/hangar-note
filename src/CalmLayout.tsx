@@ -1,21 +1,19 @@
-// Look "calm" (direction A, ADR 0004): beside the sidebar (Sidebar.tsx) the area's name as the
-// heading with "New note", a search and the list, where each row shows its color as a thin edge
-// and its tools on hover, on keyboard focus and in a context menu. The open note reads like a
-// page. One notice place sits in the footer. Wide windows show list and note side by side, narrow
-// ones one at a time.
+// Look "calm" (direction A, ADR 0004): beside the sidebar (Sidebar.tsx) the list with the search
+// and "+" at its top, where each row shows its color as a thin edge and its tools on hover, on
+// keyboard focus and in a context menu. The open note reads like a page: just the text, its small
+// toolbar comes in on hover and focus (always shown where there is no hover, and while one note
+// fills a narrow window). Wide windows show list and note side by side, narrow ones one at a time.
 
-import { BackIcon, DesktopIcon, MoreIcon, PlusIcon } from "./icons";
+import { BackIcon, DesktopIcon, MoreIcon } from "./icons";
 import {
-  AreaHeading,
   edgeStyle,
-  FootStatus,
   HeldPanel,
   ListMessages,
+  ListTop,
   NotePage,
   NoteRowItem,
   OnDesktopPanel,
   PreviewToggle,
-  SearchField,
   UnsavedMark,
   Welcome,
 } from "./NoteParts";
@@ -28,41 +26,20 @@ export function CalmLayout({ m }: { m: NotesModel }) {
     <div
       className={emptyMode ? "notes-area layout-calm is-empty" : "notes-area layout-calm"}
       data-pane={m.pane}
-      data-idle={m.idle ? "true" : undefined}
     >
       <section className="list-pane" aria-label={t("notes.list")}>
-        <header className="pane-head">
-          <AreaHeading m={m} className="area-title" />
-          {!emptyMode && (
-            <button
-              type="button"
-              className="primary-button new-button"
-              data-focus-id="new"
-              title={`${t("notes.new")} (${m.quickKeys})`}
-              disabled={!m.canCreate}
-              onClick={m.newNote}
-            >
-              <PlusIcon />
-              {t("notes.new")}
-            </button>
-          )}
-        </header>
+        <ListTop m={m} />
         {emptyMode ? (
           <Welcome m={m} mark={<div className="welcome-mark" aria-hidden="true" />} />
         ) : (
-          <>
-            <div className="find">
-              <SearchField m={m} placeholder={t("notes.search")} />
-            </div>
-            <div className="list-wrap">
-              <ListMessages m={m} />
-              <ul className="note-list">
-                {m.visible.map((row, index) => (
-                  <NoteRowItem key={noteKey(row)} m={m} row={row} index={index} tools />
-                ))}
-              </ul>
-            </div>
-          </>
+          <div className="list-wrap">
+            <ListMessages m={m} />
+            <ul className="note-list">
+              {m.visible.map((row, index) => (
+                <NoteRowItem key={noteKey(row)} m={m} row={row} index={index} tools />
+              ))}
+            </ul>
+          </div>
         )}
       </section>
 
@@ -92,6 +69,8 @@ export function CalmLayout({ m }: { m: NotesModel }) {
             <span className="note-crumb" title={note.folder.path ?? t("notes.general")}>
               {m.projectLabel(note.folder)}
             </span>
+            <UnsavedMark m={m} />
+            <PreviewToggle m={m} />
             {note.id !== null && !note.onDesktop && (
               <button
                 type="button"
@@ -128,17 +107,6 @@ export function CalmLayout({ m }: { m: NotesModel }) {
           <NotePage m={m} />
         </div>
       </section>
-
-      {/* The footer: words, progress and "Saved" of the open note, crossfading with the one
-          notice place, so a notice never covers text or buttons. */}
-      <footer className="area-foot note-footer">
-        <div className="foot-main">
-          <FootStatus m={m} />
-          {m.noticeSlot}
-        </div>
-        <UnsavedMark m={m} />
-        <PreviewToggle m={m} />
-      </footer>
     </div>
   );
 }

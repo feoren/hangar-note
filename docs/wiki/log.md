@@ -189,3 +189,17 @@ trash.json are set aside as `<name>.broken-<millis>` without replacing an existi
 Pinned the stable_id test vector of Hangar's ADR 0022 (identical derivation, nothing differed) and
 noted that colors of notes whose random IDs only a lost index knew are not salvaged.
 Updated pages/concepts/hangar-notes-format.md and index.md.
+
+## [2026-11-27] update | Colors as a category list, Hangar's header and a clean notes area
+Added the section "Colors as a category list, Hangar's header and a clean notes area" to
+pages/syntheses/usability-pass.md: the sidebar's colors as rows with swatch, name and count (counts
+of the shown list; per-scope counts would need a backend command), show all, a folding section,
+rename in place; Hangar's header with the app menu (File, Edit, View, Help), logo, version and beta
+badge; the levels inside the sidebar; no bars above or below the notes, notices as a floating
+toast, a floating button for the folded sidebar.
+
+## [2026-11-27] update | Security review of the shared notes folder
+Added the amendment "2026-11-27: security review of the shared folder" to
+pages/decisions/0005-shared-notes-folder.md: cleaned titles, 5000 entries and a byte budget per
+index, reads without the scope lock, migration under the lock, hardened `.writer.lock`, bounded
+listings, duplicate entries dropped, shortened arguments in the log. Updated index.md.

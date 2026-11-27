@@ -1,84 +1,35 @@
 // Look "hangar" (direction C, ADR 0004): Hangar's own window. Beside the sidebar (Sidebar.tsx) two
-// columns: the dense list under the area's name, "New note" and the search; on the right the note
-// in its color, its title and tools in a header. A status bar at the bottom is the one place for
-// notices and names the shortcuts. Below 840 px the window shows calm's narrow layout instead
-// (looks.ts, NotesArea.tsx).
-
-import { useLayoutEffect, useState } from "react";
+// columns: the dense list with the search and "+" at its top; on the right the note in its color,
+// its title and tools in a slim header. No status bar: notices float at the bottom (NotesArea.tsx)
+// and the keys live in the app menu's Help. Below 840 px the window shows calm's narrow layout
+// instead (looks.ts, NotesArea.tsx).
 
 import { colorName, noteTone, toneVariables } from "./colors";
 import { DesktopIcon, MoreIcon, PlusIcon, TaskIcon } from "./icons";
+import { KeysList } from "./KeysDialog";
 import {
-  AreaHeading,
   emptyAreaText,
-  FootStatus,
   HeldPanel,
   ListMessages,
+  ListTop,
   NotePage,
   NoteRowItem,
   OnDesktopPanel,
   PreviewToggle,
   Progress,
   RenameField,
-  SearchField,
   UnsavedMark,
 } from "./NoteParts";
 import { noteKey } from "./notes";
-import { shortcutLabel } from "./shortcuts";
-import { PLATFORM, type NotesModel } from "./useNotesArea";
-
-/**
- * A note column at most this wide (760 to about 820 px wide windows) has no room for the progress
- * in its header; the status bar shows it instead, so it is always shown once.
- */
-const NARROW_NOTE = 320;
-
-/** Whether the note column is narrow, followed as the window is resized. */
-function useNarrowNote(pane: HTMLElement | null): boolean {
-  const [narrow, setNarrow] = useState(false);
-  useLayoutEffect(() => {
-    if (pane === null) return;
-    const measure = () => {
-      // 0: not laid out (yet); the header keeps the progress.
-      const width = pane.clientWidth;
-      setNarrow(width > 0 && width <= NARROW_NOTE);
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(pane);
-    return () => {
-      observer.disconnect();
-    };
-  }, [pane]);
-  return narrow;
-}
+import type { NotesModel } from "./useNotesArea";
 
 export function HangarLayout({ m }: { m: NotesModel }) {
   const { t, note, writable, emptyMode, stats } = m;
   const noteColorName = note === null ? "" : colorName(note.color, m.colorNames, t);
-  const [notePane, setNotePane] = useState<HTMLElement | null>(null);
-  const narrow = useNarrowNote(notePane);
   return (
     <div className={emptyMode ? "notes-area layout-hangar is-empty" : "notes-area layout-hangar"}>
       <section className="list-pane hangar-list" aria-label={t("notes.list")}>
-        <header className="hangar-list-top">
-          <AreaHeading m={m} className="hangar-area" />
-          {!emptyMode && (
-            <button
-              type="button"
-              className="primary-button hangar-new"
-              data-focus-id="new"
-              aria-label={t("notes.new")}
-              title={`${t("notes.new")} (${m.quickKeys})`}
-              disabled={!m.canCreate}
-              onClick={m.newNote}
-            >
-              <PlusIcon />
-              <span className="hangar-new-label">{t("notes.new")}</span>
-            </button>
-          )}
-        </header>
+        <ListTop m={m} className="hangar-list-top" />
         {emptyMode ? (
           <div className="hangar-empty">
             <p className="hangar-empty-title">{t("notes.emptyTitle")}</p>
@@ -96,31 +47,28 @@ export function HangarLayout({ m }: { m: NotesModel }) {
             )}
           </div>
         ) : (
-          <>
-            <div className="find">
-              <SearchField m={m} placeholder={t("notes.search")} />
-            </div>
-            <div className="list-wrap">
-              <ListMessages m={m} />
-              <ul className="note-list">
-                {m.visible.map((row, index) => (
-                  <NoteRowItem key={noteKey(row)} m={m} row={row} index={index} tools={false} />
-                ))}
-              </ul>
-            </div>
-          </>
+          <div className="list-wrap">
+            <ListMessages m={m} />
+            <ul className="note-list">
+              {m.visible.map((row, index) => (
+                <NoteRowItem key={noteKey(row)} m={m} row={row} index={index} tools={false} />
+              ))}
+            </ul>
+          </div>
         )}
       </section>
 
       <section
-        ref={setNotePane}
         className="note-pane hangar-editor"
         aria-label={m.shownTitle === "" ? t("notes.noteLabel") : m.shownTitle}
         style={note === null ? undefined : toneVariables(noteTone(note.color, m.theme))}
       >
         {note === null &&
           (emptyMode && writable ? (
-            <KeysPanel m={m} />
+            <div className="hangar-keys">
+              <h2>{t("menu.keys")}</h2>
+              <KeysList m={m} />
+            </div>
           ) : (
             <div className="note-placeholder">
               <p>{t(writable ? "notes.pick" : "notes.pickReadOnly")}</p>
@@ -145,7 +93,7 @@ export function HangarLayout({ m }: { m: NotesModel }) {
                 </button>
               </h2>
             )}
-            {stats.progress.total > 0 && !note.onDesktop && !narrow && (
+            {stats.progress.total > 0 && !note.onDesktop && (
               <span className="hangar-progress">
                 <TaskIcon size={14} />
                 <Progress m={m} done={stats.progress.done} total={stats.progress.total} />
@@ -167,6 +115,7 @@ export function HangarLayout({ m }: { m: NotesModel }) {
                 <span className="color-dot" style={edgeDot(noteTone(note.color, m.theme).edge)} />
               </button>
             )}
+            <UnsavedMark m={m} />
             <PreviewToggle m={m} />
             {note.id !== null && !note.onDesktop && (
               <button
@@ -202,66 +151,6 @@ export function HangarLayout({ m }: { m: NotesModel }) {
           <NotePage m={m} heading={false} />
         </div>
       </section>
-
-      {/* The status bar: the one place for notices, the save state and the shortcuts. */}
-      <footer className="area-foot hangar-status">
-        <div className="foot-main">
-          {m.openText === null ? (
-            <div className={m.noticeShown ? "foot-status away" : "foot-status"}>
-              <span>{m.shownScopeLabel}</span>
-            </div>
-          ) : (
-            <FootStatus m={m} scope progress={narrow} />
-          )}
-          {m.noticeSlot}
-        </div>
-        <UnsavedMark m={m} />
-        <span className="status-keys">
-          {m.openText !== null && m.openText.id !== null && writable ? (
-            <>
-              <span>
-                <kbd>F2</kbd> {t("notes.rename")}
-              </span>
-              <span>
-                <kbd>{t("key.delete")}</kbd> {t("notes.delete")}
-              </span>
-            </>
-          ) : (
-            writable && (
-              <span>
-                <kbd>{m.quickKeys}</kbd> {t("notes.new")}
-              </span>
-            )
-          )}
-        </span>
-      </footer>
-    </div>
-  );
-}
-
-/** With no notes yet, the note column lists the keys that matter. */
-function KeysPanel({ m }: { m: NotesModel }) {
-  const { t } = m;
-  const keys: [string, string][] = [
-    [m.quickKeys, t("notes.new")],
-    ["F2", t("notes.rename")],
-    [t("key.delete"), t("notes.delete")],
-    [shortcutLabel("bold", PLATFORM, t), t("format.bold")],
-    [shortcutLabel("task", PLATFORM, t), t("format.task")],
-  ];
-  return (
-    <div className="hangar-keys">
-      <h2>{t("notes.keys")}</h2>
-      <dl>
-        {keys.map(([key, label]) => (
-          <div key={key}>
-            <dt>
-              <kbd>{key}</kbd>
-            </dt>
-            <dd>{label}</dd>
-          </div>
-        ))}
-      </dl>
     </div>
   );
 }

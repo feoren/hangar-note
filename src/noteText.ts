@@ -1,6 +1,6 @@
-// Text logic of a note: checklists, word count, the excerpt for the list, captured text and the
+// Text logic of a note: checklists, the excerpt for the list, captured text and the
 // formatting toggles. Pure functions; the editor, the preview, the list and the sticky notes use
-// them alike. Checklists, word count, excerpt and capture are taken from Hangar's src/noteText.ts
+// them alike. Checklists, excerpt and capture are taken from Hangar's src/noteText.ts
 // (MIT, same owner); the toggles are this app's (ADR 0001).
 
 /** A Markdown task line: list marker, then `[ ]` or `[x]`. Group 1: everything before the box. */
@@ -83,19 +83,6 @@ export function taskMarkOffset(line: string): number | null {
 
 export function isListLine(line: string): boolean {
   return LIST_LINE.test(line);
-}
-
-/** Words in the text, as the UI language separates them (CJK without spaces counts per word). */
-export function wordCount(text: string, language: string): number {
-  if (text.trim() === "") return 0;
-  try {
-    const segmenter = new Intl.Segmenter(language, { granularity: "word" });
-    let count = 0;
-    for (const part of segmenter.segment(text)) if (part.isWordLike === true) count += 1;
-    return count;
-  } catch {
-    return text.split(/\s+/).filter((word) => /[\p{L}\p{N}]/u.test(word)).length;
-  }
 }
 
 /** Longest excerpt below the title in the list. */

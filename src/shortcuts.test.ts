@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { createTranslator } from "./i18n";
 import {
+  editShortcutLabel,
   hubShortcutLabel,
   isBrowserKey,
   letterOf,
   levelShortcutLabel,
   matchHubShortcut,
+  matchColorRowShortcut,
   matchLevelShortcut,
   matchNoteShortcut,
   matchRowShortcut,
@@ -246,6 +248,32 @@ describe("row shortcuts", () => {
     expect(matchRowShortcut(press({ key: "Delete", code: "Delete", ctrl: true }))).toBeNull();
     expect(matchRowShortcut(press({ key: "Backspace", code: "Backspace" }))).toBeNull();
     expect(matchRowShortcut(press({ key: "Enter", code: "Enter" }))).toBeNull();
+  });
+});
+
+describe("color row shortcuts", () => {
+  it("renames with F2 and opens the color's menu with the menu key or Shift+F10", () => {
+    expect(matchColorRowShortcut(press({ key: "F2", code: "F2" }))).toBe("rename");
+    expect(matchColorRowShortcut(press({ key: "ContextMenu", code: "ContextMenu" }))).toBe("menu");
+    expect(matchColorRowShortcut(press({ key: "F10", code: "F10", shift: true }))).toBe("menu");
+  });
+
+  it("leaves Delete, modified F2 and other keys alone", () => {
+    expect(matchColorRowShortcut(press({ key: "Delete", code: "Delete" }))).toBeNull();
+    expect(matchColorRowShortcut(press({ key: "F2", code: "F2", ctrl: true }))).toBeNull();
+    expect(matchColorRowShortcut(press({ key: "Enter", code: "Enter" }))).toBeNull();
+  });
+});
+
+describe("the app menu's edit labels", () => {
+  const t = createTranslator("de");
+
+  it("names the editor's own keys per platform", () => {
+    expect(editShortcutLabel("undo", "windows", t)).toBe("Strg+Z");
+    expect(editShortcutLabel("redo", "linux", t)).toBe("Strg+Y");
+    expect(editShortcutLabel("selectAll", "windows", t)).toBe("Strg+A");
+    expect(editShortcutLabel("undo", "mac", t)).toBe("⌘Z");
+    expect(editShortcutLabel("redo", "mac", t)).toBe("⇧⌘Z");
   });
 });
 

@@ -43,6 +43,21 @@ export function trayLabels(t: Translate): TrayLabels {
   };
 }
 
+/**
+ * The settings to save: the shown ones with `change` applied. The settings page and the sidebar
+ * (a color's name) both save through it, so neither drops what the other set.
+ */
+export function settingsWith(view: Settings, look: Look, change: Partial<Settings>): Settings {
+  return {
+    language: view.language,
+    theme: view.theme,
+    newNoteColor: view.newNoteColor,
+    colorNames: view.colorNames,
+    look,
+    ...change,
+  };
+}
+
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 function systemPrefersDark(): boolean {

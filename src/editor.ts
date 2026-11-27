@@ -13,6 +13,9 @@ import {
   historyKeymap,
   indentLess,
   indentMore,
+  redo,
+  selectAll,
+  undo,
 } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
@@ -61,8 +64,14 @@ export interface NoteEditor {
   toggleTask: (index: number) => void;
   /** Read only: the text can be read, selected and copied, but not changed. */
   setReadOnly: (readOnly: boolean) => void;
+  /** Undo, redo or select all from a menu; the editor takes the focus back. */
+  edit: (command: EditCommand) => void;
   destroy: () => void;
 }
+
+export type EditCommand = "undo" | "redo" | "selectAll";
+
+const EDIT_COMMANDS = { undo, redo, selectAll } as const;
 
 export interface EditorOptions {
   text: string;
@@ -326,6 +335,10 @@ export function createNoteEditor(parent: HTMLElement, options: EditorOptions): N
       if (next === readOnly) return;
       readOnly = next;
       view.dispatch({ effects: lock.reconfigure(readOnlyLock(next)) });
+    },
+    edit: (command) => {
+      view.focus();
+      EDIT_COMMANDS[command](view);
     },
     destroy: () => {
       view.destroy();

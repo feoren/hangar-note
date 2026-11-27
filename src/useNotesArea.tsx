@@ -34,6 +34,7 @@ import {
   setHubOnTop,
   setLastProject,
   setNoteColor,
+  setSettings,
   takeHubRequests,
   toDesktop,
   utf8Bytes,
@@ -45,14 +46,14 @@ import {
   type OpenedNote,
   type Status,
 } from "./api";
-import type { AppSettings } from "./appSettings";
+import { settingsWith, type AppSettings } from "./appSettings";
 import { copyText } from "./clipboard";
-import { colorName, NOTE_COLORS, swatchColor, type NoteColor } from "./colors";
-import { createNoteEditor, type NoteEditor } from "./editor";
+import { colorName, NOTE_COLORS, swatchColor, withColorName, type NoteColor } from "./colors";
+import { createNoteEditor, type EditCommand, type NoteEditor } from "./editor";
 import { errorActionLabel, errorMessage, type ErrorAction, type ErrorMessage } from "./errors";
 import { captureStamp } from "./format";
 import { DICTIONARIES, LANGUAGES, useT, type MessageKey } from "./i18n";
-import { CheckIcon, DesktopIcon, FolderIcon } from "./icons";
+import { CheckIcon, DesktopIcon } from "./icons";
 import { createLeaveAnyway } from "./leaveAnyway";
 import {
   byLastChange,
@@ -90,10 +91,11 @@ import {
   checklistProgress,
   noteExcerpt,
   toggleTaskAtLine,
-  wordCount,
   type ChecklistProgress,
 } from "./noteText";
+import type { Look } from "./looks";
 import { PopupMenu, type MenuItem } from "./PopupMenu";
+import { forgetColorSection } from "./sidebarColors";
 import {
   currentPlatform,
   hubShortcutLabel,
@@ -132,6 +134,7 @@ export function forgetSession(): void {
   lastChosen = null;
   lastColors = new Set();
   previewNotes.clear();
+  forgetColorSection();
 }
 
 /** The note in the editor. `id === null`: a new quick note that exists only once you type. */
@@ -145,7 +148,6 @@ export interface Current {
 }
 
 export interface Stats {
-  words: number;
   progress: ChecklistProgress;
   /** Title the note gets on leaving (automatic title), `null` if it keeps its own. */
   autoTitle: string | null;
@@ -167,17 +169,18 @@ export interface Row extends NoteRef {
 export type View = "browse" | "trash" | "settings";
 
 /**
- * The open menu: the sidebar's "…" ("side": notes folder, always on top), the project tab's
- * project switch ("project"), the open note's "…"
- * with or without its colors ("note", "noteActions"), the open note's colors alone ("noteColor"),
- * a row's color tool, or a row's context menu (right click, the menu key or Shift+F10).
+ * The open menu: the project tab's project switch ("project"), the open note's "…" with or
+ * without its colors ("note", "noteActions"), the open note's colors alone ("noteColor"),
+ * a row's color tool, a row's context menu (right click, the menu key or Shift+F10), or the
+ * context menu of a color in the sidebar ("navColor": rename it).
  */
 export type MenuState =
   | {
-      kind: "side" | "note" | "noteActions" | "noteColor" | "project";
+      kind: "note" | "noteActions" | "noteColor" | "project";
       anchor: HTMLElement;
     }
-  | { kind: "row" | "rowColor"; anchor: HTMLElement; row: Row; at?: { x: number; y: number } };
+  | { kind: "row" | "rowColor"; anchor: HTMLElement; row: Row; at?: { x: number; y: number } }
+  | { kind: "navColor"; anchor: HTMLElement; color: NoteColor; at?: { x: number; y: number } };
 
 export type MenuKind = MenuState["kind"];
 
@@ -202,6 +205,8 @@ export interface ScopeEntry {
 export interface LevelTab {
   level: Level;
   label: string;
+  /** The tab's own short name ("Project" without its project, which the sidebar names below). */
+  short: string;
   /** The tooltip: what the level holds (for "Project" its full path) and its shortcut. */
   title: string;
 }
@@ -254,7 +259,6 @@ export function useNotesArea(app: AppSettings) {
   const [hits, setHits] = useState<{ query: string; rows: Row[] } | null>(null);
   const [note, setNote] = useState<Current | null>(null);
   const [stats, setStats] = useState<Stats>({
-    words: 0,
     progress: { done: 0, total: 0 },
     autoTitle: null,
     firstTitle: null,
@@ -263,6 +267,8 @@ export function useNotesArea(app: AppSettings) {
   const [previewTick, setPreviewTick] = useState(0);
   const [renaming, setRenaming] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  /** The sidebar color whose name is being edited in place. */
+  const [renamingColor, setRenamingColor] = useState<NoteColor | null>(null);
   /**
    * The one notice place (notices.ts). "Not saved" there means leaving was refused because the
    * open note is not saved: it warns and offers to copy the text.
@@ -444,22 +450,18 @@ export function useNotesArea(app: AppSettings) {
       .catch(() => null);
   }, []);
 
-  const computeStats = useCallback(
-    (content: string, open: Current | null) => {
-      setStats({
-        words: wordCount(content, language),
-        progress: checklistProgress(content),
-        autoTitle:
-          open === null
-            ? null
-            : open.id === null
-              ? nextAutoTitle({ title: "", autoTitled: true }, content, UNTITLED_BASES)
-              : nextAutoTitle(open, content, UNTITLED_BASES),
-        firstTitle: titleFromText(content),
-      });
-    },
-    [language],
-  );
+  const computeStats = useCallback((content: string, open: Current | null) => {
+    setStats({
+      progress: checklistProgress(content),
+      autoTitle:
+        open === null
+          ? null
+          : open.id === null
+            ? nextAutoTitle({ title: "", autoTitled: true }, content, UNTITLED_BASES)
+            : nextAutoTitle(open, content, UNTITLED_BASES),
+      firstTitle: titleFromText(content),
+    });
+  }, []);
 
   // ---- Saving ----------------------------------------------------------------------------------
 
@@ -1654,6 +1656,7 @@ export function useNotesArea(app: AppSettings) {
         return {
           level: each,
           label: t("level.private"),
+          short: t("level.private"),
           title: `${t("notes.scopeGeneralTip")}\n${keys}`,
         };
       case "project":
@@ -1663,10 +1666,16 @@ export function useNotesArea(app: AppSettings) {
             projectName === null
               ? t("level.project")
               : t("level.projectNamed", { name: projectName }),
+          short: t("level.project"),
           title: `${project?.path ?? t("level.projectTip")}\n${keys}`,
         };
       case "team":
-        return { level: each, label: t("level.team"), title: `${t("level.teamTip")}\n${keys}` };
+        return {
+          level: each,
+          label: t("level.team"),
+          short: t("level.team"),
+          title: `${t("level.teamTip")}\n${keys}`,
+        };
     }
   });
 
@@ -1784,7 +1793,7 @@ export function useNotesArea(app: AppSettings) {
 
   /** Opens a menu at its button, or closes it when that one is open already. */
   const toggleMenu = (
-    kind: Exclude<MenuKind, "row" | "rowColor">,
+    kind: Exclude<MenuKind, "row" | "rowColor" | "navColor">,
     event: React.MouseEvent<HTMLElement>,
   ) => {
     const anchor = event.currentTarget;
@@ -1792,8 +1801,16 @@ export function useNotesArea(app: AppSettings) {
   };
 
   /** Opens a menu at `anchor` from the keyboard (the project tab's Down and Enter). */
-  const openMenu = (kind: Exclude<MenuKind, "row" | "rowColor">, anchor: HTMLElement) => {
+  const openMenu = (
+    kind: Exclude<MenuKind, "row" | "rowColor" | "navColor">,
+    anchor: HTMLElement,
+  ) => {
     setMenu({ kind, anchor });
+  };
+
+  /** A sidebar color's menu: at the pointer for a right click, else below its row. */
+  const openColorMenu = (color: NoteColor, anchor: HTMLElement, at?: { x: number; y: number }) => {
+    setMenu({ kind: "navColor", anchor, color, ...(at === undefined ? {} : { at }) });
   };
 
   const openRowColors = (row: Row, anchor: HTMLElement) => {
@@ -2121,21 +2138,9 @@ export function useNotesArea(app: AppSettings) {
   };
   const place: Place = view === "browse" ? null : view;
 
-  const folderItem: MenuItem = {
-    type: "action",
-    key: "folder",
-    label: t("notes.openFolder"),
-    icon: <FolderIcon size={14} />,
-    run: () => {
-      void revealNotesFolder(newFolder ?? GENERAL_FOLDER).catch(fail);
-    },
-  };
-  const onTopItem: MenuItem = {
-    type: "action",
-    key: "onTop",
-    label: t("note.keepOnTop"),
-    checked: onTop,
-    run: toggleOnTop,
+  /** "Open notes folder" from the app menu: the folder new notes go to. */
+  const revealFolder = () => {
+    void revealNotesFolder(newFolder ?? GENERAL_FOLDER).catch(fail);
   };
   const toggleColor = (color: NoteColor) => {
     setColors((old) => {
@@ -2149,10 +2154,70 @@ export function useNotesArea(app: AppSettings) {
     setColors(new Set());
   };
 
+  /**
+   * Saves a color's own name, as the settings page does; a blank name gives the color its own name
+   * in the UI language back. Every window follows (`settings-changed`).
+   */
+  const renameColor = (color: NoteColor, name: string) => {
+    if (!settings) return;
+    const names = withColorName(colorNames, color, name);
+    if (names[color] === colorNames[color]) return;
+    setSettings(settingsWith(settings, app.look, { colorNames: names }))
+      .then(app.applySaved)
+      .catch(fail);
+  };
+
+  const colorMenu = (color: NoteColor): MenuItem[] => [
+    {
+      type: "action",
+      key: "rename",
+      label: t("notes.rename"),
+      shortcut: "F2",
+      run: () => {
+        setRenamingColor(color);
+      },
+    },
+    ...(colorNames[color] === undefined
+      ? []
+      : [
+          {
+            type: "action" as const,
+            key: "resetName",
+            label: t("nav.colorResetName"),
+            run: () => {
+              renameColor(color, "");
+            },
+          },
+        ]),
+  ];
+
+  /** The look of every window, from the app menu (the settings page has the same choice). */
+  const chooseLook = (look: Look) => {
+    if (!settings || look === app.look) return;
+    setSettings(settingsWith(settings, look, {}))
+      .then(app.applySaved)
+      .catch(fail);
+  };
+
+  /** Undo, redo or select all in the open note, from the app menu. */
+  const canEdit = writable && note !== null && !note.onDesktop && view === "browse";
+  const editNote = (command: EditCommand) => {
+    if (canEdit) editor.current?.edit(command);
+  };
+
+  /** "Export …" of the open note, from the app menu; `null` while no saved note is open. */
+  const exportOpen =
+    note?.id == null || note.onDesktop
+      ? null
+      : () => {
+          const item = fileItems({ folder: note.folder, id: note.id ?? "" }).find(
+            (each) => each.type === "action" && each.key === "export",
+          );
+          if (item?.type === "action") item.run();
+        };
+
   const menuItems = (open: MenuState): MenuItem[] => {
     switch (open.kind) {
-      case "side":
-        return [folderItem, onTopItem];
       case "project":
         return scopeEntries
           .filter((entry) => entry.path !== null)
@@ -2186,12 +2251,13 @@ export function useNotesArea(app: AppSettings) {
         ];
       case "row":
         return rowMenu(open.row);
+      case "navColor":
+        return colorMenu(open.color);
     }
   };
 
   const menuLabel = (open: MenuState): string => {
     switch (open.kind) {
-      case "side":
       case "note":
       case "noteActions":
         return t("notes.more");
@@ -2202,6 +2268,8 @@ export function useNotesArea(app: AppSettings) {
         return t("notes.color");
       case "row":
         return t("notes.actionsFor", { title: open.row.title });
+      case "navColor":
+        return colorName(open.color, colorNames, t);
     }
   };
 
@@ -2213,9 +2281,11 @@ export function useNotesArea(app: AppSettings) {
         label={menuLabel(menu)}
         anchor={menu.anchor}
         align={
-          menu.kind === "side" || menu.kind === "row" || menu.kind === "project" ? "start" : "end"
+          menu.kind === "row" || menu.kind === "project" || menu.kind === "navColor"
+            ? "start"
+            : "end"
         }
-        at={menu.kind === "row" ? menu.at : undefined}
+        at={menu.kind === "row" || menu.kind === "navColor" ? menu.at : undefined}
         onClose={closeMenu}
       />
     ) : null;
@@ -2232,7 +2302,6 @@ export function useNotesArea(app: AppSettings) {
         : "notes.otherWriter";
 
   const slotNotice = shownNotice(notices);
-  const noticeShown = slotNotice !== null;
   const noticeSlot: ReactNode = (
     <NoticeSlot
       shown={slotNotice}
@@ -2243,10 +2312,8 @@ export function useNotesArea(app: AppSettings) {
     />
   );
 
-  /** The note whose words, progress and save state the footer shows. */
+  /** The open note while it is edited here (not on the desktop): its save state and preview. */
   const openText = note !== null && !note.onDesktop ? note : null;
-  /** Nothing to edit here and nothing to say: the footer folds away. */
-  const idle = (note === null || note.onDesktop) && !noticeShown;
 
   return {
     t,
@@ -2263,13 +2330,12 @@ export function useNotesArea(app: AppSettings) {
     readOnlyReason,
     popup,
     noticeSlot,
-    noticeShown,
-    idle,
     // Levels, scopes and colors
     level,
     levelTabs,
     chooseLevel,
     project,
+    projectName,
     projectEntries: scopeEntries.filter((entry) => entry.group === "project"),
     chooseProject,
     team,
@@ -2290,6 +2356,18 @@ export function useNotesArea(app: AppSettings) {
     counts,
     toggleColor,
     clearColors,
+    renamingColor,
+    setRenamingColor,
+    renameColor,
+    openColorMenu,
+    // The app menu
+    chooseLook,
+    canEdit,
+    editNote,
+    exportOpen,
+    revealFolder,
+    onTop,
+    toggleOnTop,
     // Search and rows
     query,
     setQuery,

@@ -1,4 +1,4 @@
-// Checklist, word count, excerpt and capture cases taken from Hangar's src/noteText.test.ts.
+// Checklist, excerpt and capture cases taken from Hangar's src/noteText.test.ts.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,7 +14,6 @@ import {
   toggleLinePrefix,
   toggleTaskAtLine,
   toggleWrap,
-  wordCount,
 } from "./noteText";
 
 describe("checklists", () => {
@@ -53,14 +52,6 @@ describe("checklists", () => {
     expect(isListLine("  12. a")).toBe(true);
     expect(isListLine("-a")).toBe(false);
     expect(isListLine("text")).toBe(false);
-  });
-});
-
-describe("wordCount", () => {
-  it("counts words, not symbols", () => {
-    expect(wordCount("", "en")).toBe(0);
-    expect(wordCount("  \n ", "en")).toBe(0);
-    expect(wordCount("# Hello world\n- [ ] two words", "en")).toBe(4);
   });
 });
 

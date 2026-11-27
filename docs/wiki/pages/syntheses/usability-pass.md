@@ -4,7 +4,7 @@ type: synthesis
 tags: [ux, accessibility, notes-area, i18n]
 sources: []
 created: 2026-11-26
-updated: 2026-11-26
+updated: 2026-11-27
 ---
 
 # Usability pass of the notes area (phase 1)
@@ -253,3 +253,36 @@ Tauri API (calm, paper and hangar; light and dark; 360, 760, 800 and 1100 px; th
 the overlay, the project menu and the team level), and in the real window after hot reload (paper,
 dark). `sidebarOpen`, `sidebarWidth` and `lastProject` are stored only by a backend built with this
 change; an older one refuses the commands, and the choices then hold while the app runs.
+
+## Colors as a category list, Hangar's header and a clean notes area
+
+The owner found the sidebar's color dots unclear and asked for them to read like a real category
+list; in the same pass for Hangar's own sidebar header (menu button, logo, name with version, an
+app menu with submenus), the levels inside the sidebar, and no bars beside the notes: "only the
+list of notes and the note itself". Reworked on 2026-11-27; it replaces the level bar of the
+section above.
+
+| Area | Change | Reason |
+| --- | --- | --- |
+| Colors | One row per color the shown notes use (`src/sidebarColors.ts`, drawn in `src/Sidebar.tsx`): a 12 px rounded square in the note tone ringed in its edge tone (`noteTone(...).edge`, which keeps 3 : 1 on the panel in both themes), the own name from `colorNames` or the default name, the count on the right, the same row height, hover and selected surface as "All notes". Rows keep the colors' own order, so nothing jumps. A chosen color stays listed even when no shown note has it. "Show all colors" adds the unused ones dimmed and without a count; "Show fewer" hides them again. | A list with names and numbers reads at a glance; dots with tooltips did not. |
+| Counts | The counts are those of the shown list (`colorCounts(allRows)`): exactly what the filter would show in the level, in "All notes" every private note, in a search its hits. While a list or a search is on its way the last counts stay. The backend's `FolderInfo` has no colors, so counts per scope beyond the shown list would need a new command; none is shown rather than a wrong one. The team level has no list, so no color section. | Honest numbers. |
+| Filter | A click toggles the color (`aria-pressed`, the selected surface and bold); several can be on. "Clear filter" sits in the section's header, its place kept while nothing is chosen. The accessible name is "Yellow, notes: 3, filter on" (`nav.colorNotes`, `nav.colorFilterOn`); "notes: 3" avoids plural forms the i18n module does not have. | A filter state must be heard, not only seen. |
+| Section | The heading "Colors" looks like "Projects" with a small chevron (`aria-expanded`) and folds the list away; folded with a filter on, the chosen colors show beside it. Folded and "show all" are remembered while the app runs. | Less in view for those who do not filter by color. |
+| Rename | A double click, F2 (`matchColorRowShortcut`) or "Rename" in the row's context menu (right click, the menu key or Shift+F10) turns the row into a field: Enter saves, Escape keeps the name, leaving the field saves. A blank name or the default name gives the default back; "Use the original name" in the context menu does the same. It saves through `settingsWith` (`src/appSettings.ts`), the same path as the settings page, so both stay in sync and every window follows `settings-changed`. | Naming a category where it is, without a trip to the settings. |
+| Header | As in Hangar: a 30 px menu button with three lines, the folded N of the app icon (`AppLogo`, its two tones as `--brand-n` and `--brand-mark` per theme), "Hangar Note" bold and below it the version (`src/version.ts`, from `package.json`: `X.Y.Z` now, `X.Y.Z-B` in a release state per [[0003-version-scheme]]) with a "beta" badge while the major version is 0; the fold button at the right end. One line across the whole sidebar below. | The family's look; the version is visible without a dialog. |
+| App menu | `src/AppMenu.tsx` and `src/menuNav.ts` taken from Hangar (WAI-ARIA menu pattern: Down opens, Up and Down move, Right, Enter or Space open a submenu, Left closes it, Escape closes one level, Tab all, first letters jump; the focus goes back to the button). File: New note, Export (open note), Open notes folder, Settings. Edit: Undo, Redo, Select all (the editor's CodeMirror commands, greyed out without an open note), Search. View: Sidebar, Private, Project, Team, the three looks, Always on top (checked states as `menuitemcheckbox` and `menuitemradio`). Help: Keyboard shortcuts (a native `<dialog>`, `src/KeysDialog.tsx`). Shortcuts stand right-aligned. No Quit (the tray quits; the notes area may not), no cut, copy and paste (a menu cannot read the clipboard; the keys work), no About (the version is in the header). The panels are `position: fixed`, so the sidebar's edge never cuts them off. | Only what really works. |
+| Levels | The segmented control "Private", "Project", "Team" sits in the sidebar under its header, the tabs sharing its width. The project tab just says "Project"; while it is chosen, a quiet line below names the project and, with several, opens the project menu. Choosing a level in the overlay closes it. | The owner wanted the switch in the sidebar; full names would not fit three tabs in 232 px. |
+| Notes area | No bar above and no footer or status bar below. The search and "+" (New note, its shortcut in the tooltip) sit at the top of the list column (`ListTop` in `src/NoteParts.tsx`; in paper above the grid); the area's name is an `sr-only` heading. Notices float as one toast at the bottom (`.notice-float`, in paper's open sheet at its bottom). The calm note shows just its text; its small toolbar (back, project, not saved, preview, on the desktop, "…") fades in on hover and focus and stays where there is no hover, while the note is not saved, and when one note fills a narrow window. The hangar look keeps its slim note header, now with the progress always there. Words and "Saved" are gone with the footer; "Not saved" stays visible. | The owner asked for a clean list and a clean note. |
+| Folded sidebar | A small 34 px button floats at the top left of the notes (`.side-float`, `data-focus-id="nav"`); below 760 px it opens the overlay. What sits at the top left makes room for it: the list's top, the heading of the trash and the settings with their "Back", and the note's bar while one note fills a narrow room (its "Back" was covered before the acceptance review). Folding moves the focus to that button, opening it back to the sidebar's fold button. Ctrl+Shift+S as before. | No bar is needed to bring the sidebar back. |
+
+Checked with tests (colors: rows, counts, show all, fold and memory, rename by double click, F2,
+Enter, Escape and the context menu, arrow-key order; the app menu: structure, keyboard, items;
+folding with the focus moves) and in a browser preview against Vite with a mocked Tauri API
+(calm, paper and hangar; light and dark; 360, 760 and 1100 px; menu and submenu, the shortcuts
+dialog, the inline rename, show all with a filter on, the overlay, the open note, paper's sheet),
+and in the real window after hot reload (hangar, dark).
+
+Open points: a release build shows `X.Y.Z-B` only once the release script writes `X.Y.Z+B` into
+`package.json` (or the version is read through Tauri's `app` plugin, which needs a capability);
+counts per scope beyond the shown list need a backend command with colors per folder; the level is
+reachable only through the sidebar (or Ctrl+1 to Ctrl+3) while the sidebar is folded away.

@@ -25,6 +25,11 @@
   --note-selection: rgb(90 169 255 / 30%);
   /* Ring around color dots and swatches; they are pale, so the light theme needs a firm one. */
   --swatch-border: rgb(255 255 255 / 22%);
+  /* The logo's two tones (the folded N of the app icon and its bar). */
+  --brand-n: #ffb547;
+  --brand-mark: #f2e3c6;
+  /* The height of the sidebar's head, so the line below it has a known place. */
+  --side-head: 52px;
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   --space-1: 8px;
   --space-2: 16px;
@@ -64,6 +69,8 @@
   --shadow: rgb(31 35 40 / 18%);
   --note-selection: rgb(9 105 218 / 22%);
   --swatch-border: #6e7781;
+  --brand-n: #d98a14;
+  --brand-mark: #8a6420;
   color-scheme: light;
 }
 
@@ -667,50 +674,42 @@ kbd {
   min-height: 0;
 }
 
-/* ---- The level bar: the sidebar button and the tabs Private, Project, Team ---- */
+/* ---- The levels Private, Project, Team: one segmented control at the top of the sidebar ---- */
 
-.level-row {
+.nav-levels {
   flex: none;
+  padding: 12px 10px 2px;
 }
 
 .level-bar {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 6px;
   min-width: 0;
-  padding: 10px 16px 2px 10px;
 }
 
-.side-toggle {
-  color: var(--text);
-}
-
-.side-toggle:hover {
-  background: var(--hover);
-}
-
-/* One segmented control: the panel tone as its track, the chosen tab lifted onto the page tone. */
+/* A track one step off the panel, the chosen tab lifted onto the page tone. */
 .level-tabs {
-  display: inline-flex;
-  flex: 0 1 auto;
+  display: flex;
   gap: 2px;
   min-width: 0;
   padding: 3px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
+  border-radius: 9px;
+  background: var(--hover);
 }
 
 .level-tab {
   display: inline-flex;
-  flex: 0 1 auto;
+  flex: 1 1 0;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  gap: 5px;
   min-width: 0;
   height: 28px;
-  padding: 0 12px;
+  padding: 0 6px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   color: var(--muted);
   font-weight: 500;
@@ -726,7 +725,7 @@ kbd {
 
 .level-tab[aria-selected="true"] {
   background: var(--bg);
-  box-shadow: 0 1px 3px var(--shadow);
+  box-shadow: 0 1px 2px var(--shadow);
   color: var(--text);
   font-weight: 600;
 }
@@ -739,52 +738,46 @@ kbd {
   flex: none;
 }
 
-.level-project {
-  flex-shrink: 1;
-  max-width: 300px;
-}
-
 .level-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.level-chevron {
-  display: inline-flex;
-  flex: none;
+/* The project the "Project" level shows, a quiet line under the tabs; a menu where there are
+   several. */
+.level-project-name {
+  display: flex;
   align-items: center;
-  margin-inline: -2px -4px;
-  padding: 2px;
-  border-radius: 4px;
-  opacity: 0.75;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: start;
 }
 
-.level-tab:hover .level-chevron,
-.level-tab[aria-expanded="true"] .level-chevron {
-  opacity: 1;
+.level-project-name:not(:disabled):hover,
+.level-project-name[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
 }
 
-/* The paper look lays the bar on its table, like the cards. */
-.look-paper .shell-main {
-  background: var(--table);
+.level-project-name:disabled {
+  cursor: default;
 }
 
-@container main (max-width: 460px) {
-  .level-bar {
-    gap: 6px;
-    padding-inline: 8px 10px;
-  }
-
-  .level-tab {
-    padding: 0 9px;
-  }
-
-  .level-project {
-    max-width: 170px;
-  }
+.level-project-name > svg {
+  flex: none;
 }
 
+.level-project-name .level-label {
+  flex: 0 1 auto;
+}
 /* ---- The team level: one calm sentence until Hangar is connected ---- */
 
 .team-level {
@@ -831,35 +824,144 @@ kbd {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 12px 10px 10px;
   border-right: 1px solid var(--border);
   background: var(--panel);
 }
 
+/* As in Hangar: the menu, the logo with the name and the version, and the fold button at the
+   right edge; one line across the whole sidebar below. */
 .nav-head {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 2px;
-  min-height: 32px;
-  margin-bottom: 10px;
-  padding-inline-start: 10px;
+  gap: 8px;
+  height: var(--side-head);
+  padding: 0 8px 0 10px;
+  border-bottom: 1px solid var(--border);
+  container-type: inline-size;
 }
 
-.nav-name {
+.app-menu {
+  flex: none;
+}
+
+.menu-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: var(--hover);
+  color: var(--text);
+}
+
+.menu-button:hover,
+.menu-button[aria-expanded="true"] {
+  background: var(--border);
+}
+
+/* The app menu's panels sit in the window, so the sidebar's edge never cuts them off. */
+.menu-panel {
+  position: fixed;
+  z-index: 40;
+  min-width: 200px;
+  max-width: calc(100vw - 16px);
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-raised);
+  color: var(--text);
+  box-shadow: 0 12px 32px var(--shadow);
+  list-style: none;
+}
+
+.menu-root {
+  min-width: 170px;
+}
+
+.menu-entry {
+  position: relative;
+}
+
+.menu-item.open {
+  background: var(--hover);
+}
+
+.menu-hint {
+  flex: none;
+  margin-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.brand {
+  display: grid;
   flex: 1;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1px 8px;
   min-width: 0;
   overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.nav-head .icon-button {
+.brand .logo {
+  grid-row: 1 / span 2;
+  flex: none;
+}
+
+.logo-n {
+  fill: var(--brand-n);
+}
+
+.logo-bar {
+  fill: var(--brand-mark);
+}
+
+.brand-name {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 17px;
+  text-overflow: ellipsis;
+}
+
+.brand-version {
+  display: inline-flex;
+  grid-column: 2;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 14px;
+}
+
+/* Not an exclamation, just a marker: the accent as an outline, as in Hangar. */
+.beta-badge {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 12px;
+}
+
+@container (max-width: 190px) {
+  .brand-version {
+    display: none;
+  }
+}
+
+.side-fold {
   color: var(--muted);
 }
 
-.nav-head .icon-button:hover {
+.side-fold:hover {
   background: var(--hover);
   color: var(--text);
 }
@@ -870,12 +972,12 @@ kbd {
   flex: 1;
   flex-direction: column;
   min-height: 0;
-  margin: 0 -4px;
-  padding: 2px 4px;
+  padding: 10px;
   overflow: auto;
 }
 
-.nav-list {
+.nav-list,
+.nav-colors {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -903,13 +1005,13 @@ kbd {
   background: var(--hover);
 }
 
-.nav-item[aria-current="page"] {
+.nav-item[aria-current="page"],
+.nav-item[aria-pressed="true"] {
   background: var(--selected);
   font-weight: 600;
 }
 
-.nav-item:focus-visible,
-.nav-dot:focus-visible {
+.nav-item:focus-visible {
   outline-offset: -2px;
 }
 
@@ -954,11 +1056,41 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   min-height: 28px;
 }
 
 .nav-section-row .nav-section {
   margin: 0;
+}
+
+/* The colors' heading folds them away; it looks like the other headings, the chevron says it
+   folds. Folded with a filter on, the chosen colors sit beside it. */
+.nav-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.nav-section-toggle:hover {
+  color: var(--text);
+}
+
+.nav-section-toggle:focus-visible {
+  outline-offset: -2px;
+}
+
+.nav-section-toggle > svg {
+  flex: none;
+  transition: transform 150ms var(--ease-out);
+}
+
+.nav-section-toggle[aria-expanded="false"] > svg {
+  transform: rotate(-90deg);
 }
 
 .nav-clear {
@@ -973,44 +1105,55 @@ kbd {
   visibility: hidden;
 }
 
-/* Two calm rows of four; the chosen dots carry a ring and a check mark. */
-.nav-colors {
-  display: grid;
-  grid-template-columns: repeat(4, 32px);
-  justify-content: space-between;
-  gap: 4px;
-  margin: 0;
-  padding: 0 14px 0 6px;
-  list-style: none;
+/* A color: a small rounded square in its note tone, ringed in its stronger edge tone, so it
+   reads on the panel in both themes. */
+.nav-swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--edge);
+  border-radius: 4px;
+  background: var(--dot);
 }
 
-.nav-dot {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
+.nav-color.unused .nav-label,
+.nav-color.unused .nav-swatch {
+  opacity: 0.55;
 }
 
-.nav-dot .swatch-dot {
-  width: 18px;
-  height: 18px;
-  transition:
-    box-shadow 120ms var(--ease-out),
-    transform 120ms var(--ease-out);
+.nav-color.unused:hover .nav-label,
+.nav-color.unused:focus-visible .nav-label {
+  opacity: 1;
 }
 
-.nav-dot:hover .swatch-dot {
-  transform: scale(1.1);
+.nav-color.renaming {
+  padding-inline-end: 4px;
+  background: var(--hover);
 }
 
-.nav-dot[aria-pressed="true"] .swatch-dot {
-  box-shadow:
-    0 0 0 2px var(--panel),
-    0 0 0 4px var(--text);
+.nav-rename {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+/* "Show all colors": quiet, in line with the colors' names. */
+.nav-more {
+  min-height: 30px;
+  padding-inline-start: 32px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nav-more:hover {
+  color: var(--text);
 }
 
 .nav-fill {
@@ -1022,7 +1165,6 @@ kbd {
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
-
 /* A narrow window: the sidebar slides in over the notes, which wait behind a veil. */
 .nav-layer {
   position: fixed;
@@ -1060,29 +1202,35 @@ kbd {
 /* The heading holds the bubble of the chip, so the bubble never runs out of the window. */
 .area-heading {
   position: relative;
+}
+
+/* The top of the list: the search, "Read only" while it applies, and "+" for a new note. No bar
+   and no line: it belongs to the list. */
+.list-top {
   display: flex;
-  flex: 1;
+  flex: none;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  padding: 12px 12px 8px;
 }
 
-.area-heading h1 {
-  flex: 0 1 auto;
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.list-top .search {
+  flex: 1;
 }
 
-.pane-head .area-title {
-  flex: 0 1 auto;
-  padding-inline-start: 2px;
-  font-size: 18px;
-  letter-spacing: -0.005em;
+.list-new {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
 }
 
+/* The sidebar folded away: its button floats at the top left, so the list's top and the trash's
+   and the settings' heading (with their "Back") make room. */
+.notes-shell[data-side="closed"] .list-top,
+.notes-shell[data-side="closed"] .pane-head {
+  padding-inline-start: 56px;
+}
 /* Read only is a state, not a fault: a quiet outline, no warning color. */
 .ro-chip-wrap {
   display: inline-flex;
@@ -1151,37 +1299,6 @@ kbd {
   transition: opacity 120ms var(--ease-out);
 }
 
-/* ---- Hangar look: the list's heading with "New note" ---- */
-
-.hangar-list-top {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  min-height: 48px;
-  padding: 10px 10px 2px 14px;
-}
-
-.hangar-area {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-/* Dense like Hangar: "New note" is a 32 px plus; its name is the tooltip and the label. */
-.hangar-new {
-  width: 32px;
-  padding: 0;
-}
-
-.hangar-new-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 .hangar-empty .primary-button {
   margin-top: 14px;
 }
@@ -1197,24 +1314,20 @@ kbd {
   white-space: nowrap;
 }
 
-/* List and note side by side; the footer with the one notice place sits under the note. */
+/* List and note side by side, nothing else. */
 .notes-area {
   position: relative;
   display: grid;
-  grid-template-areas:
-    "list note"
-    "list foot";
+  grid-template-areas: "list note";
   grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   background: var(--bg);
 }
 
 .layout-calm.is-empty,
 .notes-area.single {
-  grid-template-areas:
-    "list"
-    "foot";
+  grid-template-areas: "list";
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -1259,14 +1372,6 @@ kbd {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-}
-
-/* Search and the color filter, one row. */
-.find {
-  display: flex;
-  flex: none;
-  gap: 6px;
-  padding: 0 12px 10px;
 }
 
 .search {
@@ -1629,6 +1734,25 @@ kbd {
   padding: 12px 16px 0 28px;
 }
 
+/* Just the text: the note's small toolbar comes in on hover and focus, and stays where there is
+   no hover, while the note is not saved, and when one note fills a narrow window. */
+.layout-calm .note-bar {
+  opacity: 0;
+  transition: opacity 150ms var(--ease-out);
+}
+
+.layout-calm .note-pane:hover .note-bar,
+.layout-calm .note-bar:focus-within,
+.layout-calm .note-bar:has(.note-unsaved, [aria-expanded="true"]) {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .layout-calm .note-bar {
+    opacity: 1;
+  }
+}
+
 .note-crumb {
   flex: 1;
   min-width: 0;
@@ -1868,64 +1992,51 @@ kbd {
   color: var(--text);
 }
 
-/* ---- The footer and its one notice place ---- */
+/* ---- The one notice place, floating at the bottom of the notes ---- */
 
-.area-foot {
+/* A toast in the text color over the notes, at the bottom middle; where it shows nothing, clicks
+   pass through. */
+.notice-float {
+  position: absolute;
+  inset-inline: 16px;
+  bottom: 16px;
+  z-index: 15;
   display: flex;
-  grid-area: foot;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  min-height: 44px;
-  padding: 6px 16px 6px 28px;
-  border-top: 1px solid var(--border);
-  color: var(--muted);
+  justify-content: center;
+  pointer-events: none;
 }
 
-.notes-area.single .area-foot {
-  padding-inline-start: 16px;
+.notice-float .notice-slot.filled {
+  max-width: min(560px, 100%);
+  padding: 4px 6px 4px 16px;
+  border-radius: 22px;
+  background: var(--text);
+  box-shadow: 0 10px 28px var(--shadow);
+  pointer-events: auto;
+  animation: toast-in 200ms var(--ease-out);
 }
 
-/* Nothing to say: the footer folds away, but its live regions stay for the next notice. */
-.notes-area[data-idle="true"] .area-foot,
-.notes-area.single .area-foot:not(:has(.notice-slot.filled)) {
-  min-height: 0;
-  padding-block: 0;
-  border-top-color: transparent;
+.notice-float .notice,
+.notice-float .notice-live,
+.notice-float .notice-icon,
+.notice-float .notice-detail,
+.notice-float .link-button,
+.notice-float .icon-button {
+  color: var(--bg);
 }
 
-.foot-main {
-  display: grid;
-  flex: 1;
-  align-items: center;
-  min-width: 0;
+.notice-float .link-button {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
-/* Words and "Saved" crossfade with a notice in the same place (150 ms). */
-.foot-main > * {
-  grid-area: 1 / 1;
-  min-width: 0;
+.notice-float .link-button:hover,
+.notice-float .icon-button:hover {
+  background: color-mix(in srgb, var(--bg) 16%, transparent);
 }
 
-.foot-status {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  font-variant-numeric: tabular-nums;
-  transition:
-    opacity 150ms var(--ease-out),
-    visibility 150ms;
-}
-
-.foot-status.away {
-  visibility: hidden;
-  opacity: 0;
-}
-
-.note-saved {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.notice-float :focus-visible {
+  outline-color: var(--bg);
 }
 
 .note-unsaved {
@@ -1934,6 +2045,78 @@ kbd {
   font-weight: 600;
 }
 
+/* The sidebar folded away: a small button at the top left of the notes brings it back. */
+.side-float {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-raised);
+  color: var(--text);
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
+.side-float:hover {
+  background: var(--hover);
+}
+
+/* The keyboard shortcuts (the app menu's Help) and the hangar look's empty note column. */
+.keys-dialog {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-raised);
+  color: var(--text);
+  box-shadow: 0 16px 48px var(--shadow);
+}
+
+.keys-dialog::backdrop {
+  background: var(--scrim);
+}
+
+.keys-box {
+  padding: 8px 20px 20px;
+}
+
+.keys-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-right: -12px;
+}
+
+.keys-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.keys-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 10px 18px;
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.keys-list > div {
+  display: contents;
+}
+
+.keys-list dd {
+  margin: 0;
+}
+
+.keys-list kbd {
+  color: var(--text);
+  font: 11.5px var(--mono);
+}
 .notice-slot {
   display: flex;
   align-items: center;
@@ -2335,20 +2518,7 @@ kbd {
 }
 
 .paper-top {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   padding: 16px 24px 8px;
-}
-
-.paper-title {
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.paper-top .area-heading {
-  flex: 0 1 auto;
 }
 
 .layout-paper .search {
@@ -2371,13 +2541,11 @@ kbd {
   border-radius: 50%;
 }
 
-.paper-new {
+.paper-top .list-new {
+  width: 40px;
   min-height: 40px;
-  padding: 0 18px 0 14px;
-  border-radius: 999px;
-  font-size: 14px;
+  border-radius: 50%;
 }
-
 .paper-board {
   flex: 1;
   min-height: 0;
@@ -2599,51 +2767,6 @@ kbd {
   margin: 12px 0 20px;
 }
 
-/* The one notice place while no sheet is open: a single toast above the grid's free bottom. */
-.paper-toast {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  z-index: 15;
-  width: max-content;
-  max-width: calc(100vw - 32px);
-  translate: -50% 0;
-}
-
-.paper-toast .notice-slot.filled {
-  padding: 4px 6px 4px 16px;
-  border-radius: 22px;
-  background: var(--text);
-  box-shadow: 0 10px 28px var(--shadow);
-  animation: toast-in 200ms var(--ease-out);
-}
-
-.paper-toast .notice,
-.paper-toast .notice-live,
-.paper-toast .notice-icon,
-.paper-toast .notice-detail,
-.paper-toast .link-button {
-  color: var(--bg);
-}
-
-.paper-toast .link-button {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.paper-toast .link-button:hover,
-.paper-toast .icon-button:hover {
-  background: color-mix(in srgb, var(--bg) 16%, transparent);
-}
-
-.paper-toast .icon-button {
-  color: var(--bg);
-}
-
-.paper-toast :focus-visible {
-  outline-color: var(--bg);
-}
-
 @keyframes toast-in {
   from {
     opacity: 0;
@@ -2773,43 +2896,10 @@ kbd {
   border-color: color-mix(in srgb, var(--note-text) 25%, transparent);
 }
 
-.sheet-foot {
-  min-height: 52px;
-  padding: 8px 12px 8px 28px;
-  border-top: 0;
-  background: var(--note-head);
-  color: var(--note-muted);
+/* Notices of an open sheet float at its bottom. */
+.sheet-notice {
+  bottom: 20px;
 }
-
-.sheet-foot[data-idle="true"] {
-  min-height: 0;
-  padding-block: 0;
-}
-
-.sheet-foot .notice,
-.sheet-foot .notice-live,
-.sheet-foot .note-unsaved {
-  color: var(--note-text);
-}
-
-.sheet-foot .notice-icon,
-.sheet-foot .notice-detail {
-  color: var(--note-muted);
-}
-
-/* The accent misses 4.5 : 1 on some header tones (colors.test.ts); the text color does not. */
-.sheet-foot .link-button {
-  color: var(--note-text);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.sheet-foot .link-button:hover,
-.sheet-foot .icon-button.toggle.on {
-  background: color-mix(in srgb, var(--note-text) 10%, transparent);
-  color: var(--note-text);
-}
-
 /* The picture of the empty paper look: three slips on the table. */
 .paper-stack {
   position: relative;
@@ -2862,36 +2952,13 @@ kbd {
 
 @media (max-width: 559px) {
   .paper-top {
-    flex-wrap: wrap;
-    gap: 8px;
     padding: 12px 16px 8px;
   }
 
-  .paper-top .area-heading {
-    flex: 1;
-  }
-
   .layout-paper .search {
-    flex-basis: 100%;
-    order: 3;
     max-width: none;
     margin: 0;
   }
-
-  .paper-new {
-    width: 40px;
-    padding: 0;
-  }
-
-  .paper-new-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
   .paper-board {
     padding: 4px 16px 80px;
   }
@@ -2921,21 +2988,15 @@ kbd {
   .paper-sheet .note-page {
     padding: 4px 16px 24px;
   }
-
-  .sheet-foot {
-    padding-inline: 16px 8px;
-  }
 }
 
 /* ---- Look "hangar" (direction C): Hangar's window, list and note beside the sidebar ---- */
 
 .layout-hangar {
   display: grid;
-  grid-template-areas:
-    "list note"
-    "foot foot";
+  grid-template-areas: "list note";
   grid-template-columns: minmax(240px, 296px) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   background: var(--bg);
 }
@@ -2944,8 +3005,12 @@ kbd {
   background: var(--bg);
 }
 
-.layout-hangar .find {
+.layout-hangar .list-top {
   padding: 10px 10px 6px;
+}
+
+.notes-shell[data-side="closed"] .layout-hangar .list-top {
+  padding-inline-start: 56px;
 }
 
 .layout-hangar .search {
@@ -3154,86 +3219,6 @@ kbd {
   font-weight: 600;
 }
 
-.hangar-keys dl {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 10px 18px;
-  margin: 0;
-}
-
-.hangar-keys dl > div {
-  display: contents;
-}
-
-.hangar-keys dd {
-  margin: 0;
-}
-
-.hangar-keys kbd,
-.status-keys kbd {
-  font: 11px var(--mono);
-}
-
-/* The status bar: the one notice place, the save state and the shortcuts. */
-.hangar-status {
-  min-height: 32px;
-  padding: 0 8px 0 12px;
-  background: var(--panel);
-  font-size: 12px;
-}
-
-.layout-hangar .foot-status {
-  gap: 14px;
-}
-
-.foot-scope {
-  max-width: 18ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.layout-hangar .note-words,
-.layout-hangar .foot-progress {
-  font: 11.5px var(--mono);
-}
-
-.foot-progress {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.layout-hangar .note-saved::before {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--ok);
-  content: "";
-}
-
-.layout-hangar .note-saved.saving::before {
-  background: var(--muted);
-}
-
-.layout-hangar .note-saved svg {
-  display: none;
-}
-
-.status-keys {
-  display: flex;
-  flex: none;
-  gap: 14px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-@container main (max-width: 720px) {
-  .status-keys {
-    display: none;
-  }
-}
-
 /* ---- The sticky note in the looks paper and hangar ---- */
 
 .note[data-look="paper"] .note-head,
@@ -3362,9 +3347,7 @@ kbd {
 
 @container main (max-width: 600px) {
   .notes-area {
-    grid-template-areas:
-      "list"
-      "foot";
+    grid-template-areas: "list";
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -3385,8 +3368,17 @@ kbd {
     display: inline-flex;
   }
 
+  .layout-calm .note-bar {
+    opacity: 1;
+  }
+
   .note-bar {
     padding: 8px 8px 0;
+  }
+
+  /* The note fills the room: "Back" moves beside the floating sidebar button. */
+  .notes-shell[data-side="closed"] .note-bar {
+    padding-inline-start: 56px;
   }
 
   .note-page {
@@ -3395,10 +3387,6 @@ kbd {
 
   .note-held {
     margin-inline: 16px;
-  }
-
-  .area-foot {
-    padding-inline: 16px 8px;
   }
 }
 
@@ -3417,20 +3405,6 @@ kbd {
     padding: 0;
     width: 32px;
   }
-
-  /* A notice takes the footer's whole width; "Not saved" and the preview move below it. */
-  .area-foot:has(.notice-slot.filled) {
-    flex-wrap: wrap;
-  }
-
-  .area-foot:has(.notice-slot.filled) .foot-main {
-    flex-basis: 100%;
-  }
-
-  .area-foot:has(.notice-slot.filled) .note-unsaved,
-  .area-foot:has(.notice-slot.filled) .foot-main + .toggle {
-    margin-inline-start: auto;
-  }
 }
 
 /* Reduced motion: only opacity, 80 ms at most, no scaling. */
@@ -3444,8 +3418,7 @@ kbd {
 
   .row-tools,
   .note-row-meta,
-  .note-head,
-  .foot-status {
+  .note-head {
     transition: opacity 80ms linear !important;
   }
 
@@ -3457,10 +3430,10 @@ kbd {
     animation: fade-in 80ms linear !important;
   }
 
-  /* paper: the sheet, its veil and the toast only fade (120 ms), nothing lifts or moves. */
+  /* The paper sheet, its veil and the toast only fade (120 ms), nothing lifts or moves. */
   .paper-sheet,
   .paper-scrim,
-  .paper-toast .notice-slot.filled {
+  .notice-float .notice-slot.filled {
     animation: fade-in 120ms linear !important;
   }
 

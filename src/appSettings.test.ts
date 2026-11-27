@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveLanguage, resolveTheme, trayLabels } from "./appSettings";
+import { resolveLanguage, resolveTheme, settingsWith, trayLabels } from "./appSettings";
 import { createTranslator } from "./i18n";
 
 describe("settings", () => {
@@ -21,6 +21,25 @@ describe("settings", () => {
       quit: "Beenden",
       tooltip: "Hangar Note",
       untitled: "Notiz",
+    });
+  });
+});
+
+describe("settingsWith", () => {
+  it("keeps every shown setting and applies the change and the look", () => {
+    const view = {
+      language: "de" as const,
+      theme: "dark" as const,
+      newNoteColor: "mint" as const,
+      colorNames: { sky: "Arbeit" },
+      look: "calm" as const,
+    };
+    expect(settingsWith(view, "paper", { colorNames: {} })).toEqual({
+      language: "de",
+      theme: "dark",
+      newNoteColor: "mint",
+      colorNames: {},
+      look: "paper",
     });
   });
 });

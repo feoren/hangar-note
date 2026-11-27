@@ -1,24 +1,22 @@
 // Look "paper" (direction B, ADR 0004): every note is a card in its own soft color, laid out in a
 // grid like slips on a table; checklists can be ticked right on the card. Beside the sidebar
-// (Sidebar.tsx) the area's name, the search and "New note", the main button. A note opens as a sheet
-// over the grid (a modal dialog): Escape or the close button closes it, and the focus goes back
-// to its card. The one notice place is the sheet's footer, or a toast above the grid while no
-// sheet is open. One column below 560 px (styles.css).
+// (Sidebar.tsx) the search and "+" sit at the top of the grid. A note opens as a sheet over the
+// grid (a modal dialog): Escape or the close button closes it, and the focus goes back to its
+// card. While a sheet is open, notices float at its bottom (else at the window's, NotesArea.tsx).
+// One column below 560 px (styles.css).
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { colorName, NOTE_COLORS, noteTone, toneVariables } from "./colors";
-import { CheckIcon, CloseIcon, DesktopIcon, MoreIcon, PlusIcon } from "./icons";
+import { CheckIcon, CloseIcon, DesktopIcon, MoreIcon } from "./icons";
 import {
-  AreaHeading,
-  FootStatus,
   HeldPanel,
   ListMessages,
+  ListTop,
   NotePage,
   OnDesktopPanel,
   PreviewToggle,
   RowMeta,
-  SearchField,
   UnsavedMark,
   Welcome,
 } from "./NoteParts";
@@ -100,24 +98,7 @@ export function PaperLayout({ m }: { m: NotesModel }) {
   return (
     <div className={emptyMode ? "notes-area layout-paper is-empty" : "notes-area layout-paper"}>
       <div className="paper-room" inert={note !== null}>
-        <header className="paper-top">
-          <AreaHeading m={m} className="paper-title" />
-          {!emptyMode && <SearchField m={m} placeholder={t("notes.search")} />}
-          {!emptyMode && (
-            <button
-              type="button"
-              className="primary-button paper-new"
-              data-focus-id="new"
-              aria-label={t("notes.new")}
-              title={`${t("notes.new")} (${m.quickKeys})`}
-              disabled={!m.canCreate}
-              onClick={m.newNote}
-            >
-              <PlusIcon size={18} />
-              <span className="paper-new-label">{t("notes.new")}</span>
-            </button>
-          )}
-        </header>
+        <ListTop m={m} className="paper-top" />
         {emptyMode ? (
           <Welcome m={m} mark={<PaperStack m={m} />} />
         ) : (
@@ -132,7 +113,6 @@ export function PaperLayout({ m }: { m: NotesModel }) {
             </section>
           </>
         )}
-        {note === null && <div className="paper-toast">{m.noticeSlot}</div>}
       </div>
 
       {note !== null && (
@@ -172,6 +152,8 @@ export function PaperLayout({ m }: { m: NotesModel }) {
                 </div>
               )}
               <span className="sheet-fill" />
+              <UnsavedMark m={m} />
+              <PreviewToggle m={m} />
               {note.id !== null && !note.onDesktop && (
                 <button
                   type="button"
@@ -215,14 +197,7 @@ export function PaperLayout({ m }: { m: NotesModel }) {
             <div className="note-body" hidden={note.onDesktop}>
               <NotePage m={m} />
             </div>
-            <footer className="area-foot sheet-foot" data-idle={m.idle ? "true" : undefined}>
-              <div className="foot-main">
-                <FootStatus m={m} />
-                {m.noticeSlot}
-              </div>
-              <UnsavedMark m={m} />
-              <PreviewToggle m={m} />
-            </footer>
+            <div className="notice-float sheet-notice">{m.noticeSlot}</div>
           </section>
         </>
       )}

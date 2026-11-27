@@ -1,31 +1,22 @@
-// The bar above the notes, the same in every look: the sidebar button and the three levels as tabs
-// ("Private", "Project · name", "Team"). The tabs are one Tab stop; Left, Right, Home and End move
-// between them and choose (useNotesArea.tsx holds what each level shows, Ctrl+1 to Ctrl+3 choose
-// from anywhere). The project tab names the project Hangar works in; with more than one project,
-// its chevron, a click on it while chosen, Down or Enter open the menu that switches the project.
+// The three levels as one segmented control at the top of the sidebar, the same in every look:
+// "Private", "Project", "Team". The tabs are one Tab stop; Left, Right, Home and End move between
+// them and choose (useNotesArea.tsx holds what each level shows, Ctrl+1 to Ctrl+3 choose from
+// anywhere). While "Project" is chosen, a small line below names its project (Hangar's working
+// folder); with more than one project, that line, a click on the chosen tab, Down or Enter open
+// the menu that switches the project.
 
 import { useRef, useState } from "react";
 
-import { ChevronDownIcon, SidebarIcon, TeamIcon } from "./icons";
+import { ChevronDownIcon, FolderIcon, TeamIcon } from "./icons";
 import type { Level } from "./notesScope";
-import { sidebarShortcutLabel, tabTarget } from "./shortcuts";
-import { PLATFORM, type NotesModel } from "./useNotesArea";
-
-/** The sidebar button's state, from NotesArea.tsx. */
-export interface SideToggle {
-  /** The sidebar is shown: beside the notes, or over them in a narrow window. */
-  expanded: boolean;
-  /** A narrow window: the button opens the sidebar as a dialog over the notes. */
-  folded: boolean;
-  /** The id of the sidebar the button shows and hides. */
-  controls: string | undefined;
-  onToggle: (from: HTMLElement) => void;
-}
+import { tabTarget } from "./shortcuts";
+import type { NotesModel } from "./useNotesArea";
 
 export const levelTabId = (level: Level) => `level-tab-${level}`;
 export const LEVEL_PANEL_ID = "level-panel";
 
-export function LevelBar({ m, side }: { m: NotesModel; side: SideToggle }) {
+/** `onChosen`: a level was chosen with the pointer (the sidebar over the notes then closes). */
+export function LevelBar({ m, onChosen }: { m: NotesModel; onChosen?: () => void }) {
   const { t } = m;
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
   /** The tab that takes the bar's one Tab stop: the last focused, else the chosen one. */
@@ -33,7 +24,6 @@ export function LevelBar({ m, side }: { m: NotesModel; side: SideToggle }) {
   const chosenIndex = m.levelTabs.findIndex((tab) => tab.level === m.level);
   const stop = focused ?? (chosenIndex < 0 ? 0 : chosenIndex);
   const switchable = m.projectEntries.length > 1;
-  const sideLabel = t(side.expanded ? "nav.hide" : "nav.show");
 
   const openProjects = (anchor: HTMLElement) => {
     if (switchable) m.openMenu("project", anchor);
@@ -62,21 +52,6 @@ export function LevelBar({ m, side }: { m: NotesModel; side: SideToggle }) {
 
   return (
     <div className="level-bar">
-      <button
-        type="button"
-        className={side.expanded ? "icon-button side-toggle on" : "icon-button side-toggle"}
-        data-focus-id="nav"
-        aria-label={t("nav.toggle")}
-        aria-expanded={side.expanded}
-        aria-controls={side.controls}
-        aria-haspopup={side.folded ? "dialog" : undefined}
-        title={`${sideLabel} (${sidebarShortcutLabel(PLATFORM, t)})`}
-        onClick={(event) => {
-          side.onToggle(event.currentTarget);
-        }}
-      >
-        <SidebarIcon size={18} />
-      </button>
       <div className="level-tabs" role="tablist" aria-label={t("level.tabs")}>
         {m.levelTabs.map((tab, index) => {
           const selected = tab.level === m.level;
@@ -117,19 +92,33 @@ export function LevelBar({ m, side }: { m: NotesModel; side: SideToggle }) {
                   return;
                 }
                 m.chooseLevel(tab.level);
+                onChosen?.();
               }}
             >
               {tab.level === "team" && <TeamIcon size={14} />}
-              <span className="level-label">{tab.label}</span>
-              {isProjectTab && switchable && (
-                <span className="level-chevron" title={t("level.switchProject")} aria-hidden="true">
-                  <ChevronDownIcon size={12} />
-                </span>
-              )}
+              <span className="level-label">{tab.short}</span>
             </button>
           );
         })}
       </div>
+      {m.level === "project" && m.projectName !== null && (
+        <button
+          type="button"
+          className="level-project-name"
+          title={m.project?.path ?? undefined}
+          disabled={!switchable}
+          aria-haspopup={switchable ? "menu" : undefined}
+          aria-expanded={switchable ? m.menuOpen("project") : undefined}
+          aria-label={switchable ? `${t("level.switchProject")}: ${m.projectName}` : undefined}
+          onClick={(event) => {
+            openProjects(event.currentTarget);
+          }}
+        >
+          <FolderIcon size={13} />
+          <span className="level-label">{m.projectName}</span>
+          {switchable && <ChevronDownIcon size={12} />}
+        </button>
+      )}
     </div>
   );
 }

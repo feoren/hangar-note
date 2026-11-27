@@ -7,7 +7,6 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { noteTone, type NoteColor, type Theme } from "./colors";
 import { relativeTime } from "./format";
 import {
-  CheckIcon,
   CloseIcon,
   DesktopIcon,
   EyeIcon,
@@ -15,7 +14,6 @@ import {
   PaletteIcon,
   PlusIcon,
   SearchIcon,
-  TaskIcon,
   TrashIcon,
 } from "./icons";
 import { noteKey } from "./notes";
@@ -140,14 +138,34 @@ export function emptyAreaText(m: NotesModel): string {
 }
 
 /**
- * The heading of the notes: the area shown, with the small "Read only" chip beside it while the
- * notes cannot be written. `className` is the look's own heading style.
+ * The top of the notes, inside the list itself (no bar across the window): the search, the small
+ * "Read only" chip while the notes cannot be written, and "New note" as a "+". The area's name is
+ * the page's heading for screen readers; on screen the sidebar marks it.
  */
-export function AreaHeading({ m, className }: { m: NotesModel; className: string }) {
+export function ListTop({ m, className }: { m: NotesModel; className?: string }) {
+  const { t, emptyMode } = m;
   return (
-    <div className="area-heading">
-      <h1 className={className}>{m.shownScopeLabel}</h1>
+    <div
+      className={
+        className === undefined ? "list-top area-heading" : `list-top area-heading ${className}`
+      }
+    >
+      <h1 className="sr-only">{m.shownScopeLabel}</h1>
+      {!emptyMode && <SearchField m={m} placeholder={t("notes.search")} />}
       <ReadOnlyChip m={m} />
+      {!emptyMode && (
+        <button
+          type="button"
+          className="primary-button list-new"
+          data-focus-id="new"
+          aria-label={t("notes.new")}
+          title={`${t("notes.new")} (${m.quickKeys})`}
+          disabled={!m.canCreate}
+          onClick={m.newNote}
+        >
+          <PlusIcon size={16} />
+        </button>
+      )}
     </div>
   );
 }
@@ -457,47 +475,6 @@ export function HeldPanel({ m }: { m: NotesModel }) {
       <button type="button" className="secondary-button" onClick={() => void m.copyOpenText()}>
         {t("notes.copyMarkdown")}
       </button>
-    </div>
-  );
-}
-
-/**
- * Words, progress and "Saved" of the open note; it fades while a notice holds the place.
- * `progress`: false where the note's header shows the progress already (the hangar look).
- */
-export function FootStatus({
-  m,
-  scope = false,
-  progress = true,
-}: {
-  m: NotesModel;
-  scope?: boolean;
-  progress?: boolean;
-}) {
-  const { t, openText, stats } = m;
-  if (openText === null) return null;
-  return (
-    <div className={m.noticeShown ? "foot-status away" : "foot-status"}>
-      {scope && <span className="foot-scope">{m.projectLabel(openText.folder)}</span>}
-      <span className="note-words">{t("notes.words", { count: stats.words })}</span>
-      {progress && stats.progress.total > 0 && (
-        <span className="foot-progress">
-          <TaskIcon size={14} />
-          <Progress m={m} done={stats.progress.done} total={stats.progress.total} />
-        </span>
-      )}
-      {openText.id !== null && !m.unsaved && (
-        <span className={m.dirty ? "note-saved saving" : "note-saved"}>
-          {m.dirty ? (
-            t("notes.saving")
-          ) : (
-            <>
-              <CheckIcon size={14} />
-              {t("notes.saved")}
-            </>
-          )}
-        </span>
-      )}
     </div>
   );
 }

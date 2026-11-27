@@ -19,7 +19,11 @@
 // that, is bold in the editor, and neither CodeMirror's keymaps nor the note use Ctrl+Shift+S.
 //
 // A row of the notes list has two more: Delete puts the note into the trash, and the context menu
-// key or Shift+F10 opens the row's menu, the keyboard's way to what a right click shows.
+// key or Shift+F10 opens the row's menu, the keyboard's way to what a right click shows. A color
+// of the sidebar has the same menu keys, and F2 renames it in place, as F2 renames a note.
+//
+// The app menu only names the editor's own keys (Ctrl+Z, Ctrl+Y, Ctrl+A; CodeMirror binds them),
+// it binds nothing itself.
 
 import type { Translate } from "./i18n";
 
@@ -183,6 +187,25 @@ export function matchRowShortcut(event: KeyInfo): RowAction | null {
   const onlyShift = event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
   if (event.key === "F10" && onlyShift) return "menu";
   return null;
+}
+
+export type ColorRowAction = "rename" | "menu";
+
+/** The action for a key press on a color of the sidebar, or `null`. */
+export function matchColorRowShortcut(event: KeyInfo): ColorRowAction | null {
+  const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+  if (event.key === "F2" && plain) return "rename";
+  return matchRowShortcut(event) === "menu" ? "menu" : null;
+}
+
+/** The editor's undo, redo and select all, as the app menu names them. */
+export function editShortcutLabel(
+  command: "undo" | "redo" | "selectAll",
+  platform: Platform,
+  t: Translate,
+): string {
+  if (platform === "mac") return { undo: "⌘Z", redo: "⇧⌘Z", selectAll: "⌘A" }[command];
+  return `${t("key.ctrl")}+${{ undo: "Z", redo: "Y", selectAll: "A" }[command]}`;
 }
 
 /** "Strg+Umschalt+N" or "⇧⌘N", for tooltips and hints. */

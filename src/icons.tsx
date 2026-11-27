@@ -31,6 +31,35 @@ export function PlusIcon(props: IconProps) {
   );
 }
 
+/** The app menu's button: three lines, as in Hangar. */
+export function MenuIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+    </Svg>
+  );
+}
+
+/**
+ * The app's logo, the folded N of src-tauri/app-icon.svg without its tile, so it sits on the
+ * sidebar like Hangar's H; its two tones come from styles.css (`--brand-n`, `--brand-mark`).
+ */
+export function AppLogo({ size = 20 }: IconProps) {
+  return (
+    <svg
+      className="logo"
+      width={size}
+      height={size}
+      viewBox="32 32 192 192"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path className="logo-n" d="M40 72L80 58L176 154V72L216 58V200H176L80 104V200H40Z" />
+      <path className="logo-bar" d="M104 184H144V200H104Z" />
+    </svg>
+  );
+}
+
 export function MoreIcon(props: IconProps) {
   return (
     <Svg {...props}>
