@@ -32,7 +32,7 @@ describe("settingsWith", () => {
       theme: "dark" as const,
       newNoteColor: "mint" as const,
       colorNames: { sky: "Arbeit" },
-      look: "calm" as const,
+      look: "hangar" as const,
     };
     expect(settingsWith(view, "paper", { colorNames: {} })).toEqual({
       language: "de",

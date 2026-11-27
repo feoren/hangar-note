@@ -108,7 +108,7 @@ export interface Settings {
   newNoteColor: NoteColor;
   /** The person's own names of the colors. */
   colorNames: Partial<Record<NoteColor, string>>;
-  /** The look of every window (ADR 0004); the backend reads an unknown one as `calm`. */
+  /** The look of every window (ADR 0004); the backend reads an unknown one as `hangar`. */
   look: Look;
 }
 

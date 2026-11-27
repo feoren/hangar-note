@@ -177,6 +177,37 @@ export function sidebarTarget(
   }
 }
 
+/**
+ * Where the arrow keys, Home and End move the choice in a small radio group (the look switch): the
+ * index of the radio to focus and choose among `count`, or `null` for any other key. Left and Up go
+ * back, Right and Down go on, the ends wrap, as a radio group does. In a right-to-left page Left
+ * and Right swap, as the row does.
+ */
+export function radioTarget(
+  event: Pick<KeyInfo, "key" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey">,
+  index: number,
+  count: number,
+  rtl = false,
+): number | null {
+  if (count === 0 || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return null;
+  const forward = rtl ? "ArrowLeft" : "ArrowRight";
+  const backward = rtl ? "ArrowRight" : "ArrowLeft";
+  switch (event.key) {
+    case forward:
+    case "ArrowDown":
+      return (index + 1) % count;
+    case backward:
+    case "ArrowUp":
+      return (index - 1 + count) % count;
+    case "Home":
+      return 0;
+    case "End":
+      return count - 1;
+    default:
+      return null;
+  }
+}
+
 export type RowAction = "delete" | "menu";
 
 /** The action for a key press on a row of the notes list, or `null`. */

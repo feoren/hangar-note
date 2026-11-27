@@ -27,7 +27,7 @@ pub const MAX_COLOR_NAME_CHARS: usize = 40;
 pub const MAX_PROJECT_PATH_CHARS: usize = 4096;
 /// The sidebar's width in px: its default and the range a drag can give it (`src/sidebarWidth.ts`
 /// holds the same numbers). A stored width outside the range is brought back into it.
-pub const SIDEBAR_WIDTH_DEFAULT: u32 = 232;
+pub const SIDEBAR_WIDTH_DEFAULT: u32 = 248;
 pub const SIDEBAR_WIDTH_MIN: u32 = 180;
 pub const SIDEBAR_WIDTH_MAX: u32 = 400;
 
@@ -41,15 +41,15 @@ pub enum Theme {
 }
 
 /// How the notes area and the sticky notes look (ADR 0004). A value this version does not know
-/// (written by a newer one, or by hand) reads as [`Look::Calm`] instead of throwing away the whole
-/// file, as an unknown theme would.
+/// (written by a newer one, or by hand) reads as [`Look::Hangar`] instead of throwing away the
+/// whole file, as an unknown theme would. That includes `"calm"`, a look of earlier builds that
+/// was dropped: it is not migrated on disk, the next save writes the look shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Look {
     #[default]
-    Calm,
-    Paper,
     Hangar,
+    Paper,
 }
 
 impl<'de> Deserialize<'de> for Look {
@@ -57,8 +57,7 @@ impl<'de> Deserialize<'de> for Look {
         let value = serde_json::Value::deserialize(deserializer)?;
         Ok(match value.as_str() {
             Some("paper") => Self::Paper,
-            Some("hangar") => Self::Hangar,
-            _ => Self::Calm,
+            _ => Self::Hangar,
         })
     }
 }
@@ -386,7 +385,7 @@ mod tests {
             serde_json::json!({
                 "version": 1, "language": "pl", "theme": "dark", "newNoteColor": "mint",
                 "colorNames": { "sky": "Arbeit" }, "hubOnTop": false, "look": "paper",
-                "sidebarOpen": true, "sidebarWidth": 232, "lastProject": null
+                "sidebarOpen": true, "sidebarWidth": 248, "lastProject": null
             })
         );
     }
@@ -467,11 +466,11 @@ b"
     }
 
     #[test]
-    fn the_look_is_read_written_and_falls_back_to_calm() {
+    fn the_look_is_read_written_and_falls_back_to_hangar() {
         let dir = TempDir::new("settings-look");
         let store = SettingsStore::open(dir.path());
-        assert_eq!(store.get().look, Look::Calm);
-        for look in [Look::Hangar, Look::Paper, Look::Calm] {
+        assert_eq!(store.get().look, Look::Hangar);
+        for look in [Look::Paper, Look::Hangar] {
             let saved = store
                 .set(Settings {
                     look,
@@ -481,11 +480,13 @@ b"
             assert_eq!(saved.look, look);
             assert_eq!(load(store.path()).look, look);
         }
-        let sent: Settings = serde_json::from_str(r#"{"look":"hangar"}"#).unwrap();
-        assert_eq!(sent.look, Look::Hangar);
-        // A look this version does not know, or no look at all, is the calm one; the rest of the
-        // file stays.
+        let sent: Settings = serde_json::from_str(r#"{"look":"paper"}"#).unwrap();
+        assert_eq!(sent.look, Look::Paper);
+        assert_eq!(serde_json::to_value(Look::Hangar).unwrap(), "hangar");
+        // A look this version does not know, the dropped "calm" of earlier builds, or no look at
+        // all, is the hangar one; the rest of the file stays.
         for text in [
+            r#"{"version":1,"theme":"dark","look":"calm"}"#,
             r#"{"version":1,"theme":"dark","look":"neon"}"#,
             r#"{"version":1,"theme":"dark","look":7}"#,
             r#"{"version":1,"theme":"dark","look":null}"#,
@@ -493,17 +494,24 @@ b"
         ] {
             fs::write(store.path(), text).unwrap();
             let loaded = load(store.path());
-            assert_eq!(loaded.look, Look::Calm, "{text}");
+            assert_eq!(loaded.look, Look::Hangar, "{text}");
             assert_eq!(loaded.theme, Theme::Dark, "{text}");
         }
         // The other settings and "Always on top" keep the look.
+        // A stored "calm" is written as "hangar" with the next save.
+        fs::write(store.path(), r#"{"version":1,"look":"calm"}"#).unwrap();
+        let reopened = SettingsStore::open(dir.path());
+        reopened.set(reopened.get()).unwrap();
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(store.path()).unwrap()).unwrap();
+        assert_eq!(raw["look"], "hangar");
         store
             .set(Settings {
-                look: Look::Hangar,
+                look: Look::Paper,
                 ..Settings::default()
             })
             .unwrap();
-        assert_eq!(store.set_hub_on_top(true).unwrap().look, Look::Hangar);
+        assert_eq!(store.set_hub_on_top(true).unwrap().look, Look::Paper);
     }
 
     fn project() -> PathBuf {

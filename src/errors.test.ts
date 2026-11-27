@@ -22,7 +22,7 @@ describe("error messages", () => {
     expect(errorMessage("too-large", "save")?.action).toBeNull();
   });
 
-  it("say nothing for read only, which has its own calm hint", () => {
+  it("say nothing for read only, which has its own quiet hint", () => {
     expect(errorMessage("read-only", "save")).toBeNull();
     expect(errorMessage("read-only", "action")).toBeNull();
   });

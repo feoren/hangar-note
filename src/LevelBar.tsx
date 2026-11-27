@@ -1,5 +1,6 @@
 // The three levels as one segmented control at the top of the sidebar, the same in every look:
-// "Private", "Project", "Team". The tabs are one Tab stop; Left, Right, Home and End move between
+// "Private", "Project", "Team", each the same width with its mark above its name. The tabs are one
+// Tab stop; Left, Right, Home and End move between
 // them and choose (useNotesArea.tsx holds what each level shows, Ctrl+1 to Ctrl+3 choose from
 // anywhere). While "Project" is chosen, a small line below names its project (Hangar's working
 // folder); with more than one project, that line, a click on the chosen tab, Down or Enter open
@@ -7,7 +8,7 @@
 
 import { useRef, useState } from "react";
 
-import { ChevronDownIcon, FolderIcon, TeamIcon } from "./icons";
+import { ChevronDownIcon, FolderIcon, PersonIcon, TeamIcon } from "./icons";
 import type { Level } from "./notesScope";
 import { tabTarget } from "./shortcuts";
 import type { NotesModel } from "./useNotesArea";
@@ -95,7 +96,7 @@ export function LevelBar({ m, onChosen }: { m: NotesModel; onChosen?: () => void
                 onChosen?.();
               }}
             >
-              {tab.level === "team" && <TeamIcon size={14} />}
+              <LevelIcon level={tab.level} />
               <span className="level-label">{tab.short}</span>
             </button>
           );
@@ -123,9 +124,21 @@ export function LevelBar({ m, onChosen }: { m: NotesModel; onChosen?: () => void
   );
 }
 
+/** Each level's mark above its name: one person, a folder, two people. */
+function LevelIcon({ level }: { level: Level }) {
+  switch (level) {
+    case "private":
+      return <PersonIcon size={16} />;
+    case "project":
+      return <FolderIcon size={16} />;
+    case "team":
+      return <TeamIcon size={16} />;
+  }
+}
+
 /**
  * The team level. Team notes are opened through Hangar, which is not connected yet (`m.team`):
- * one calm sentence says what is needed, nothing read only, no notes that are not there.
+ * one plain sentence says what is needed, nothing read only, no notes that are not there.
  */
 export function TeamLevel({ m }: { m: NotesModel }) {
   const { t } = m;

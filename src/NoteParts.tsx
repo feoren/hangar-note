@@ -142,7 +142,16 @@ export function emptyAreaText(m: NotesModel): string {
  * "Read only" chip while the notes cannot be written, and "New note" as a "+". The area's name is
  * the page's heading for screen readers; on screen the sidebar marks it.
  */
-export function ListTop({ m, className }: { m: NotesModel; className?: string }) {
+export function ListTop({
+  m,
+  className,
+  end,
+}: {
+  m: NotesModel;
+  className?: string;
+  /** What closes the row at its right end (the look switch, where the list is the top row). */
+  end?: React.ReactNode;
+}) {
   const { t, emptyMode } = m;
   return (
     <div
@@ -166,12 +175,13 @@ export function ListTop({ m, className }: { m: NotesModel; className?: string })
           <PlusIcon size={16} />
         </button>
       )}
+      {end !== undefined && <span className="list-top-end">{end}</span>}
     </div>
   );
 }
 
 /**
- * "Read only", small and calm, beside the heading. Its sentence says why: as the tooltip, as its
+ * "Read only", small and quiet, beside the heading. Its sentence says why: as the tooltip, as its
  * description for screen readers, and on a click or Enter in a small bubble below it (touch and
  * keyboard have no tooltip). Escape or leaving it closes the bubble.
  */
@@ -262,8 +272,8 @@ export function RowMeta({
 
 /**
  * One row of the list. Only the current row is a Tab stop (roving tab index); arrows move it.
- * `tools`: color, on the desktop and delete on hover and keyboard focus (calm); the dense list of
- * the hangar look leaves them to the context menu and the keys.
+ * `tools`: color, on the desktop and delete on hover and keyboard focus (hangar's narrow layout);
+ * the dense list of hangar's two columns leaves them to the context menu and the keys.
  */
 export function NoteRowItem({
   m,

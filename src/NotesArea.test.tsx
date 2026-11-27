@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HubRequest, NoteRow, OpenedNote, Status } from "./api";
 import type { AppSettings } from "./appSettings";
 import type { EditorOptions } from "./editor";
-import type { Look } from "./looks";
+import { HANGAR_MIN_WIDTH, type Look } from "./looks";
 import { createTranslator, I18nContext } from "./i18n";
 
 const A = "1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5";
@@ -154,24 +154,24 @@ const { NotesArea } = await import("./NotesArea");
 const { forgetSession } = await import("./useNotesArea");
 
 const t = createTranslator("de");
-const calmApp: AppSettings = {
+const baseApp: AppSettings = {
   settings: {
     language: "de",
     theme: "light",
     newNoteColor: "mint",
     colorNames: { sky: "Arbeit" },
-    look: "calm",
+    look: "hangar",
     autostart: false,
   },
   theme: "light",
-  look: "calm",
+  look: "hangar",
   language: "de",
   t,
   applySaved: () => undefined,
   applyAutostart: () => undefined,
 };
 
-let app: AppSettings = calmApp;
+let app: AppSettings = baseApp;
 /** Stored settings beyond the defaults for the next render (sidebar, last project). */
 let stored: Partial<NonNullable<AppSettings["settings"]>> = {};
 let root: Root;
@@ -180,9 +180,9 @@ let container: HTMLDivElement;
 /** The app settings with another look, as the backend's settings-changed event brings them. */
 function withLook(look: Look): AppSettings {
   return {
-    ...calmApp,
+    ...baseApp,
     look,
-    settings: calmApp.settings === null ? null : { ...calmApp.settings, ...stored, look },
+    settings: baseApp.settings === null ? null : { ...baseApp.settings, ...stored, look },
   };
 }
 
@@ -192,8 +192,21 @@ async function settle() {
   });
 }
 
-async function render(look: Look = "calm") {
-  app = withLook(look);
+/**
+ * What a test window shows: a look, or "hangarNarrow", the hangar look in a window where its two
+ * columns do not fit beside the sidebar (its narrow layout, list and note still side by side).
+ */
+type Variant = Look | "hangarNarrow";
+
+/** A window width where hangar shows its narrow layout beside a sidebar of the default width. */
+const NARROW_HANGAR_WIDTH = HANGAR_MIN_WIDTH - 4;
+/** jsdom's own window width, where hangar shows its two columns. */
+const WIDE_WIDTH = 1024;
+let windowWidth = WIDE_WIDTH;
+
+async function render(variant: Variant = "hangarNarrow") {
+  windowWidth = variant === "hangarNarrow" ? NARROW_HANGAR_WIDTH : WIDE_WIDTH;
+  app = withLook(variant === "hangarNarrow" ? "hangar" : variant);
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -340,6 +353,8 @@ async function click(element: HTMLElement) {
 
 beforeEach(() => {
   Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
+  // A test that needs another width mocks it again; `render` sets the one of its variant.
+  vi.spyOn(window, "innerWidth", "get").mockImplementation(() => windowWidth);
   api.getStatus.mockResolvedValue(writable);
   api.takeHubRequests.mockResolvedValue([]);
   api.listNoteFolders.mockResolvedValue([]);
@@ -570,7 +585,7 @@ describe("notes area: requests and quick note", () => {
     api.getStatus.mockResolvedValue(readOnly);
     api.takeHubRequests.mockResolvedValue([{ kind: "quick" }]);
     await render();
-    expect(container.querySelector(".note-bar")).toBeNull();
+    expect(container.querySelector('.note-bar [data-action="back"]')).toBeNull();
     expect(container.textContent).toContain(t("notes.pickReadOnly"));
   });
 });
@@ -590,11 +605,11 @@ describe("notes area: leaving an unsaved note", () => {
     // After 10 s a try counts as a first one again.
     now.mockReturnValue(1_010_000);
     await click(button(t("notes.backToList")));
-    expect(container.querySelector(".note-bar")).not.toBeNull();
+    expect(container.querySelector('.note-bar [data-action="back"]')).not.toBeNull();
     // Once a save works again, leaving works and the warning is gone.
     api.writeNote.mockResolvedValue("v-saved");
     await click(button(t("notes.backToList")));
-    expect(container.querySelector(".note-bar")).toBeNull();
+    expect(container.querySelector('.note-bar [data-action="back"]')).toBeNull();
     expect(container.querySelector(".notes-stuck")).toBeNull();
     now.mockRestore();
   });
@@ -844,7 +859,7 @@ async function press(element: Element, key: string, init: KeyboardEventInit = {}
   await settle();
 }
 
-describe("notes area: rework of the calm look", () => {
+describe("notes area: hangar's narrow layout", () => {
   it("no second title when the first line is the title", async () => {
     // "Einkaufen" starts with the line "Einkaufen": the page shows the text only.
     await render();
@@ -940,8 +955,8 @@ describe("notes area: rework of the calm look", () => {
 });
 
 /** How a person leaves the open note in each look: back to the list, close the sheet, next row. */
-async function leaveNote(look: Look) {
-  if (look === "calm") {
+async function leaveNote(look: Variant) {
+  if (look === "hangarNarrow") {
     await click(button(t("notes.backToList")));
   } else if (look === "paper") {
     const sheet = container.querySelector(".paper-sheet");
@@ -952,7 +967,7 @@ async function leaveNote(look: Look) {
   }
 }
 
-const ALL_LOOKS: readonly Look[] = ["calm", "paper", "hangar"];
+const ALL_LOOKS: readonly Variant[] = ["hangarNarrow", "paper", "hangar"];
 
 describe.each(ALL_LOOKS)("notes area, shared behaviour in the look %s", (look) => {
   it("saves the open note before it switches to another", async () => {
@@ -1046,17 +1061,18 @@ describe.each(ALL_LOOKS)("notes area, the trash in the look %s", (look) => {
 });
 
 describe("notes area: switching the look", () => {
-  it("keeps the open note and its unsaved text when the look changes", async () => {
-    await render("calm");
+  it("keeps the open note and its unsaved text between hangar's layouts", async () => {
+    await render();
     await click(rowButton("Einkaufen"));
     await type("Einkaufen\nnoch nicht gespeichert");
     expect(api.writeNote).not.toHaveBeenCalled();
-    await rerender("paper");
-    expect(container.querySelector(".paper-sheet")?.getAttribute("aria-label")).toBe("Einkaufen");
-    expect(container.querySelector(".note-editor .cm-content")?.textContent).toBe(
-      "Einkaufen\nnoch nicht gespeichert",
-    );
-    await rerender("hangar");
+    expect(container.querySelector(".layout-hangar-narrow")).not.toBeNull();
+    windowWidth = WIDE_WIDTH;
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+      await Promise.resolve();
+    });
+    await settle();
     expect(container.querySelector(".hangar-editor")?.getAttribute("aria-label")).toBe("Einkaufen");
     expect(container.querySelector(".note-editor .cm-content")?.textContent).toBe(
       "Einkaufen\nnoch nicht gespeichert",
@@ -1077,20 +1093,263 @@ describe("notes area: switching the look", () => {
     );
   });
 
-  it("offers the three looks as a radio group and saves the choice at once", async () => {
+  it("saves and closes the open note when the look turns to paper, which shows its cards", async () => {
+    await render("hangar");
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nnoch nicht gespeichert");
+    expect(api.writeNote).not.toHaveBeenCalled();
+    await rerender("paper");
+    expect(api.writeNote).toHaveBeenCalledWith(
+      GENERAL,
+      A,
+      "Einkaufen\nnoch nicht gespeichert",
+      `v-${A}`,
+    );
+    expect(container.querySelector(".paper-sheet")).toBeNull();
+    expect(container.querySelector(".paper-room")?.hasAttribute("inert")).toBe(false);
+    expect(titles()).toEqual(["Einkaufen", "Projekt"]);
+    // Only a click on a card opens its sheet.
+    await click(rowButton("Einkaufen"));
+    expect(container.querySelector(".paper-sheet")?.getAttribute("aria-label")).toBe("Einkaufen");
+  });
+
+  it("keeps the note open when the look turns back before its save for paper ends", async () => {
+    await render("hangar");
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nunterwegs");
+    let finish: (version: string) => void = () => undefined;
+    api.writeNote.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await rerender("paper");
+    // The save runs; hangar stays drawn with the note until it ends.
+    expect(api.writeNote).toHaveBeenCalledTimes(1);
+    expect(container.querySelector(".paper-sheet")).toBeNull();
+    await rerender("hangar");
+    await act(async () => {
+      finish(`v2-${A}`);
+      await Promise.resolve();
+    });
+    await settle();
+    // Back in hangar, nothing waits to close the note: it stays open, its text saved once.
+    expect(container.querySelector(".layout-hangar")).not.toBeNull();
+    expect(container.querySelector(".hangar-editor")?.getAttribute("aria-label")).toBe("Einkaufen");
+    expect(container.querySelector(".paper-sheet")).toBeNull();
+    expect(api.writeNote).toHaveBeenCalledTimes(1);
+    expect(api.writeNote).toHaveBeenCalledWith(GENERAL, A, "Einkaufen\nunterwegs", `v-${A}`);
+    // Typing goes on in the same note.
+    await type("Einkaufen\nunterwegs\nweiter");
+    await act(async () => {
+      api.handlers.get("flush:hub")?.();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(api.writeNote).toHaveBeenLastCalledWith(
+      GENERAL,
+      A,
+      "Einkaufen\nunterwegs\nweiter",
+      `v2-${A}`,
+    );
+  });
+
+  it("keeps a note that cannot be saved open when the look turns to paper", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nneu");
+    api.writeNote.mockRejectedValue("disk full");
+    await rerender("paper");
+    expect(container.querySelector(".paper-sheet")?.getAttribute("aria-label")).toBe("Einkaufen");
+    expect(container.querySelector(".note-editor .cm-content")?.textContent).toBe("Einkaufen\nneu");
+    expect(container.querySelector(".note-unsaved")?.textContent).toBe(t("notes.unsaved"));
+  });
+
+  it("offers the two looks as a radio group and saves the choice at once", async () => {
     await render();
     await click(navItem(t("notes.settings")));
     const radios = Array.from(
       container.querySelectorAll<HTMLInputElement>('input[type="radio"][name="look"]'),
     );
     expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual([
-      t("look.calm"),
-      t("look.paper"),
       t("look.hangar"),
+      t("look.paper"),
     ]);
     expect(radios[0]?.checked).toBe(true);
     await click(radios[1] ?? container);
     expect(api.setSettings).toHaveBeenCalledWith(expect.objectContaining({ look: "paper" }));
+  });
+});
+
+/** The look switch's radios, in their order. */
+function lookRadios(): HTMLButtonElement[] {
+  const groups = container.querySelectorAll('.look-switch[role="radiogroup"]');
+  expect(groups).toHaveLength(1);
+  expect(groups[0]?.getAttribute("aria-label")).toBe(t("settings.look"));
+  return Array.from(groups[0]?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? []);
+}
+
+describe.each(ALL_LOOKS)("notes area, the look switch in the variant %s", (variant) => {
+  it("sits once at the top of the notes, names both looks and marks the chosen one", async () => {
+    await render(variant);
+    const radios = lookRadios();
+    expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual([
+      t("look.hangar"),
+      t("look.paper"),
+    ]);
+    expect(radios.map((radio) => radio.title)).toEqual([t("look.hangar"), t("look.paper")]);
+    const chosen = radios.filter((radio) => radio.getAttribute("aria-checked") === "true");
+    expect(chosen.map((radio) => radio.dataset.look)).toEqual([
+      variant === "paper" ? "paper" : "hangar",
+    ]);
+    // One Tab stop: the chosen look.
+    expect(radios.filter((radio) => radio.tabIndex === 0)).toEqual(chosen);
+  });
+
+  it("stays there with a note open", async () => {
+    await render(variant);
+    await click(rowButton("Einkaufen"));
+    if (variant === "paper") {
+      // The paper look's sheet is modal: its switch waits behind it, out of reach.
+      expect(container.querySelector(".paper-room")?.hasAttribute("inert")).toBe(true);
+      expect(container.querySelector(".paper-room .look-switch")).not.toBeNull();
+    } else {
+      expect(lookRadios()).toHaveLength(2);
+    }
+  });
+});
+
+describe("notes area: the look switch", () => {
+  it("chooses paper with a click, saves the open note and shows the cards", async () => {
+    await render();
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nnoch offen");
+    const paper = lookRadios()[1];
+    if (!paper) throw new Error("paper radio missing");
+    await click(paper);
+    expect(api.setSettings).toHaveBeenCalledWith(expect.objectContaining({ look: "paper" }));
+    await rerender("paper");
+    await frames();
+    expect(api.writeNote).toHaveBeenCalledWith(GENERAL, A, "Einkaufen\nnoch offen", `v-${A}`);
+    expect(container.querySelector(".paper-sheet")).toBeNull();
+    const chosen = lookRadios()[1];
+    expect(chosen?.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(chosen);
+  });
+
+  it("moves the choice with the arrow keys and keeps the focus on the switch", async () => {
+    await render();
+    const hangar = lookRadios()[0];
+    if (!hangar) throw new Error("hangar radio missing");
+    hangar.focus();
+    await press(hangar, "ArrowRight");
+    expect(api.setSettings).toHaveBeenLastCalledWith(expect.objectContaining({ look: "paper" }));
+    await rerender("paper");
+    const paper = lookRadios()[1];
+    expect(paper?.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(paper);
+    if (!paper) throw new Error("paper radio missing");
+    // Two looks: the arrows wrap around, Home goes to the first.
+    await press(paper, "ArrowRight");
+    expect(api.setSettings).toHaveBeenLastCalledWith(expect.objectContaining({ look: "hangar" }));
+    await press(paper, "Home");
+    expect(api.setSettings).toHaveBeenLastCalledWith(expect.objectContaining({ look: "hangar" }));
+  });
+
+  it("does nothing when the chosen look is chosen again", async () => {
+    await render();
+    const hangar = lookRadios()[0];
+    if (!hangar) throw new Error("hangar radio missing");
+    await click(hangar);
+    expect(api.setSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe("notes area: paper opens a note only by choice", () => {
+  it("opens no sheet at the start", async () => {
+    await render("paper");
+    expect(container.querySelector(".paper-sheet")).toBeNull();
+    expect(container.querySelector(".paper-room")?.hasAttribute("inert")).toBe(false);
+    expect(titles()).toEqual(["Einkaufen", "Projekt"]);
+  });
+
+  it("opens the sheet on a click on a card, a native button that Enter clicks too", async () => {
+    await render("paper");
+    await click(rowButton("Projekt"));
+    expect(container.querySelector(".paper-sheet")?.getAttribute("aria-label")).toBe("Projekt");
+    const sheet = container.querySelector(".paper-sheet");
+    if (!sheet) throw new Error("sheet missing");
+    await press(sheet, "Escape");
+    expect(container.querySelector(".paper-sheet")).toBeNull();
+    const card = rowButton("Einkaufen");
+    expect(card.tagName).toBe("BUTTON");
+    await click(card);
+    expect(container.querySelector(".paper-sheet")?.getAttribute("aria-label")).toBe("Einkaufen");
+  });
+
+  it("opens the sheet of a new note to write in", async () => {
+    await render("paper");
+    await click(button(t("notes.new")));
+    expect(container.querySelector(".paper-sheet")).not.toBeNull();
+  });
+
+  it("opens the sheet of a note Hangar asks for", async () => {
+    api.takeHubRequests.mockResolvedValue([{ kind: "openNote", folder: null, id: B }]);
+    await render("paper");
+    expect(container.querySelector(".paper-sheet")?.getAttribute("aria-label")).toBe("Projekt");
+  });
+
+  it("shows the cards when Hangar shows its project", async () => {
+    await render("paper");
+    await click(rowButton("Einkaufen"));
+    expect(container.querySelector(".paper-sheet")).not.toBeNull();
+    api.takeHubRequests.mockResolvedValue([{ kind: "showProject" }]);
+    await act(async () => {
+      api.handlers.get("hub-requests")?.();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(container.querySelector(".paper-sheet")).toBeNull();
+  });
+
+  it("shows the cards on the way back from the settings", async () => {
+    await render("paper");
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nneu");
+    await openAppMenu(t("menu.file"));
+    await click(appMenuItem(t("notes.settings")));
+    await frames();
+    expect(api.writeNote).toHaveBeenCalledWith(GENERAL, A, "Einkaufen\nneu", `v-${A}`);
+    await click(button(t("notes.back")));
+    await frames();
+    expect(container.querySelector(".paper-sheet")).toBeNull();
+    expect(titles()).toEqual(["Einkaufen", "Projekt"]);
+  });
+
+  it("saves and closes the sheet for another level", async () => {
+    await render("paper");
+    await click(rowButton("Einkaufen"));
+    await type("Einkaufen\nneu");
+    await pressWindow("1", { code: "Digit1", ctrlKey: true });
+    expect(api.writeNote).toHaveBeenCalledWith(GENERAL, A, "Einkaufen\nneu", `v-${A}`);
+    expect(container.querySelector(".paper-sheet")).toBeNull();
+  });
+
+  it("brings a deleted card back with Undo without opening its sheet", async () => {
+    await render("paper");
+    const item = rowButton("Projekt").closest("li");
+    if (!item) throw new Error("card missing");
+    await act(async () => {
+      item.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    await click(menuItem(t("notes.delete")));
+    await click(button(t("notes.undo")));
+    await frames();
+    expect(api.restoreNote).toHaveBeenCalledWith(GENERAL, B);
+    expect(api.readNote).not.toHaveBeenCalled();
+    expect(container.querySelector(".paper-sheet")).toBeNull();
   });
 });
 
@@ -1511,6 +1770,27 @@ async function pressWindow(key: string, init: KeyboardEventInit = {}) {
   await press(document.body, key, init);
 }
 
+describe("notes area: the sidebar's sections", () => {
+  it("names the project list apart from the Project level, with one heading style for all", async () => {
+    withProjects();
+    await render();
+    const list = container.querySelector('[aria-labelledby="nav-projects"]');
+    expect(list).not.toBeNull();
+    const heading = container.querySelector("#nav-projects");
+    expect(heading?.textContent).toBe(t("nav.projects"));
+    expect(heading?.textContent).not.toBe(t("level.project"));
+    // Every section heading carries the same label element, so they all look alike.
+    const labels = Array.from(container.querySelectorAll(".nav-section .nav-section-label")).map(
+      (label) => label.textContent,
+    );
+    expect(labels).toEqual([t("nav.projects"), t("notes.colors")]);
+    // Each level tab shows its mark beside its name.
+    for (const tab of container.querySelectorAll('[role="tab"]')) {
+      expect(tab.querySelector("svg")).not.toBeNull();
+    }
+  });
+});
+
 describe.each(ALL_LOOKS)("notes area, the sidebar in the look %s", (look) => {
   it("lists All and every project by its name, with counts, and marks the place", async () => {
     withProjects();
@@ -1873,18 +2153,18 @@ describe("notes area: folding the sidebar away", () => {
 
 describe("notes area: the sidebar's width", () => {
   it("is a separator with its range, moved with the arrow keys and reset with a double click", async () => {
-    await render();
+    await render("hangar");
     const edge = separator();
-    expect(edge.getAttribute("aria-valuenow")).toBe("232");
+    expect(edge.getAttribute("aria-valuenow")).toBe("248");
     expect(edge.getAttribute("aria-valuemin")).toBe("180");
     // 40 % of the 1024 px test window is wider than the maximum.
     expect(edge.getAttribute("aria-valuemax")).toBe("400");
     expect(edge.tabIndex).toBe(0);
     await press(edge, "ArrowRight");
-    expect(api.setSidebarWidth).toHaveBeenLastCalledWith(240);
-    expect(separator().getAttribute("aria-valuenow")).toBe("240");
+    expect(api.setSidebarWidth).toHaveBeenLastCalledWith(256);
+    expect(separator().getAttribute("aria-valuenow")).toBe("256");
     await press(separator(), "ArrowRight", { shiftKey: true });
-    expect(api.setSidebarWidth).toHaveBeenLastCalledWith(272);
+    expect(api.setSidebarWidth).toHaveBeenLastCalledWith(288);
     await press(separator(), "Home");
     expect(api.setSidebarWidth).toHaveBeenLastCalledWith(180);
     await press(separator(), "ArrowLeft");
@@ -1894,13 +2174,13 @@ describe("notes area: the sidebar's width", () => {
       separator().dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
       await Promise.resolve();
     });
-    expect(api.setSidebarWidth).toHaveBeenLastCalledWith(232);
+    expect(api.setSidebarWidth).toHaveBeenLastCalledWith(248);
     const shell = container.querySelector<HTMLElement>(".notes-shell");
-    expect(shell?.style.getPropertyValue("--side-width")).toBe("232px");
+    expect(shell?.style.getPropertyValue("--side-width")).toBe("248px");
   });
 
   it("follows a drag within its range and stores it when the drag ends", async () => {
-    await render();
+    await render("hangar");
     const edge = separator();
     const pointer = (type: string, clientX: number) =>
       act(async () => {
@@ -1909,7 +2189,7 @@ describe("notes area: the sidebar's width", () => {
         );
         await Promise.resolve();
       });
-    await pointer("pointerdown", 232);
+    await pointer("pointerdown", 248);
     await pointer("pointermove", 300);
     expect(separator().getAttribute("aria-valuenow")).toBe("300");
     expect(api.setSidebarWidth).not.toHaveBeenCalled();
@@ -1922,14 +2202,14 @@ describe("notes area: the sidebar's width", () => {
 
   it("starts at the stored width, brought into the window's range", async () => {
     stored = { sidebarWidth: 300 };
-    await render();
+    await render("hangar");
     expect(separator().getAttribute("aria-valuenow")).toBe("300");
     act(() => {
       root.unmount();
     });
     container.remove();
     stored = { sidebarWidth: 5000 };
-    await render();
+    await render("hangar");
     expect(separator().getAttribute("aria-valuenow")).toBe("400");
   });
 });
@@ -1965,7 +2245,7 @@ describe.each(ALL_LOOKS)("notes area, the level tabs in the look %s", (look) => 
     expect(tab("private").title).toBe(`${t("notes.scopeGeneralTip")}\nStrg+1`);
   });
 
-  it("show the Team level as one calm sentence, nothing read only and no new note", async () => {
+  it("show the Team level as one plain sentence, nothing read only and no new note", async () => {
     withProjects();
     await render(look);
     await click(tab("team"));
@@ -2192,7 +2472,7 @@ describe("notes area: the sidebar's colors", () => {
     expect(document.activeElement).toBe(field);
     await renameTo("Büro", "Enter");
     expect(api.setSettings).toHaveBeenLastCalledWith(
-      expect.objectContaining({ colorNames: { sky: "Büro" }, look: "calm" }),
+      expect.objectContaining({ colorNames: { sky: "Büro" }, look: "hangar" }),
     );
     await frames();
     expect(container.querySelector(".nav-rename")).toBeNull();
@@ -2330,7 +2610,8 @@ describe("notes area: the app menu", () => {
     await click(appMenuItem(t("level.project")));
     expect(chosenTabs()).toEqual(["project"]);
     await openAppMenu(t("menu.view"));
-    expect(appMenuItem(t("look.calm")).getAttribute("aria-checked")).toBe("true");
+    expect(appMenuItem(t("look.hangar")).getAttribute("aria-checked")).toBe("true");
+    expect(appMenuItem(t("look.paper")).getAttribute("aria-checked")).toBe("false");
     await click(appMenuItem(t("look.paper")));
     expect(api.setSettings).toHaveBeenLastCalledWith(expect.objectContaining({ look: "paper" }));
     await openAppMenu(t("menu.file"));

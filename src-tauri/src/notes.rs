@@ -308,7 +308,7 @@ struct TrashIndex {
     not_json: bool,
 }
 
-/// What the frontend receives for [`NotesError::ReadOnly`], so it can show its calm hint.
+/// What the frontend receives for [`NotesError::ReadOnly`], so it can show its quiet hint.
 pub const READ_ONLY_CODE: &str = "read-only";
 
 #[derive(Debug, thiserror::Error)]

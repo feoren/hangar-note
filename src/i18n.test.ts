@@ -20,6 +20,13 @@ const DASHES = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`);
 const deKeys = Object.keys(de).sort();
 
 describe("dictionaries", () => {
+  it("name the sidebar's project list apart from the Project level in every language", () => {
+    for (const language of LANGUAGES) {
+      const words = DICTIONARIES[language];
+      expect(words["nav.projects"], language).not.toBe(words["level.project"]);
+    }
+  });
+
   it("exist for the twelve languages of Hangar and only for those", () => {
     expect([...LANGUAGES].sort()).toEqual(
       ["de", "el", "en", "es", "fr", "it", "ja", "pl", "pt", "ru", "tr", "zh"].sort(),

@@ -2,7 +2,7 @@
 // arrow keys on that edge, kept between a minimum and a maximum, and stored in settings.json
 // (`sidebarWidth`, the same numbers as SIDEBAR_WIDTH_* in src-tauri/src/settings.rs). Pure logic.
 
-export const SIDEBAR_WIDTH_DEFAULT = 232;
+export const SIDEBAR_WIDTH_DEFAULT = 248;
 export const SIDEBAR_WIDTH_MIN = 180;
 export const SIDEBAR_WIDTH_MAX = 400;
 /** The sidebar never takes more than this share of the window, so the notes keep their room. */

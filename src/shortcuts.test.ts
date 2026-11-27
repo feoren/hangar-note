@@ -14,6 +14,7 @@ import {
   matchRowShortcut,
   matchSidebarShortcut,
   platformOf,
+  radioTarget,
   shortcutLabel,
   sidebarShortcutLabel,
   sidebarTarget,
@@ -359,5 +360,26 @@ describe("level and sidebar shortcuts", () => {
     expect(sidebarTarget(key("Enter"), 0, 4)).toBeNull();
     expect(sidebarTarget(key("ArrowDown", { shift: true }), 0, 4)).toBeNull();
     expect(sidebarTarget(key("ArrowDown"), 0, 0)).toBeNull();
+  });
+});
+
+describe("look switch keys", () => {
+  it("move the choice with the arrow keys, Home and End, wrapping at the ends", () => {
+    const key = (k: string, extra: Press = {}) => press({ key: k, ...extra });
+    expect(radioTarget(key("ArrowRight"), 0, 3)).toBe(1);
+    expect(radioTarget(key("ArrowDown"), 2, 3)).toBe(0);
+    expect(radioTarget(key("ArrowLeft"), 0, 3)).toBe(2);
+    expect(radioTarget(key("ArrowUp"), 1, 3)).toBe(0);
+    expect(radioTarget(key("Home"), 2, 3)).toBe(0);
+    expect(radioTarget(key("End"), 0, 3)).toBe(2);
+    expect(radioTarget(key("Enter"), 0, 3)).toBeNull();
+    expect(radioTarget(key("ArrowRight", { ctrl: true }), 0, 3)).toBeNull();
+    expect(radioTarget(key("ArrowRight"), 0, 0)).toBeNull();
+  });
+
+  it("swap Left and Right in a right-to-left page", () => {
+    const key = (k: string) => press({ key: k });
+    expect(radioTarget(key("ArrowLeft"), 0, 3, true)).toBe(1);
+    expect(radioTarget(key("ArrowRight"), 0, 3, true)).toBe(2);
   });
 });

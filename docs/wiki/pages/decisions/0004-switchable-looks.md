@@ -1,15 +1,18 @@
 ---
-title: "ADR 0004: Three switchable looks"
+title: "ADR 0004: Switchable looks"
 type: decision
 status: accepted
 superseded_by:
 tags: [ui, design, settings, notes-area, sticky-notes]
 sources: []
 created: 2026-11-26
-updated: 2026-11-26
+updated: 2026-11-27
 ---
 
-# ADR 0004: Three switchable looks
+# ADR 0004: Switchable looks
+
+First accepted with three looks; since the amendment of 2026-11-27 there are two, "Hangar"
+(default) and "Paper". The sections up to "Consequences" are kept as decided on 2026-11-26.
 
 ## Context
 Three design directions were drawn for the notes area and the sticky note (see
@@ -49,3 +52,37 @@ Option 3.
 - More CSS and three layout components to keep consistent; the shared logic keeps the risk of
   losing text the same in every look.
 - Screenshots in the usability pass are taken per look.
+
+## Amendment 2026-11-27: "Calm" removed, paper opens a note only by choice
+
+The owner asked: "remove the style Calm, and Paper must not open a note directly".
+
+- **Two looks.** `calm` is no longer a look. The setting knows `hangar` (the default) and `paper`
+  (`src/looks.ts`, `Look` in `src-tauri/src/settings.rs`). A stored `"calm"`, an unknown value or
+  no value reads as `hangar` in both the backend and the front end (`lookOf`); nothing is migrated
+  on disk, the next save writes the look shown. Gone with it: the choice in the look switch, the app
+  menu and the settings (now two cards), the texts `look.calm` and `look.calmHint` in all 12
+  languages, the icon and the CSS of the look.
+- **Hangar's narrow layout.** What C borrowed from A where its columns do not fit is now part of
+  Hangar: `src/HangarNarrowLayout.tsx` (list or note one at a time with "Back" up to 600 px of room,
+  side by side above it), chosen by `layoutFor` as `hangarNarrow` when the room beside the sidebar
+  is below 608 px and always below 760 px. Hangar works from 320 px to any width.
+- **Sticky note.** Without A's hidden header, both looks show a header in the note's color that is
+  always there and moves the window (`data-tauri-drag-region`, tooltip "drag"). The separate drag
+  strip is gone: one region, the same in both looks.
+- **Paper opens a note only by choice** (`src/paperSheet.ts`, used by `src/useNotesArea.tsx`).
+  Paper's open note is a modal sheet; one that opens by itself hides the cards the person came
+  for. A sheet opens for: a click or Enter on a card (also "Rename" from a card's menu), "+" and
+  Ctrl+Shift+N (a new note is written in its sheet), and requests from Hangar or the command line
+  that name a note or bring text (`open --note`, quick note, capture): each is an explicit choice
+  of that note. Everything else shows the cards, and a note open at that step is saved first and
+  then closed: switching to paper (switch, app menu, settings, or another window), the way back
+  from the trash or the settings, another level or area (sidebar, Ctrl+1 to Ctrl+3), Hangar showing
+  its project, and Undo after a delete (the card comes back with the focus, no sheet). Switching
+  the look keeps drawing the old look until the note is saved and closed, so the sheet never
+  flashes. A note that cannot be saved stays open in its sheet with its notice, as before; a look
+  switch never drops text (`leave`), a person's step to another area follows the usual second-try
+  rule (`leaveByPerson`). The start with paper opens nothing by itself.
+- Tests: the shared behaviour runs for hangar, hangar's narrow layout and paper; `paperSheet.test.ts`
+  and the paper cases in `NotesArea.test.tsx` cover the rule; `the_look_is_read_written_and_falls_back_to_hangar`
+  covers the backend.

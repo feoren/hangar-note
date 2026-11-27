@@ -1,12 +1,14 @@
 // Look "hangar" (direction C, ADR 0004): Hangar's own window. Beside the sidebar (Sidebar.tsx) two
 // columns: the dense list with the search and "+" at its top; on the right the note in its color,
-// its title and tools in a slim header. No status bar: notices float at the bottom (NotesArea.tsx)
-// and the keys live in the app menu's Help. Below 840 px the window shows calm's narrow layout
-// instead (looks.ts, NotesArea.tsx).
+// its title and tools in a slim header that ends with the look switch (alone there while no note
+// is open). No status bar: notices float at the bottom (NotesArea.tsx) and the keys live in the
+// app menu's Help. Where the two columns do not fit, the window shows
+// hangar's narrow layout instead (HangarNarrowLayout.tsx, looks.ts).
 
 import { colorName, noteTone, toneVariables } from "./colors";
 import { DesktopIcon, MoreIcon, PlusIcon, TaskIcon } from "./icons";
 import { KeysList } from "./KeysDialog";
+import { LookSwitch } from "./LookSwitch";
 import {
   emptyAreaText,
   HeldPanel,
@@ -63,6 +65,11 @@ export function HangarLayout({ m }: { m: NotesModel }) {
         aria-label={m.shownTitle === "" ? t("notes.noteLabel") : m.shownTitle}
         style={note === null ? undefined : toneVariables(noteTone(note.color, m.theme))}
       >
+        {note === null && (
+          <div className="pane-tools">
+            <LookSwitch m={m} />
+          </div>
+        )}
         {note === null &&
           (emptyMode && writable ? (
             <div className="hangar-keys">
@@ -143,6 +150,8 @@ export function HangarLayout({ m }: { m: NotesModel }) {
             >
               <MoreIcon />
             </button>
+            <span className="bar-divider" aria-hidden="true" />
+            <LookSwitch m={m} />
           </div>
         )}
         <HeldPanel m={m} />

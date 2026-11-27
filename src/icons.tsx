@@ -197,7 +197,7 @@ export function AlertIcon(props: IconProps) {
   );
 }
 
-/** A calm notice that something happened. */
+/** A quiet notice that something happened. */
 export function InfoIcon(props: IconProps) {
   return (
     <Svg {...props}>
@@ -254,6 +254,38 @@ export function TeamIcon(props: IconProps) {
       <circle cx="6" cy="5.5" r="2.25" />
       <path d="M1.75 13.25c.4-2.3 2-3.5 4.25-3.5s3.85 1.2 4.25 3.5" />
       <path d="M10.75 3.6a2.25 2.25 0 0 1 0 4.3M12 9.9c1.2.45 2 1.55 2.25 3.35" />
+    </Svg>
+  );
+}
+
+/** The private level: one person. */
+export function PersonIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="5.25" r="2.5" />
+      <path d="M3.25 13.5c.45-2.6 2.25-4 4.75-4s4.3 1.4 4.75 4" />
+    </Svg>
+  );
+}
+
+/** The look "paper": cards in a grid. */
+export function PaperLookIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2" y="2" width="5" height="5" rx="1.25" />
+      <rect x="9" y="2" width="5" height="5" rx="1.25" />
+      <rect x="2" y="9" width="5" height="5" rx="1.25" />
+      <rect x="9" y="9" width="5" height="5" rx="1.25" />
+    </Svg>
+  );
+}
+
+/** The look "hangar": a window with a list column and a note under its header. */
+export function HangarLookIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" />
+      <path d="M6.25 2.75v10.5M6.25 6h8" />
     </Svg>
   );
 }

@@ -2,7 +2,8 @@
 // Hangar, the app menu (the three lines), the logo, the name with the version, and at the right
 // edge the button that folds the sidebar away (Ctrl+Shift+S); a line across the whole sidebar
 // below. Under it the three levels ("Private", "Project", "Team", LevelBar.tsx), then "All notes",
-// the projects by their folder name (choosing one shows it in the "Project" level), the colors as
+// the project folders by their name (choosing one shows it in the "Project" level; the section is
+// called "Project folders" so it never reads as a second "Project"), the colors as
 // a category list (sidebarColors.ts), and at the bottom "Recently deleted" and "Settings". The
 // current place is marked (`aria-current`). The arrow keys, Home and End move between the entries
 // (one Tab stop for all of them). Below NAV_MIN_WIDTH the sidebar opens over the notes instead,
@@ -172,15 +173,15 @@ export function Sidebar({
       </div>
 
       <div className="nav-scroll" ref={list}>
-        <ul className="nav-list">{main.map((entry) => area(entry, <NotesIcon size={15} />))}</ul>
+        <ul className="nav-list">{main.map((entry) => area(entry, <NotesIcon size={16} />))}</ul>
 
         {projects.length > 0 && (
           <>
             <p className="nav-section" id="nav-projects">
-              {t("nav.projects")}
+              <span className="nav-section-label">{t("nav.projects")}</span>
             </p>
             <ul className="nav-list" aria-labelledby="nav-projects">
-              {projects.map((entry) => area(entry, <FolderIcon size={15} />))}
+              {projects.map((entry) => area(entry, <FolderIcon size={16} />))}
             </ul>
           </>
         )}
@@ -202,7 +203,7 @@ export function Sidebar({
                 close();
               }}
             >
-              <TrashIcon size={15} />
+              <TrashIcon size={16} />
               <span className="nav-label">{t("notes.trash")}</span>
             </button>
           </li>
@@ -218,7 +219,7 @@ export function Sidebar({
                 close();
               }}
             >
-              <GearIcon size={15} />
+              <GearIcon size={16} />
               <span className="nav-label">{t("notes.settings")}</span>
             </button>
           </li>
@@ -319,7 +320,9 @@ function ColorList({
             setSection({ ...section, open: !section.open });
           }}
         >
-          <span id="nav-colors">{t("notes.colors")}</span>
+          <span className="nav-section-label" id="nav-colors">
+            {t("notes.colors")}
+          </span>
           <ChevronDownIcon size={12} />
           {/* Folded with a filter on: the chosen colors stay in sight. */}
           {!section.open &&
@@ -417,7 +420,10 @@ function ColorList({
                   setSection({ ...section, all: !section.all });
                 }}
               >
-                {t(section.all ? "nav.colorsShowFewer" : "nav.colorsShowAll")}
+                <ChevronDownIcon size={16} />
+                <span className="nav-label">
+                  {t(section.all ? "nav.colorsShowFewer" : "nav.colorsShowAll")}
+                </span>
               </button>
             </li>
           )}

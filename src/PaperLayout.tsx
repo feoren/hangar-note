@@ -1,7 +1,7 @@
 // Look "paper" (direction B, ADR 0004): every note is a card in its own soft color, laid out in a
 // grid like slips on a table; checklists can be ticked right on the card. Beside the sidebar
-// (Sidebar.tsx) the search and "+" sit at the top of the grid. A note opens as a sheet over the
-// grid (a modal dialog): Escape or the close button closes it, and the focus goes back to its
+// (Sidebar.tsx) the search, "+" and the look switch sit at the top of the grid. A note opens, only
+// by choice (paperSheet.ts), as a sheet over the grid (a modal dialog): Escape or the close button closes it, and the focus goes back to its
 // card. While a sheet is open, notices float at its bottom (else at the window's, NotesArea.tsx).
 // One column below 560 px (styles.css).
 
@@ -9,6 +9,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { colorName, NOTE_COLORS, noteTone, toneVariables } from "./colors";
 import { CheckIcon, CloseIcon, DesktopIcon, MoreIcon } from "./icons";
+import { LookSwitch } from "./LookSwitch";
 import {
   HeldPanel,
   ListMessages,
@@ -98,7 +99,7 @@ export function PaperLayout({ m }: { m: NotesModel }) {
   return (
     <div className={emptyMode ? "notes-area layout-paper is-empty" : "notes-area layout-paper"}>
       <div className="paper-room" inert={note !== null}>
-        <ListTop m={m} className="paper-top" />
+        <ListTop m={m} className="paper-top" end={<LookSwitch m={m} />} />
         {emptyMode ? (
           <Welcome m={m} mark={<PaperStack m={m} />} />
         ) : (

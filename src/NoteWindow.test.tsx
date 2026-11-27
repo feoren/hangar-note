@@ -127,7 +127,7 @@ async function settle() {
   });
 }
 
-async function render(look: Look = "calm") {
+async function render(look: Look = "hangar") {
   container = document.createElement("div");
   outside = document.createElement("button");
   document.body.append(container, outside);
@@ -396,11 +396,13 @@ describe("note window", () => {
     expect(document.activeElement).toBe(button);
   });
 
-  it("is always movable by its color strip, and shows its tools on hover", async () => {
+  it("is always movable by its colored header, and shows its tools on hover", async () => {
     await render();
-    const strip = get(".note-strip", HTMLElement);
-    expect(strip.hasAttribute("data-tauri-drag-region")).toBe(true);
-    expect(strip.title).toBe(t("note.drag"));
+    const head = get(".note-head", HTMLElement);
+    expect(head.hasAttribute("data-tauri-drag-region")).toBe(true);
+    expect(head.title).toBe(t("note.drag"));
+    // One region for both looks: no extra strip above the header.
+    expect(container.querySelector(".note-strip")).toBeNull();
     expect(bar()).toBeNull();
     const note = get(".note", HTMLElement);
     await act(async () => {
@@ -422,12 +424,12 @@ describe("note window", () => {
   });
 });
 
-const STICKY_LOOKS: readonly Look[] = ["calm", "paper", "hangar"];
+const STICKY_LOOKS: readonly Look[] = ["hangar", "paper"];
 
 describe.each(STICKY_LOOKS)("note window in the look %s", (look) => {
-  it("can always be moved by a region at its top", async () => {
+  it("can always be moved by its header, which is always there", async () => {
     await render(look);
-    const region = container.querySelector(look === "calm" ? ".note-strip" : ".note-head");
+    const region = container.querySelector(".note-head");
     expect(region?.hasAttribute("data-tauri-drag-region")).toBe(true);
     expect(region?.getAttribute("title")).toBe(t("note.drag"));
     expect(get(".note", HTMLElement).dataset["look"]).toBe(look);
@@ -468,7 +470,7 @@ describe("note window: looks", () => {
   });
 
   it("keeps its editor and what waits to be saved when the look changes", async () => {
-    await render("calm");
+    await render();
     const content = get(".cm-content", HTMLElement);
     await type("Noch nicht gespeichert");
     expect(api.writeSticky).not.toHaveBeenCalled();
@@ -590,7 +592,7 @@ describe("note window: a change outside without a click", () => {
     expect(editor.loads).toEqual([]);
   });
 
-  it("says calmly that the note was deleted outside and keeps its text to copy", async () => {
+  it("says plainly that the note was deleted outside and keeps its text to copy", async () => {
     await render();
     await type("Nur hier");
     api.getSticky.mockRejectedValue("not-found");

@@ -203,3 +203,17 @@ Added the amendment "2026-11-27: security review of the shared folder" to
 pages/decisions/0005-shared-notes-folder.md: cleaned titles, 5000 entries and a byte budget per
 index, reads without the scope lock, migration under the lock, hardened `.writer.lock`, bounded
 listings, duplicate entries dropped, shortened arguments in the log. Updated index.md.
+
+## [2026-11-27] update | Look switch, a calmer sidebar and widths that follow the window
+Added the section "Look switch, a calmer sidebar and widths that follow the window" to
+pages/syntheses/usability-pass.md: a look switch at the top right of the notes in every look, the
+calm note bar always visible, list, page, search, cards, sheet, trash and settings widths that
+follow the window, the sidebar's "Project folders" section, uniform headings and rows, level tabs
+with marks, a default sidebar width of 248 px.
+
+## [2026-11-27] update | "Calm" removed, paper opens a note only by choice
+Added the amendment "2026-11-27: Calm removed, paper opens a note only by choice" to
+pages/decisions/0004-switchable-looks.md (two looks, default hangar, a stored "calm" reads as
+hangar, hangar's narrow layout, one drag header on the sticky note, the paper sheet rule) and the
+section "Two looks and a paper sheet only by choice" to pages/syntheses/usability-pass.md. Updated
+index.md.

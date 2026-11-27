@@ -1,26 +1,30 @@
 // The notes area (ADR 0002, phase 1) in the look the settings name (ADR 0004). Its logic lives
 // once in useNotesArea.tsx; this file lays out the one sidebar (Sidebar.tsx: the app menu, the
 // levels "Private", "Project", "Team", the places and the colors) beside the view (notes, team,
-// trash, settings) in the layout of the look: calm (CalmLayout), paper (PaperLayout) or hangar
-// (HangarLayout), which falls back to calm's layout where its columns do not fit. Beside the
+// trash, settings) in the layout of the look: hangar (HangarLayout, or HangarNarrowLayout where
+// its two columns do not fit) or paper (PaperLayout). Each layout
+// shows the look switch (LookSwitch.tsx) at the top right of the notes. Beside the
 // sidebar there is no bar: the notes and the note, nothing else; notices float at the bottom. The
 // sidebar can be folded away (a small button at the top left brings it back) and widened by
 // dragging its edge; both are stored in settings.json. A narrow window folds it away always and
 // opens it over the notes instead. Switching the look keeps the open note, its unsaved text and
-// its pending save; only the editor's element changes, and the editor follows it.
+// its pending save; only the editor's element changes, and the editor follows it. Paper is the one
+// exception: its sheet opens only by choice, so the open note is saved and closed first
+// (useNotesArea.tsx, `m.look`).
 
 import { useEffect, useRef, useState } from "react";
 
 import { setSidebarOpen, setSidebarWidth } from "./api";
 import type { AppSettings } from "./appSettings";
-import { CalmLayout } from "./CalmLayout";
 import { HangarLayout } from "./HangarLayout";
+import { HangarNarrowLayout } from "./HangarNarrowLayout";
 import type { AppMenuGroup, AppMenuItem } from "./AppMenu";
 import { appMenuGroups } from "./appMenuItems";
 import { SidebarIcon } from "./icons";
 import { KeysDialog } from "./KeysDialog";
 import { LEVEL_PANEL_ID, levelTabId, TeamLevel } from "./LevelBar";
-import { layoutFor, navFolded, type Look } from "./looks";
+import { layoutFor, narrowRoom, navFolded, type Layout } from "./looks";
+import { LookSwitch } from "./LookSwitch";
 import { NotesSettings } from "./NotesSettings";
 import { PaperLayout } from "./PaperLayout";
 import { matchSidebarShortcut, sidebarShortcutLabel } from "./shortcuts";
@@ -84,7 +88,8 @@ export function NotesArea({ app }: { app: AppSettings }) {
   const side = useSidebarState(app);
   const sideShown = !folded && side.open;
   const sideWidth = clampSidebarWidth(side.width, windowWidth);
-  const layout = layoutFor(app.look, windowWidth, sideShown ? sideWidth : 0);
+  const layout = layoutFor(m.look, windowWidth, sideShown ? sideWidth : 0);
+  const narrow = narrowRoom(windowWidth, sideShown ? sideWidth : 0);
   const [overlay, setOverlay] = useState(false);
   const opener = useRef<HTMLElement | null>(null);
 
@@ -188,7 +193,7 @@ export function NotesArea({ app }: { app: AppSettings }) {
     appMenuGroups(
       m,
       { shown: folded ? shownOverlay : side.open, toggle: toggleSide },
-      app.look,
+      m.look,
       () => {
         setKeysShown(true);
       },
@@ -247,7 +252,7 @@ export function NotesArea({ app }: { app: AppSettings }) {
           role={m.level === null || m.view !== "browse" || !sideShown ? undefined : "tabpanel"}
           aria-labelledby={m.level === null || !sideShown ? undefined : levelTabId(m.level)}
         >
-          <View m={m} app={app} layout={layout} />
+          <View m={m} app={app} layout={layout} narrow={narrow} />
         </div>
         {/* The one notice place, floating at the bottom; the paper look's sheet holds its own. */}
         {!behindSheet && <div className="notice-float">{m.noticeSlot}</div>}
@@ -367,7 +372,17 @@ function ResizeHandle({
  * The notes in the look's layout, the team level, or the trash or the settings in their place.
  * Those two keep their "Back" in a narrow window, where the sidebar is folded away.
  */
-function View({ m, app, layout }: { m: NotesModel; app: AppSettings; layout: Look }) {
+function View({
+  m,
+  app,
+  layout,
+  narrow,
+}: {
+  m: NotesModel;
+  app: AppSettings;
+  layout: Layout;
+  narrow: boolean;
+}) {
   if (m.view === "settings" || m.view === "trash") {
     return (
       <div className={layout === "paper" ? "notes-area single on-table" : "notes-area single"}>
@@ -397,6 +412,9 @@ function View({ m, app, layout }: { m: NotesModel; app: AppSettings; layout: Loo
     return (
       <div className={layout === "paper" ? "notes-area single on-table" : "notes-area single"}>
         <div className="single-main">
+          <div className="pane-tools">
+            <LookSwitch m={m} />
+          </div>
           <TeamLevel m={m} />
         </div>
       </div>
@@ -404,5 +422,5 @@ function View({ m, app, layout }: { m: NotesModel; app: AppSettings; layout: Loo
   }
   if (layout === "paper") return <PaperLayout m={m} />;
   if (layout === "hangar") return <HangarLayout m={m} />;
-  return <CalmLayout m={m} />;
+  return <HangarNarrowLayout m={m} narrow={narrow} />;
 }

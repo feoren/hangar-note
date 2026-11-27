@@ -286,3 +286,46 @@ Open points: a release build shows `X.Y.Z-B` only once the release script writes
 `package.json` (or the version is read through Tauri's `app` plugin, which needs a capability);
 counts per scope beyond the shown list need a backend command with colors per folder; the level is
 reachable only through the sidebar (or Ctrl+1 to Ctrl+3) while the sidebar is folded away.
+
+## Look switch, a calmer sidebar and widths that follow the window
+
+The owner asked for a better left sidebar, a quick choice of the look at the top right of the
+notes, and for the window's content to use its width instead of narrow columns. Reworked on
+2026-11-27.
+
+| Area | Finding | Change | Reason |
+| --- | --- | --- | --- |
+| Look switch | The look could only be changed in the settings or the app menu. | `src/LookSwitch.tsx`: three 32 px icons (`CalmLookIcon`, `PaperLookIcon`, `HangarLookIcon`) as a `radiogroup` named "Look", each `radio` named and titled after its look, one Tab stop, arrow keys, Home and End move the choice (`radioTarget` in `src/shortcuts.ts`, right-to-left aware). It sits at the top right of the notes in every look: at the right end of calm's note bar (in the list's top row while the list fills a narrow room, `narrowRoom` in `src/looks.ts`), after "+" in paper's top row, at the end of hangar's note header, alone in a small row without an open note and on the team level. Not in the trash and the settings, which have the full choice. Choosing calls `chooseLook`, so the open note and its pending save stay; the new layout's switch takes the focus back (`src/lookFocus.ts`). | One click to the look, in the same place everywhere. |
+| Calm note bar | The note's tools only faded in on hover; an open note looked as if it could not be handled. | The bar is always there, its icons muted until hovered, with a color button (the `noteColor` menu, as in hangar) and a thin line before the look switch. Its start lines up with the page. | What a note can do is visible. |
+| Widths | The list was fixed at 260 to 320 px (hangar 240 to 296 px), the calm page at 676 px, paper's search at 440 px, the settings at 560 px; wide windows showed a narrow island beside empty room. | List `clamp(280px, 30%, 420px)` in calm and hangar; the page up to 960 px, centered beyond it, its side room `clamp(20px, 3vw, 48px)` (hangar too); paper's search fills its row up to 720 px, cards `minmax(260px, 1fr)`, the sheet up to 880 px; trash and settings use a centered column of 880 px, heading included, the language select up to 420 px. Menus, toasts and dialogs stay narrow. | The window's room goes to the content. |
+| Sidebar | "Project" (tab) and "Projects" (section) read as the same thing; headings differed; "Show all colors" was a small link; rows and icons were small. | The section is called "Project folders" in all 12 languages (a test keeps it apart from the tab's name); every heading has the same size, tone, height and spacing; rows are 36 px with 16 px icons, the current one with the selected surface and its icon and count in the accent; "Show all colors" is a normal row with a chevron. The level tabs are equal in width with a mark above the name (person, folder, people), so the names keep the whole tab width. Default width 248 px (front end and `settings.rs`), `HANGAR_MIN_WIDTH` follows it (856 px). | Quick to scan, nothing reads twice. |
+
+Checked with tests (the switch in every look, click, arrow keys, focus after the change, aria; the
+section names in every language; `narrowRoom`, `layoutFor` with the new default) and in a browser
+preview against Vite with a mocked Tauri API (calm, paper and hangar; light and dark; 360, 760,
+1100, 1280 and 1600 px; no horizontal overflow).
+
+Open points: a stored `sidebarWidth` of 232 stays as the person's width; only new settings start at
+248 px. A look whose save fails leaves the switch's focus hand-over pending until that look is
+chosen again.
+
+## Two looks and a paper sheet only by choice
+
+The owner removed the look "Calm" and asked that paper never opens a note by itself (ADR
+[[0004-switchable-looks]], amendment 2026-11-27). Sections above that name calm describe the state
+before that day.
+
+| Area | Finding | Change | Reason |
+| --- | --- | --- | --- |
+| Looks | Three looks, two of them close to each other in wide windows. | Two looks, "Hangar" (default) and "Paper", in the look switch (two icons), the app menu and the settings (two cards). A stored "calm" opens as Hangar. | Fewer choices, each clearly different. |
+| Narrow windows | Hangar borrowed calm's layout where its columns did not fit. | The same layout is now Hangar's own (`src/HangarNarrowLayout.tsx`): list or note with "Back" up to 600 px of room, the look switch at the end of the note bar or the list's top row. | Hangar works from 320 px to 2000 px without a second look behind it. |
+| Sticky note | Calm hid the header and moved the window by a 10 px strip. | Both looks show the colored header, which always moves the window. | One way to grab a note, easy to find. |
+| Paper sheet | Switching to paper with a note open, or coming back from the trash, the settings or another area, showed the note's sheet over the cards. | Paper shows the cards at every such step; the open note is saved first and then closed. Only a card, "+", Ctrl+Shift+N or a request that names a note or brings text opens a sheet. Undo after a delete brings the card back with the focus. A note that cannot be saved stays open with its notice. | The person decides when a sheet covers the cards; no text is lost. |
+
+Checked with tests (looks and `lookOf`, the switch with two radios in every variant, switching to
+paper saves and shows the cards, a failing save keeps the sheet, the start with paper, the card
+click, new note, Hangar's open request and show project, the way back from the settings, Ctrl+1,
+Undo; the backend reads `"calm"` as hangar and writes hangar with the next save) and in a browser
+preview against Vite with a mocked Tauri API (hangar at 360, 760, 1100 and 1600 px; paper light
+and dark, cards and an opened sheet).
+

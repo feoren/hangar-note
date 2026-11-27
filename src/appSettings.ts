@@ -14,7 +14,7 @@ import {
   type TrayLabels,
 } from "./api";
 import type { Theme } from "./colors";
-import { lookOf, type Look } from "./looks";
+import { DEFAULT_LOOK, lookOf, type Look } from "./looks";
 import {
   createTranslator,
   detectLanguage,
@@ -68,7 +68,7 @@ export interface AppSettings {
   /** `null` until the backend answered. */
   settings: SettingsView | null;
   theme: Theme;
-  /** The chosen look; a value this version does not know is `calm`. */
+  /** The chosen look; a value this version does not know (an old "calm" too) is `hangar`. */
   look: Look;
   language: Language;
   t: Translate;
@@ -95,7 +95,7 @@ export function useAppSettings(): AppSettings {
             theme: "system",
             newNoteColor: "lemon",
             colorNames: {},
-            look: "calm",
+            look: DEFAULT_LOOK,
             autostart: false,
           });
         }

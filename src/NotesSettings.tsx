@@ -112,7 +112,7 @@ export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () =>
 
         <fieldset className="field">
           <legend>{t("settings.look")}</legend>
-          {/* Native radios: the arrow keys move through the three, and each choice applies at once. */}
+          {/* Native radios: the arrow keys move between the two, and each choice applies at once. */}
           <div className="look-cards">
             {LOOKS.map((look) => (
               <label key={look} className={app.look === look ? "look-card selected" : "look-card"}>
@@ -226,20 +226,6 @@ export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () =>
 function LookPreview({ look }: { look: Look }) {
   return (
     <span className={`look-preview look-preview-${look}`} aria-hidden="true">
-      {look === "calm" && (
-        <>
-          <span className="lp-list">
-            <i className="lp-row lp-lemon" />
-            <i className="lp-row lp-sky" />
-            <i className="lp-row lp-mint" />
-          </span>
-          <span className="lp-page">
-            <i className="lp-line wide" />
-            <i className="lp-line" />
-            <i className="lp-line short" />
-          </span>
-        </>
-      )}
       {look === "paper" && (
         <>
           <i className="lp-card lp-lemon" />

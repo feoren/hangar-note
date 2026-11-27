@@ -1,6 +1,6 @@
 // One plain sentence for every error a command can answer, never the backend's text, a path or a
 // code. The backend sends fixed codes (api.ts); the sentences live in i18n.ts. Pure, so every code
-// is tested. "read-only" has no sentence here: the calm read-only hint already says it.
+// is tested. "read-only" has no sentence here: the quiet read-only hint already says it.
 
 import {
   commandError,

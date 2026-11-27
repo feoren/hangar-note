@@ -1,13 +1,10 @@
 // One sticky note in its own frameless window (ADR 0001), in the look the settings name
-// (ADR 0004):
-// - calm: at rest only the text and a slim color strip at the top, which is always there to drag
-//   the window by. On hover or while the focus is anywhere in the note, the header ("New note",
-//   the menu, "Close") and the formatting bar fade in; their places are kept free, so the text
-//   never moves.
-// - paper: a fixed colored header (the drag region) and a formatting bar that floats over the
-//   text's bottom edge while you write or point at the note.
+// (ADR 0004). In both looks a header in the note's color is always there and moves the window:
 // - hangar: the header names the note and its checklist progress; the formatting bar at the
-//   bottom says whether the text is saved.
+//   bottom says whether the text is saved and keeps its place while hidden, so the text never
+//   moves.
+// - paper: the header holds only the buttons; the formatting bar floats over the text's bottom
+//   edge while you write or point at the note.
 // The editor's element is the same in every look, so switching keeps the text, the cursor and
 // what waits to be saved. Typing is saved 500 ms after the last keystroke, at once on blur and
 // close, and before the backend deletes the note from the notes area, quits or flushes.
@@ -520,16 +517,7 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
         if (!(next instanceof Node && event.currentTarget.contains(next))) setFocused(false);
       }}
     >
-      {look === "calm" && (
-        // Always there and easy to grab: without a visible header, this moves the window.
-        <div key="strip" className="note-strip" data-tauri-drag-region title={t("note.drag")} />
-      )}
-      <header
-        key="head"
-        className="note-head"
-        data-tauri-drag-region
-        title={look === "calm" ? undefined : t("note.drag")}
-      >
+      <header key="head" className="note-head" data-tauri-drag-region title={t("note.drag")}>
         {look === "hangar" ? (
           <>
             <span className="note-head-title" data-tauri-drag-region>
@@ -767,8 +755,8 @@ export function NoteWindow({ label, theme, colorNames, look }: Props) {
       )}
 
       {writable && (
-        // calm and hangar keep the bar's place while it is hidden, so the text does not jump when
-        // it shows; paper's bar floats over the text, which keeps room for it at its end.
+        // hangar keeps the bar's place while it is hidden, so the text does not jump when it shows;
+        // paper's bar floats over the text, which keeps room for it at its end.
         <div key="format" className="format-slot">
           {toolsShown && (
             <div className="format-bar" role="toolbar" aria-label={t("format.bar")}>

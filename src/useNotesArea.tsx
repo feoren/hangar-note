@@ -1,7 +1,7 @@
 // The one logic of the notes area (ADR 0002 phase 1, ADR 0004): state, saving, leaving, notices,
-// errors, menus and keyboard handling exist once here; each look (CalmLayout, PaperLayout,
-// HangarLayout) only lays out what this hook offers. The flow (quick note that exists only once
-// you type, automatic title, saving 500 ms after the last keystroke and on leaving a note, trash
+// errors, menus and keyboard handling exist once here; each layout (HangarLayout,
+// HangarNarrowLayout, PaperLayout) only lays out what this hook offers. The flow (quick note that
+// exists only once you type, automatic title, saving 500 ms after the last keystroke and on leaving a note, trash
 // with undo) follows Hangar's src/NotesPanel.tsx (MIT, same owner).
 //
 // One editor per note: a note on the desktop is edited in its sticky note; here it shows
@@ -94,6 +94,7 @@ import {
   type ChecklistProgress,
 } from "./noteText";
 import type { Look } from "./looks";
+import { lookToHold, opensOnlyByChoice } from "./paperSheet";
 import { PopupMenu, type MenuItem } from "./PopupMenu";
 import { forgetColorSection } from "./sidebarColors";
 import {
@@ -286,6 +287,24 @@ export function useNotesArea(app: AppSettings) {
   /** The switch as set in this window, until the settings bring the stored state. */
   const [onTopSet, setOnTopSet] = useState<boolean | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  /**
+   * The look as the settings name it, once they were read. A change to a look whose note opens
+   * only by choice (paper, paperSheet.ts) keeps the old look drawn (`heldLook`) until the open
+   * note is saved and closed, so its sheet never shows by itself, not even for a moment.
+   */
+  const knownLook = settings === null ? null : app.look;
+  const [seenLook, setSeenLook] = useState(knownLook);
+  const [heldLook, setHeldLook] = useState<Look | null>(null);
+  if (seenLook !== knownLook) {
+    setSeenLook(knownLook);
+    setHeldLook(lookToHold(seenLook, knownLook, note !== null));
+  }
+  /** The look the notes area draws. */
+  const look = heldLook ?? app.look;
+  const lookRef = useRef(look);
+  useEffect(() => {
+    lookRef.current = look;
+  });
 
   const noteRef = useRef<Current | null>(null);
   const textRef = useRef("");
@@ -387,7 +406,7 @@ export function useNotesArea(app: AppSettings) {
     foldersRef.current = listFolders;
   });
 
-  /** A calm info, e.g. "Deleted" with "Undo"; it goes after a few seconds. */
+  /** A quiet info, e.g. "Deleted" with "Undo"; it goes after a few seconds. */
   const inform = useCallback((notice: Notice) => {
     setNotices((slots) => putNotice(slots, "info", notice));
   }, []);
@@ -418,7 +437,7 @@ export function useNotesArea(app: AppSettings) {
     [t],
   );
 
-  /** An error from the backend as a plain sentence; "read only" has its own calm line already. */
+  /** An error from the backend as a plain sentence; "read only" has its own quiet line already. */
   const fail = useCallback(
     (e: unknown) => {
       const message = errorMessage(e, "action");
@@ -1019,6 +1038,49 @@ export function useNotesArea(app: AppSettings) {
     });
   }, [leaveByPerson, show]);
 
+  /**
+   * Saves and closes the open note where the look opens notes only by choice (paperSheet.ts), so
+   * the list shows; `false` when it could not be saved and stays open. `byPerson`: the person
+   * asked for the step (see `leaveByPerson`); otherwise no text is ever dropped. `still`: whether
+   * the step is still wanted once the note is saved.
+   */
+  const closeForList = useCallback(
+    async (byPerson: boolean, still: () => boolean = () => true): Promise<boolean> => {
+      const open = noteRef.current;
+      if (open === null) return true;
+      generation.current += 1;
+      const mine = generation.current;
+      if (!(await (byPerson ? leaveByPerson() : leave()))) return false;
+      // Another note opened meanwhile, or the step is no longer wanted.
+      if (mine !== generation.current || !still()) return true;
+      show(null, "", false);
+      setPane("list");
+      requestAnimationFrame(() => {
+        const active = document.activeElement;
+        if (active === null || active === document.body) {
+          focusRow(open.id != null ? noteKey({ ...open, id: open.id }) : null);
+        }
+      });
+      return true;
+    },
+    [leave, leaveByPerson, show],
+  );
+
+  // The look turned to paper with a note open: saved and closed first, then paper shows its
+  // cards. A note that cannot be saved stays open in its sheet, its notice says why.
+  useEffect(() => {
+    if (heldLook === null) return;
+    let live = true;
+    void Promise.resolve()
+      .then(() => closeForList(false, () => live))
+      .then(() => {
+        if (live) setHeldLook(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [heldLook, closeForList]);
+
   const newNote = () => {
     if (!writable || newFolder === null) return;
     setQuery("");
@@ -1039,6 +1101,8 @@ export function useNotesArea(app: AppSettings) {
       for (const request of requests) {
         switch (request.kind) {
           case "showProject":
+            // Hangar shows its project, not a note: paper shows the project's cards.
+            if (opensOnlyByChoice(lookRef.current)) await closeForList(false);
             if (fresh.project !== null) followHangar(fresh.project);
             setQuery("");
             break;
@@ -1106,6 +1170,7 @@ export function useNotesArea(app: AppSettings) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       newFolder?.path,
+      closeForList,
       language,
       openNote,
       inform,
@@ -1246,7 +1311,17 @@ export function useNotesArea(app: AppSettings) {
           run: () => {
             setNotices((slots) => clearNotice(slots, "info", notice));
             void restore(ref.folder, ref.id, title).then((restored) => {
-              if (restored !== undefined) void openNote({ folder: ref.folder, id: restored }, true);
+              if (restored === undefined) return;
+              // Paper opens a note only by choice: its card is back, with the focus on it.
+              if (!opensOnlyByChoice(lookRef.current)) {
+                void openNote({ folder: ref.folder, id: restored }, true);
+                return;
+              }
+              void reloadRef.current().then(() => {
+                requestAnimationFrame(() => {
+                  focusRow(noteKey({ folder: ref.folder, id: restored }));
+                });
+              });
             });
           },
         },
@@ -2042,7 +2117,14 @@ export function useNotesArea(app: AppSettings) {
   const leaveFor = (next: Exclude<View, "browse">, from: ReturnFocus) => {
     returnFocus.current = from;
     void leaveByPerson().then((left) => {
-      if (left) setView(next);
+      if (!left) return;
+      // Paper opens a note only by choice: on the way back it shows the cards.
+      if (opensOnlyByChoice(lookRef.current) && noteRef.current !== null) {
+        generation.current += 1;
+        show(null, "", false);
+        setPane("list");
+      }
+      setView(next);
     });
   };
 
@@ -2089,6 +2171,14 @@ export function useNotesArea(app: AppSettings) {
    * ends (it spans all notes, the area would not show), and a narrow window shows the list.
    */
   const goTo = (next: NotesScope) => {
+    // Paper opens a note only by choice: another area shows its cards, the open note is saved and
+    // closed first, and stays open if it cannot be saved.
+    if (opensOnlyByChoice(lookRef.current) && noteRef.current !== null) {
+      void closeForList(true).then((closed) => {
+        if (closed && noteRef.current === null) goToRef.current(next);
+      });
+      return;
+    }
     setScope(next);
     setQuery("");
     setPane("list");
@@ -2360,7 +2450,8 @@ export function useNotesArea(app: AppSettings) {
     setRenamingColor,
     renameColor,
     openColorMenu,
-    // The app menu
+    // The look and the app menu
+    look,
     chooseLook,
     canEdit,
     editNote,

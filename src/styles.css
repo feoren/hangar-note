@@ -453,41 +453,23 @@ kbd {
   font-size: 14px;
 }
 
-/* Always there: the window has no frame, so this strip is where it is grabbed and moved. */
-.note-strip {
-  flex: none;
-  height: 10px;
-  background: var(--note-head);
-  cursor: grab;
-}
-
-.note-strip:active {
-  cursor: grabbing;
-}
-
-/* At rest only the text. The header fades in on hover and with the focus; its place below the
-   strip stays free (and draggable), so the text never moves. */
+/* Always there in its color: the window has no frame, so the header is where it is grabbed and
+   moved. */
 .note-head {
-  position: absolute;
-  top: 10px;
-  right: 0;
-  left: 0;
-  z-index: 2;
   display: flex;
+  flex: none;
   align-items: center;
   gap: 2px;
   height: 36px;
   padding: 2px 4px;
+  background: var(--note-head);
   color: var(--note-muted);
-  opacity: 0;
+  cursor: grab;
   user-select: none;
-  transition: opacity 140ms var(--ease-out);
 }
 
-.note:hover .note-head,
-.note.hovered .note-head,
-.note:focus-within .note-head {
-  opacity: 1;
+.note-head:active {
+  cursor: grabbing;
 }
 
 .note-head .icon-button:hover {
@@ -515,7 +497,6 @@ kbd {
 .note > .note-body {
   flex: 1;
   min-height: 0;
-  margin-top: 36px;
 }
 
 .note-message {
@@ -581,7 +562,7 @@ kbd {
 /* `--side-width` is the sidebar's width as dragged (NotesArea.tsx); folding it away slides it shut
    in 180 ms, which reduced motion turns into a jump. */
 .notes-shell {
-  --side-width: 232px;
+  --side-width: 248px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   height: 100%;
@@ -699,15 +680,17 @@ kbd {
   background: var(--hover);
 }
 
+/* Equal widths, the mark above the name: the names keep the whole width of their tab. */
 .level-tab {
   display: inline-flex;
   flex: 1 1 0;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 2px;
   min-width: 0;
-  height: 28px;
-  padding: 0 6px;
+  height: 46px;
+  padding: 0 4px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -736,6 +719,16 @@ kbd {
 
 .level-tab > svg {
   flex: none;
+}
+
+.level-tab[aria-selected="true"] > svg {
+  color: var(--accent);
+}
+
+.level-tab .level-label {
+  max-width: 100%;
+  font-size: 12px;
+  line-height: 15px;
 }
 
 .level-label {
@@ -778,7 +771,7 @@ kbd {
 .level-project-name .level-label {
   flex: 0 1 auto;
 }
-/* ---- The team level: one calm sentence until Hangar is connected ---- */
+/* ---- The team level: one plain sentence until Hangar is connected ---- */
 
 .team-level {
   display: grid;
@@ -986,12 +979,13 @@ kbd {
   list-style: none;
 }
 
+/* One row height, one icon size, one indent for every entry of the sidebar. */
 .nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 34px;
+  min-height: 36px;
   padding: 0 10px;
   border: 0;
   border-radius: 6px;
@@ -1020,7 +1014,8 @@ kbd {
   color: var(--muted);
 }
 
-.nav-item[aria-current="page"] > svg {
+.nav-item[aria-current="page"] > svg,
+.nav-item[aria-current="page"] .nav-count {
   color: var(--accent);
 }
 
@@ -1034,22 +1029,36 @@ kbd {
 
 .nav-count {
   flex: none;
+  min-width: 2ch;
   color: var(--muted);
   font-size: 12px;
+  text-align: end;
   font-variant-numeric: tabular-nums;
   font-weight: 400;
 }
 
+/* Every section heading alike: the same size, tone, height and room above it. */
 .nav-section,
 .nav-section-row {
-  margin: 20px 0 6px;
+  margin: 18px 0 4px;
 }
 
 .nav-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
   padding: 0 10px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
+}
+
+.nav-section-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-section-row {
@@ -1111,6 +1120,7 @@ kbd {
   flex: none;
   width: 12px;
   height: 12px;
+  margin-inline: 2px;
   border: 1.5px solid var(--edge);
   border-radius: 4px;
   background: var(--dot);
@@ -1144,16 +1154,21 @@ kbd {
   font: inherit;
 }
 
-/* "Show all colors": quiet, in line with the colors' names. */
+/* "Show all colors": a row like the others, a little quieter, its chevron in the icon place. */
 .nav-more {
-  min-height: 30px;
-  padding-inline-start: 32px;
   color: var(--muted);
-  font-size: 12px;
 }
 
 .nav-more:hover {
   color: var(--text);
+}
+
+.nav-more > svg {
+  transition: transform 150ms var(--ease-out);
+}
+
+.nav-more[aria-expanded="true"] > svg {
+  transform: rotate(180deg);
 }
 
 .nav-fill {
@@ -1223,6 +1238,78 @@ kbd {
   width: 34px;
   min-height: 34px;
   padding: 0;
+}
+
+.list-top-end {
+  display: flex;
+  flex: none;
+  margin-inline-start: auto;
+}
+
+/* ---- The look switch: two small icons at the top right of the notes, in every look ---- */
+
+.look-switch {
+  display: inline-flex;
+  flex: none;
+  gap: 1px;
+  padding: 1px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.look-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+.look-option:hover {
+  color: var(--text);
+}
+
+.look-option[aria-checked="true"] {
+  background: var(--selected);
+  color: var(--accent);
+}
+
+.look-option:focus-visible {
+  outline-offset: -2px;
+}
+
+/* A thin line between the note's tools and the look switch. */
+.bar-divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin-inline: 6px;
+  background: var(--border);
+}
+
+.bar-end {
+  display: flex;
+  flex: none;
+  margin-inline-start: auto;
+}
+
+/* The look switch alone at the top right, where no note bar is there to hold it. */
+.pane-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 44px;
+  padding: 6px 8px 0;
 }
 
 /* The sidebar folded away: its button floats at the top left, so the list's top and the trash's
@@ -1319,13 +1406,14 @@ kbd {
   position: relative;
   display: grid;
   grid-template-areas: "list note";
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  /* The list grows with the window, the note takes the rest. */
+  grid-template-columns: clamp(280px, 30%, 420px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   background: var(--bg);
 }
 
-.layout-calm.is-empty,
+.layout-hangar-narrow.is-empty,
 .notes-area.single {
   grid-template-areas: "list";
   grid-template-columns: minmax(0, 1fr);
@@ -1336,7 +1424,7 @@ kbd {
   background: var(--table);
 }
 
-.layout-calm.is-empty .note-pane {
+.layout-hangar-narrow.is-empty .note-pane {
   display: none;
 }
 
@@ -1353,7 +1441,7 @@ kbd {
   border-right: 1px solid var(--border);
 }
 
-.layout-calm.is-empty .list-pane {
+.layout-hangar-narrow.is-empty .list-pane {
   border-right: 0;
 }
 
@@ -1687,6 +1775,9 @@ kbd {
 /* ---- The open note, read like a page ---- */
 
 .note-pane {
+  /* The page: as wide as the room allows up to a comfortable measure, centered beyond it. */
+  --page-max: 960px;
+  --page-pad: clamp(20px, 3vw, 48px);
   --note-bg: var(--bg);
   --note-head: var(--hover);
   --note-text: var(--text);
@@ -1701,7 +1792,7 @@ kbd {
   color: var(--text);
 }
 
-.layout-calm .note-pane[style]::before {
+.layout-hangar-narrow .note-pane[style]::before {
   position: absolute;
   inset: 0 0 auto;
   height: 3px;
@@ -1725,32 +1816,26 @@ kbd {
   line-height: 1.5;
 }
 
+/* The note's tools, always there and quiet. Its start lines up with the page below (`--page-pad`
+   and the page's centering in a wide room); the look switch closes it at the right edge. */
 .note-bar {
   display: flex;
   flex: none;
   align-items: center;
   gap: 4px;
   min-height: 52px;
-  padding: 12px 16px 0 28px;
+  padding: 10px 12px 0 max(var(--page-pad), calc((100% - var(--page-max)) / 2 + var(--page-pad)));
 }
 
-/* Just the text: the note's small toolbar comes in on hover and focus, and stays where there is
-   no hover, while the note is not saved, and when one note fills a narrow window. */
-.layout-calm .note-bar {
-  opacity: 0;
-  transition: opacity 150ms var(--ease-out);
+.note-bar .icon-button,
+.note-bar .ghost-button {
+  color: var(--muted);
 }
 
-.layout-calm .note-pane:hover .note-bar,
-.layout-calm .note-bar:focus-within,
-.layout-calm .note-bar:has(.note-unsaved, [aria-expanded="true"]) {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .layout-calm .note-bar {
-    opacity: 1;
-  }
+.note-bar .icon-button:hover,
+.note-bar .ghost-button:hover,
+.note-bar .icon-button[aria-expanded="true"] {
+  color: var(--text);
 }
 
 .note-crumb {
@@ -1773,8 +1858,9 @@ kbd {
 }
 
 .note-page {
-  max-width: 676px;
-  padding: 4px 28px 32px;
+  max-width: var(--page-max);
+  margin-inline: auto;
+  padding: 4px var(--page-pad) 32px;
 }
 
 .note-heading {
@@ -2211,7 +2297,21 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  max-width: 560px;
+}
+
+/* The trash and the settings use the room up to a column of 880 px, centered beyond it, heading
+   included; their scrollbar stays at the window's edge. */
+.single-main .pane-head,
+.single-main .single-wrap {
+  padding-inline: max(16px, calc((100% - 880px) / 2));
+}
+
+.notes-shell[data-side="closed"] .single-main .pane-head {
+  padding-inline-start: max(56px, calc((100% - 880px) / 2));
+}
+
+.field select {
+  max-width: 420px;
 }
 
 .field {
@@ -2332,7 +2432,7 @@ kbd {
   flex-wrap: wrap;
 }
 
-/* ---- The look setting: three cards with a small drawing each ---- */
+/* ---- The look setting: two cards with a small drawing each ---- */
 
 .look-cards {
   display: grid;
@@ -2522,9 +2622,8 @@ kbd {
 }
 
 .layout-paper .search {
-  max-width: 440px;
+  max-width: 720px;
   height: 40px;
-  margin-inline: auto;
   padding: 0 4px 0 16px;
   border: 0;
   border-radius: 999px;
@@ -2555,7 +2654,7 @@ kbd {
 
 .paper-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   align-items: start;
   gap: 16px;
   margin: 0;
@@ -2790,7 +2889,7 @@ kbd {
   z-index: 21;
   display: flex;
   flex-direction: column;
-  width: min(680px, calc(100vw - 32px));
+  width: min(880px, calc(100vw - 48px));
   overflow: hidden;
   border-radius: 18px;
   background: var(--note-bg);
@@ -2995,7 +3094,7 @@ kbd {
 .layout-hangar {
   display: grid;
   grid-template-areas: "list note";
-  grid-template-columns: minmax(240px, 296px) minmax(0, 1fr);
+  grid-template-columns: clamp(280px, 30%, 420px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   background: var(--bg);
@@ -3171,6 +3270,29 @@ kbd {
   margin-inline: 4px;
 }
 
+/* On the note's own header the switch takes the note's tones, so it never sits there as a patch. */
+.hangar-head .look-switch {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--note-text) 20%, transparent);
+}
+
+.hangar-head .look-option {
+  color: var(--note-muted);
+}
+
+.hangar-head .look-option:hover,
+.hangar-head .look-option[aria-checked="true"] {
+  color: var(--note-text);
+}
+
+.hangar-head .look-option[aria-checked="true"] {
+  background: color-mix(in srgb, var(--note-text) 12%, transparent);
+}
+
+.hangar-head .bar-divider {
+  background: color-mix(in srgb, var(--note-text) 20%, transparent);
+}
+
 /* A narrow note column (760 to about 1000 px wide windows) keeps the title readable and "…" in
    reach: "On the desktop" shows only its icon (its name stays for screen readers and in the
    tooltip). Below 320 px the progress moves to the status bar (NARROW_NOTE, HangarLayout.tsx). */
@@ -3198,8 +3320,7 @@ kbd {
 }
 
 .hangar-editor .note-page {
-  max-width: 760px;
-  padding: 14px 20px 24px;
+  padding-block: 14px 24px;
 }
 
 .layout-hangar .note-editor .cm-editor {
@@ -3221,23 +3342,9 @@ kbd {
 
 /* ---- The sticky note in the looks paper and hangar ---- */
 
-.note[data-look="paper"] .note-head,
-.note[data-look="hangar"] .note-head {
-  position: static;
-  flex: none;
-  background: var(--note-head);
-  opacity: 1;
-  cursor: grab;
-}
-
 .note[data-look="paper"] .note-head {
   height: 40px;
   padding: 4px;
-}
-
-.note[data-look="paper"] > .note-body,
-.note[data-look="hangar"] > .note-body {
-  margin-top: 0;
 }
 
 .note[data-look="paper"] .note-menu {
@@ -3368,10 +3475,6 @@ kbd {
     display: inline-flex;
   }
 
-  .layout-calm .note-bar {
-    opacity: 1;
-  }
-
   .note-bar {
     padding: 8px 8px 0;
   }
@@ -3405,6 +3508,11 @@ kbd {
     padding: 0;
     width: 32px;
   }
+
+  /* At 320 px every tool of the note bar and the look switch fit only without the thin line. */
+  .note-bar .bar-divider {
+    display: none;
+  }
 }
 
 /* Reduced motion: only opacity, 80 ms at most, no scaling. */
@@ -3417,8 +3525,7 @@ kbd {
   }
 
   .row-tools,
-  .note-row-meta,
-  .note-head {
+  .note-row-meta {
     transition: opacity 80ms linear !important;
   }
 

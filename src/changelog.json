@@ -88,18 +88,18 @@
         "zh": "八种颜色帮你整理笔记。可按一种或多种颜色筛选，并为每种颜色起自己的名字。"
       },
       {
-        "de": "Ruhig und aufgeräumt: Einfärben, auf den Desktop legen und Löschen gehen direkt an der Zeile, auch per Rechtsklick oder Umschalt+F10.",
-        "en": "Calm and tidy: color a note, put it on the desktop or delete it right from its row, also with a right click or Shift+F10.",
-        "el": "Ήρεμο και τακτοποιημένο: χρωμάτισε μια σημείωση, βάλ' την στην επιφάνεια εργασίας ή διάγραψέ την από τη γραμμή της, και με δεξί κλικ ή Shift+F10.",
-        "es": "Tranquilo y ordenado: colorea una nota, ponla en el escritorio o elimínala desde su fila, también con clic derecho o Mayús+F10.",
-        "fr": "Calme et rangé : colore une note, pose-la sur le bureau ou supprime-la depuis sa ligne, aussi par clic droit ou Maj+F10.",
-        "it": "Calmo e ordinato: colora una nota, mettila sul desktop o eliminala dalla sua riga, anche con il clic destro o Maiusc+F10.",
-        "ja": "すっきり落ち着いた画面になりました。色分け、デスクトップへの配置、削除は一覧の行から直接できます。右クリックや Shift+F10 でも操作できます。",
-        "pl": "Spokojnie i porządnie: pokoloruj notatkę, połóż ją na pulpicie albo usuń prosto z jej wiersza, także prawym kliknięciem lub Shift+F10.",
-        "pt": "Calmo e organizado: dê cor a uma nota, coloque-a na área de trabalho ou exclua-a direto da linha, também com clique direito ou Shift+F10.",
-        "ru": "Спокойно и аккуратно: раскрась заметку, положи её на рабочий стол или удали прямо из строки, также правым кликом или Shift+F10.",
-        "tr": "Sakin ve düzenli: bir notu renklendir, masaüstüne koy ya da doğrudan satırından sil; sağ tık veya Shift+F10 ile de olur.",
-        "zh": "界面更安静整洁：直接在列表行里给笔记上色、放到桌面或删除，也可以右键或按 Shift+F10。"
+        "de": "Aufgeräumt: Einfärben, auf den Desktop legen und Löschen gehen direkt an der Zeile, auch per Rechtsklick oder Umschalt+F10.",
+        "en": "Tidy: color a note, put it on the desktop or delete it right from its row, also with a right click or Shift+F10.",
+        "el": "Τακτοποιημένο: χρωμάτισε μια σημείωση, βάλ' την στην επιφάνεια εργασίας ή διάγραψέ την από τη γραμμή της, και με δεξί κλικ ή Shift+F10.",
+        "es": "Ordenado: colorea una nota, ponla en el escritorio o elimínala desde su fila, también con clic derecho o Mayús+F10.",
+        "fr": "Bien rangé : colore une note, pose-la sur le bureau ou supprime-la depuis sa ligne, aussi par clic droit ou Maj+F10.",
+        "it": "Ordinato: colora una nota, mettila sul desktop o eliminala dalla sua riga, anche con il clic destro o Maiusc+F10.",
+        "ja": "すっきりした画面になりました。色分け、デスクトップへの配置、削除は一覧の行から直接できます。右クリックや Shift+F10 でも操作できます。",
+        "pl": "Porządnie: pokoloruj notatkę, połóż ją na pulpicie albo usuń prosto z jej wiersza, także prawym kliknięciem lub Shift+F10.",
+        "pt": "Organizado: dê cor a uma nota, coloque-a na área de trabalho ou exclua-a direto da linha, também com clique direito ou Shift+F10.",
+        "ru": "Аккуратно: раскрась заметку, положи её на рабочий стол или удали прямо из строки, также правым кликом или Shift+F10.",
+        "tr": "Düzenli: bir notu renklendir, masaüstüne koy ya da doğrudan satırından sil; sağ tık veya Shift+F10 ile de olur.",
+        "zh": "界面更整洁：直接在列表行里给笔记上色、放到桌面或删除，也可以右键或按 Shift+F10。"
       },
       {
         "de": "Geht etwas schief, sagt dir ein klarer Satz unten im Fenster, was passiert ist und was hilft.",
@@ -130,18 +130,18 @@
         "zh": "删除的笔记可通过“撤销”或“最近删除”找回。笔记可以导出，也可以复制为 Markdown。"
       },
       {
-        "de": "Drei Aussehen zur Wahl: Ruhig, Papier, Hangar.",
-        "en": "Three looks to choose from: Calm, Paper, Hangar.",
-        "el": "Τρεις εμφανίσεις για να διαλέξεις: Ήρεμη, Χαρτί, Hangar.",
-        "es": "Tres aspectos para elegir: Tranquilo, Papel, Hangar.",
-        "fr": "Trois apparences au choix : Calme, Papier, Hangar.",
-        "it": "Tre aspetti tra cui scegliere: Calmo, Carta, Hangar.",
-        "ja": "3 つの外観から選べます: シンプル、ペーパー、Hangar。",
-        "pl": "Trzy wyglądy do wyboru: Spokojny, Papier, Hangar.",
-        "pt": "Três aparências para escolher: Calmo, Papel, Hangar.",
-        "ru": "Три вида на выбор: Спокойный, Бумага, Hangar.",
-        "tr": "Seçebileceğin üç görünüm: Sakin, Kâğıt, Hangar.",
-        "zh": "三种外观可选：简洁、纸张、Hangar。"
+        "de": "Zwei Aussehen zur Wahl: Hangar und Papier.",
+        "en": "Two looks to choose from: Hangar and Paper.",
+        "el": "Δύο εμφανίσεις για να διαλέξεις: Hangar και Χαρτί.",
+        "es": "Dos aspectos para elegir: Hangar y Papel.",
+        "fr": "Deux apparences au choix : Hangar et Papier.",
+        "it": "Due aspetti tra cui scegliere: Hangar e Carta.",
+        "ja": "2 つの外観から選べます: Hangar、ペーパー。",
+        "pl": "Dwa wyglądy do wyboru: Hangar i Papier.",
+        "pt": "Duas aparências para escolher: Hangar e Papel.",
+        "ru": "Два вида на выбор: Hangar и Бумага.",
+        "tr": "Seçebileceğin iki görünüm: Hangar ve Kâğıt.",
+        "zh": "两种外观可选：Hangar 和纸张。"
       }
     ]
   }
