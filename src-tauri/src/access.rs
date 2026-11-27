@@ -14,14 +14,14 @@
 //!   needed (fs2 and fs4 do the same).
 
 use std::ffi::OsString;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
-use crate::fsio::{create_private_dir, lock};
+use crate::fsio::{create_private_dir, lock, lock_file_matches, open_lock_file};
 use crate::notes::normalize_path;
 
 /// The environment variable of the development root; read only in debug builds.
@@ -182,21 +182,28 @@ pub enum LockError {
 }
 
 /// Takes `root/.writer.lock` exclusively without waiting. Creates the root if needed.
+///
+/// Opened like the scope lock ([`open_lock_file`], security review N5): never through a link,
+/// also not while creating it, only a plain file with one name (a hard link could make a foreign
+/// file stand in for the lock), and on Windows not deletable or renamable while held. Once
+/// locked, the path must still name the locked file ([`lock_file_matches`]); anything else is a
+/// lock failure and leaves the notes read only.
 pub fn take_writer_lock(root: &Path) -> Result<WriterLock, LockError> {
     create_private_dir(root)?;
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options.open(root.join(WRITER_LOCK_FILE))?;
+    let path = root.join(WRITER_LOCK_FILE);
+    let file = open_lock_file(&path)?;
     match file.try_lock() {
-        Ok(()) => Ok(WriterLock { _file: file }),
-        Err(std::fs::TryLockError::WouldBlock) => Err(LockError::Held),
-        Err(std::fs::TryLockError::Error(error)) => Err(LockError::Io(error)),
+        Ok(()) => {}
+        Err(std::fs::TryLockError::WouldBlock) => return Err(LockError::Held),
+        Err(std::fs::TryLockError::Error(error)) => return Err(LockError::Io(error)),
     }
+    if !lock_file_matches(&file, &path)? {
+        return Err(LockError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "the writer lock file was replaced",
+        )));
+    }
+    Ok(WriterLock { _file: file })
 }
 
 /// What the window shows about the notes folder.
@@ -446,6 +453,32 @@ mod tests {
         );
         drop(first);
         assert_eq!(second.refresh(), Access::Writable);
+    }
+
+    /// Security review N5: the writer lock is opened like the scope lock (`fsio::open_lock_file`):
+    /// a `.writer.lock` with a second name (a hard link to a file elsewhere) or a folder in its
+    /// place is a lock failure, and the other file is not touched.
+    #[test]
+    fn a_writer_lock_that_is_not_a_plain_file_is_refused() {
+        let dir = TempDir::new("access-lock-link");
+        let root = dev(&dir);
+        fs::create_dir_all(&root.path).unwrap();
+        let foreign = dir.path().join("foreign.txt");
+        fs::write(&foreign, "marker-foreign-9e3").unwrap();
+        fs::hard_link(&foreign, root.path.join(WRITER_LOCK_FILE)).unwrap();
+        let gate = AccessGate::open(root.clone());
+        assert_eq!(gate.current(), Access::ReadOnly(ReadOnlyReason::LockFailed));
+        assert!(!gate.writable_flag().load(Ordering::SeqCst));
+        assert_eq!(fs::read(&foreign).unwrap(), b"marker-foreign-9e3");
+
+        fs::remove_file(root.path.join(WRITER_LOCK_FILE)).unwrap();
+        fs::create_dir_all(root.path.join(WRITER_LOCK_FILE)).unwrap();
+        assert_eq!(
+            AccessGate::open(root.clone()).current(),
+            Access::ReadOnly(ReadOnlyReason::LockFailed)
+        );
+        fs::remove_dir(root.path.join(WRITER_LOCK_FILE)).unwrap();
+        assert_eq!(AccessGate::open(root).current(), Access::Writable);
     }
 
     #[test]

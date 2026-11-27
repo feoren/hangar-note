@@ -101,6 +101,19 @@ pub const MAX_QUERY_CHARS: usize = 200;
 const MAX_SEARCH_FILES: usize = 5000;
 /// A search reads at most this many bytes of note content in total.
 const MAX_SEARCH_BYTES: usize = 64 * 1024 * 1024;
+/// At most this many notes in one scope's `folder.json` (and records in its `trash.json`): files
+/// beyond it are not adopted and a new note is refused with `too-large`. Matches the watcher's
+/// budget (`watch::MAX_WATCHED_FILES`), and keeps a rewritten index well below
+/// [`MAX_META_BYTES`] for ordinary titles (security review N2).
+pub const MAX_SCOPE_NOTES: usize = 5000;
+/// At most this many scope folders are listed, searched and watched; the rest are left out
+/// (security review H1). General always counts; the others are the first by name among the
+/// [`MAX_DIR_ENTRIES`] entries the listing looked at, which are taken in the order the file system
+/// returns them, so the same ones only while the root folder does not change.
+pub const MAX_SCOPES: usize = 1000;
+/// At most this many entries of one folder listing are looked at before sorting, so a folder
+/// flooded with files cannot make a listing unbounded (security review H1).
+pub const MAX_DIR_ENTRIES: usize = 4 * MAX_SCOPE_NOTES;
 /// Characters of context before a hit in the excerpt.
 const EXCERPT_CONTEXT: usize = 60;
 const EXCERPT_MAX_CHARS: usize = 160;
@@ -320,6 +333,10 @@ pub enum NotesError {
     /// The file is no longer at the version the editor read (another program changed it).
     #[error("The note changed on disk since it was read")]
     Changed,
+    /// The scope holds [`MAX_SCOPE_NOTES`] notes already, or its index would grow larger than
+    /// the store reads back; nothing was written. Reaches the window as `too-large`.
+    #[error("The scope index is full: {0}")]
+    IndexFull(&'static str),
     /// Shown and logged as scope key, kind of file and cause only (security review B3): the file
     /// name of a note is its title.
     #[error("{}", crate::fsio::storage_log_io(path, source))]
@@ -337,7 +354,7 @@ impl NotesError {
     pub fn storage_code(&self) -> Option<StorageCode> {
         match self {
             Self::Io { source, .. } => Some(StorageCode::of(source)),
-            Self::TooLarge { .. } => Some(StorageCode::TooLarge),
+            Self::TooLarge { .. } | Self::IndexFull(_) => Some(StorageCode::TooLarge),
             Self::UnknownNote => Some(StorageCode::NotFound),
             _ => None,
         }
@@ -351,9 +368,10 @@ impl NotesError {
             Self::InvalidFolder(_) | Self::InvalidQuery(_) | Self::NotText => INVALID_CODE,
             Self::ReadOnly => READ_ONLY_CODE,
             Self::Changed => CHANGED_CODE,
-            Self::UnknownNote | Self::TooLarge { .. } | Self::Io { .. } => self
-                .storage_code()
-                .map_or(INVALID_CODE, StorageCode::as_str),
+            Self::UnknownNote | Self::TooLarge { .. } | Self::IndexFull(_) | Self::Io { .. } => {
+                self.storage_code()
+                    .map_or(INVALID_CODE, StorageCode::as_str)
+            }
         }
     }
 }
@@ -446,6 +464,34 @@ pub fn folder_key(folder: &NoteFolder) -> Result<String, NotesError> {
 
 pub fn is_folder_key(name: &str) -> bool {
     name == GENERAL_KEY || (name.len() == 32 && name.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// The scope folder names under `root` for listing, searching and watching: General first if
+/// present, then the other keys sorted, at most [`MAX_SCOPES`] in all, from at most
+/// [`MAX_DIR_ENTRIES`] entries of the listing (security review H1). Names only; callers still
+/// check that each one is a plain folder.
+pub fn scope_keys(root: &Path) -> io::Result<Vec<String>> {
+    scope_keys_capped(root, MAX_DIR_ENTRIES, MAX_SCOPES)
+}
+
+fn scope_keys_capped(
+    root: &Path,
+    max_entries: usize,
+    max_scopes: usize,
+) -> io::Result<Vec<String>> {
+    let mut keys: Vec<String> = fs::read_dir(root)?
+        .take(max_entries)
+        .flatten()
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|key| key != GENERAL_KEY && is_folder_key(key))
+        .collect();
+    keys.sort();
+    // Looked up by name, so a flooded listing never pushes the General area out.
+    if fs::symlink_metadata(root.join(GENERAL_KEY)).is_ok() {
+        keys.insert(0, GENERAL_KEY.to_owned());
+    }
+    keys.truncate(max_scopes);
+    Ok(keys)
 }
 
 /// Check and clean up a display title: invisible characters (`naming::without_invisible`, the
@@ -735,6 +781,10 @@ pub struct NotesStore {
     writable: Arc<AtomicBool>,
     watch: Arc<Watch>,
     lock_wait: Duration,
+    /// At most this many notes per scope ([`MAX_SCOPE_NOTES`], smaller in tests).
+    max_notes: usize,
+    /// At most this many bytes per written index file ([`MAX_META_BYTES`], smaller in tests).
+    max_index_bytes: usize,
     /// When each scope's stale temporary files were last swept ([`NotesStore::sweep_stale_temps`]).
     swept: Arc<Mutex<HashMap<String, Instant>>>,
 }
@@ -809,6 +859,10 @@ struct Folder {
     meta: FolderMeta,
     /// `folder.json` exists but cannot be used ([`MetaRead::Broken`]): it is never saved over.
     index_broken: bool,
+    /// At most this many entries ([`MAX_SCOPE_NOTES`], smaller in tests).
+    max_notes: usize,
+    /// At most this many bytes of `folder.json` ([`MAX_META_BYTES`], smaller in tests).
+    max_index_bytes: usize,
     /// Held while the scope is being changed ([`Hold::ForText`], [`Hold::ForIndex`]).
     _lock: Option<ScopeLock>,
 }
@@ -826,28 +880,207 @@ fn broken_index(path: &Path) -> NotesError {
 }
 
 /// Whether a folder entry may be followed: a canonical lowercase UUID and a plain `.md` name.
+/// The title is not checked here: an unusable one is replaced on reading
+/// ([`normalize_entry_titles`]), so the note keeps its ID.
 fn trusted_note_entry(entry: &NoteEntry) -> bool {
     plain_markdown_name(&entry.file) && check_id(&entry.id).is_ok_and(|id| id == entry.id)
 }
 
-/// Each raw entry as `T` if it parses and `trusted` accepts it; the rest are skipped, and their
+/// The title a note entry from `folder.json` is shown with: its own one cleaned up like a typed
+/// title ([`validate_title`]), else the file's stem cleaned up the same way, else
+/// [`FALLBACK_STEM`], the rule for adopted files. So no direction override, control character or
+/// overlong title from the shared folder reaches the list, the search or a trash record.
+fn shown_title(title: &str, file: &str) -> String {
+    validate_title(title).unwrap_or_else(|_| {
+        let stem = Path::new(file)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        validate_title(&stem).unwrap_or_else(|_| FALLBACK_STEM.to_owned())
+    })
+}
+
+/// Replaces every unusable title of `entries` (one [`validate_title`] changes or refuses) by the
+/// entry's own title cleaned up, else the one its file name gives ([`IndexEntry::title_from_file`]),
+/// in memory only: the file is not rewritten for this alone, a later save of the index writes the
+/// cleaned titles. Logs the number changed against `path`, never a title.
+fn normalize_entry_titles<T: IndexEntry>(path: &Path, entries: &mut [T]) {
+    let mut changed = 0usize;
+    for entry in entries.iter_mut() {
+        let shown = validate_title(entry.title()).unwrap_or_else(|_| entry.title_from_file());
+        if shown != entry.title() {
+            *entry.title_mut() = shown;
+            changed += 1;
+        }
+    }
+    if changed > 0 {
+        let cause = format!("{changed} unusable titles replaced");
+        log_once(path, "titles", &cause);
+    }
+}
+
+/// An entry of `folder.json` or a record of `trash.json`: what [`checked_entries`] compares to
+/// find two entries for the same note, and what [`normalize_entry_titles`] cleans up.
+trait IndexEntry {
+    fn id(&self) -> &str;
+    fn file(&self) -> &str;
+    fn title(&self) -> &str;
+    fn title_mut(&mut self) -> &mut String;
+    /// The title the entry's file would be adopted with, for an unusable own title.
+    fn title_from_file(&self) -> String;
+}
+
+impl IndexEntry for NoteEntry {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn file(&self) -> &str {
+        &self.file
+    }
+    fn title(&self) -> &str {
+        &self.title
+    }
+    fn title_mut(&mut self) -> &mut String {
+        &mut self.title
+    }
+    fn title_from_file(&self) -> String {
+        shown_title("", &self.file)
+    }
+}
+
+impl IndexEntry for TrashEntry {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn file(&self) -> &str {
+        &self.file
+    }
+    fn title(&self) -> &str {
+        &self.title
+    }
+    fn title_mut(&mut self) -> &mut String {
+        &mut self.title
+    }
+    fn title_from_file(&self) -> String {
+        trash_title(&self.file).0
+    }
+}
+
+/// Each raw entry as `T` if it parses and `trusted` accepts it, and if no earlier entry has the
+/// same ID or names the same file (compared without case, as Windows and macOS do): two entries
+/// for one note would give it two editors. The first entry wins. The rest are skipped, and their
 /// number is logged against `path` (the index file), never their content.
-fn checked_entries<T: serde::de::DeserializeOwned>(
+fn checked_entries<T: serde::de::DeserializeOwned + IndexEntry>(
     path: &Path,
     raw: Vec<Value>,
     trusted: impl Fn(&T) -> bool,
 ) -> Vec<T> {
     let total = raw.len();
+    let mut ids: HashSet<String> = HashSet::new();
+    let mut files: HashSet<String> = HashSet::new();
     let kept: Vec<T> = raw
         .into_iter()
         .filter_map(|value| serde_json::from_value::<T>(value).ok())
         .filter(|entry| trusted(entry))
+        .filter(|entry| {
+            let new_id = !ids.contains(entry.id());
+            let new_file = !files.contains(&entry.file().to_lowercase());
+            if new_id && new_file {
+                ids.insert(entry.id().to_owned());
+                files.insert(entry.file().to_lowercase());
+            }
+            new_id && new_file
+        })
         .collect();
     if kept.len() < total {
-        let cause = format!("{} malformed or unsafe entries skipped", total - kept.len());
-        eprintln!("hangar-note: {}", storage_log(path, &cause));
+        let cause = format!(
+            "{} malformed, unsafe or duplicate entries skipped",
+            total - kept.len()
+        );
+        log_once(path, "entries", &cause);
     }
     kept
+}
+
+/// The JSON of an index file as it is written, refused when it is larger than the store reads
+/// back ([`MAX_META_BYTES`]): written, it would lock the scope out of every index change from the
+/// next read on (security review N2). Nothing is written then.
+/// `max` is [`MAX_META_BYTES`] outside of tests.
+fn index_json<T: Serialize>(path: &Path, value: &T, max: usize) -> Result<Vec<u8>, NotesError> {
+    let json = serde_json::to_vec_pretty(value)
+        .map_err(|e| io_error(path)(io::Error::new(io::ErrorKind::InvalidData, e)))?;
+    if json.len() > max {
+        eprintln!(
+            "hangar-note: not written, {}",
+            storage_log(
+                path,
+                &format!("{} bytes, larger than the read limit", json.len())
+            )
+        );
+        return Err(NotesError::IndexFull("larger than the read limit"));
+    }
+    Ok(json)
+}
+
+/// Bytes kept free in an index on top of the estimates of [`entry_bytes`]: the brackets of a
+/// list that was empty, and a ` (n)` suffix a free name may add to a trash file.
+const INDEX_SLACK: usize = 32;
+
+/// The bytes of `value` written pretty, as [`index_json`] writes it.
+fn pretty_len<T: Serialize>(value: &T) -> usize {
+    serde_json::to_vec_pretty(value).map_or(usize::MAX, |json| json.len())
+}
+
+/// An upper bound of the bytes `entry` adds to its index written pretty: the entry on its own,
+/// each of its lines indented four more (it sits two levels deep), and the separator. One entry
+/// is serialized, never the whole index again, so adopting n files stays linear.
+fn entry_bytes<T: Serialize>(entry: &T) -> usize {
+    serde_json::to_vec_pretty(entry).map_or(usize::MAX, |json| {
+        let lines = json.iter().filter(|b| **b == b'\n').count() + 1;
+        json.len() + 4 * lines + 2
+    })
+}
+
+/// `trash.json` as written, borrowed from a [`TrashIndex`], to measure it without a copy.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TrashMetaRef<'a> {
+    version: u32,
+    items: &'a [TrashEntry],
+    #[serde(flatten)]
+    extra: &'a Map<String, Value>,
+}
+
+impl<'a> TrashMetaRef<'a> {
+    fn of(index: &'a TrashIndex) -> Self {
+        Self {
+            version: TRASH_META_VERSION,
+            items: &index.items,
+            extra: &index.extra,
+        }
+    }
+}
+
+/// Logs a finding about an index file ([`storage_log`]: kind of file, scope key and `cause`,
+/// never a title or path) once per index file, `kind` of finding and process: the index is read
+/// on every list, and the same finding would otherwise fill the log every second. Returns
+/// whether it logged.
+fn log_once(index: &Path, kind: &'static str, cause: &str) -> bool {
+    static LOGGED: Mutex<Option<HashSet<(PathBuf, &'static str)>>> = Mutex::new(None);
+    let mut logged = lock(&LOGGED);
+    let first = logged
+        .get_or_insert_with(HashSet::new)
+        .insert((index.to_path_buf(), kind));
+    if first {
+        eprintln!("hangar-note: {}", storage_log(index, cause));
+    }
+    first
+}
+
+/// Logs that an index is full and `left_out` files were not adopted into it, once ([`log_once`]).
+fn log_index_full(index: &Path, left_out: usize) {
+    let cause = format!("full, {left_out} note files not adopted");
+    log_once(index, "full", &cause);
 }
 
 /// Whether a directory entry is a note file the lister may adopt: a regular file (no link, no
@@ -909,18 +1142,28 @@ impl Folder {
             .unwrap_or(0)
     }
 
+    /// Refuses a new entry once the scope holds [`MAX_SCOPE_NOTES`] (`too-large`).
+    fn check_room(&self) -> Result<(), NotesError> {
+        if self.meta.notes.len() >= self.max_notes {
+            return Err(NotesError::IndexFull("too many notes"));
+        }
+        Ok(())
+    }
+
     fn save(&self) -> Result<(), NotesError> {
         let path = self.dir.join(META_FILE);
         if self.index_broken {
             return Err(broken_index(&path));
         }
-        let json = serde_json::to_vec_pretty(&self.meta)
-            .map_err(|e| io_error(&path)(io::Error::new(io::ErrorKind::InvalidData, e)))?;
+        let json = index_json(&path, &self.meta, self.max_index_bytes)?;
         write_atomic(&path, &json).map_err(io_error(&path))
     }
 
     /// Sync with the folder: missing files are dropped, foreign `.md` files are added under their
-    /// [`stable_id`], read only or not.
+    /// [`stable_id`], read only or not, until the scope holds [`MAX_SCOPE_NOTES`] or its index
+    /// would grow too large to write. The files left out are the last by name among the
+    /// [`MAX_DIR_ENTRIES`] entries looked at (taken in the file system's order before sorting, so
+    /// stable only while the folder holds fewer, or does not change), logged once by number.
     fn sync(&mut self) -> Result<bool, NotesError> {
         let before = self.meta.notes.len();
         let dir = self.dir.clone();
@@ -935,7 +1178,8 @@ impl Folder {
             .map(|n| n.file.to_lowercase())
             .collect();
         let mut found: Vec<String> = Vec::new();
-        for entry in fs::read_dir(&self.dir).map_err(io_error(&self.dir))? {
+        let listing = fs::read_dir(&self.dir).map_err(io_error(&self.dir))?;
+        for entry in listing.take(MAX_DIR_ENTRIES) {
             let Ok(entry) = entry else { continue };
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
@@ -945,17 +1189,34 @@ impl Folder {
             }
         }
         found.sort();
+        let room = self.max_notes.saturating_sub(self.meta.notes.len());
+        if found.len() > room {
+            log_index_full(&self.dir.join(META_FILE), found.len() - room);
+            found.truncate(room);
+        }
+        if found.is_empty() {
+            return Ok(changed);
+        }
+        // The byte budget (review of N2): adopted only while the index written back stays below
+        // its limit, so the save that follows a read never fails for size, and deleting a note
+        // can always shrink the scope again.
+        let mut bytes = pretty_len(&self.meta);
         let mut ids: HashSet<String> = self.meta.notes.iter().map(|n| n.id.clone()).collect();
-        for name in found {
-            let stem = Path::new(&name)
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let title = validate_title(&stem).unwrap_or_else(|_| FALLBACK_STEM.to_owned());
-            let order = self.next_order();
+        let mut order = self.next_order();
+        let total = found.len();
+        for (adopted, name) in found.into_iter().enumerate() {
+            let title = shown_title("", &name);
             let id = free_stable_id(&self.key, &name, &ids);
-            ids.insert(id.clone());
-            self.meta.notes.push(NoteEntry::new(id, title, name, order));
+            let entry = NoteEntry::new(id, title, name, order);
+            let size = entry_bytes(&entry);
+            if bytes.saturating_add(size).saturating_add(INDEX_SLACK) > self.max_index_bytes {
+                log_index_full(&self.dir.join(META_FILE), total - adopted);
+                break;
+            }
+            bytes += size;
+            ids.insert(entry.id.clone());
+            self.meta.notes.push(entry);
+            order = order.saturating_add(1);
             changed = true;
         }
         Ok(changed)
@@ -1107,13 +1368,23 @@ fn move_dir(old: &Path, new: &Path) -> io::Result<()> {
 /// moved notes keep their IDs, titles and relative order. An unreadable old `folder.json`, or an
 /// unreadable one in `new`, stays untouched; the moved `.md` files are then adopted with a new ID
 /// on the next sync, as for files added from outside.
-fn migrate_general(old: &Path, new: &Path) -> io::Result<()> {
+///
+/// A merge reads and rewrites the new `folder.json`, so it runs under the scope lock of `new`
+/// (contract "notes-shared 1"), taken by `lock` before anything moves and held until the old
+/// index is gone. When the lock cannot be had, its error is returned and nothing is changed; the
+/// next start tries again.
+fn migrate_general(
+    old: &Path,
+    new: &Path,
+    lock: impl FnOnce(&Path) -> io::Result<ScopeLock>,
+) -> io::Result<()> {
     if !movable(old, new) {
         return Ok(());
     }
     if !present(new) {
         return fs::rename(old, new);
     }
+    let _held = lock(new)?;
     let moved = merge_dir(old, new, &[META_FILE])?;
     let old_meta_path = old.join(META_FILE);
     let new_meta_path = new.join(META_FILE);
@@ -1154,8 +1425,9 @@ fn migrate_general(old: &Path, new: &Path) -> io::Result<()> {
             });
             order = order.saturating_add(1);
         }
-        let json = serde_json::to_vec_pretty(&meta)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        // Too large to read back: not written; the moved files are adopted on the next sync.
+        let json = index_json(&new_meta_path, &meta, MAX_META_BYTES)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
         write_atomic(&new_meta_path, &json)?;
         // Everything it described is now in the new folder.json.
         fs::remove_file(&old_meta_path)?;
@@ -1260,6 +1532,8 @@ impl NotesStore {
             writable,
             watch: Arc::new(Watch::new(root)),
             lock_wait: SCOPE_LOCK_WAIT,
+            max_notes: MAX_SCOPE_NOTES,
+            max_index_bytes: MAX_META_BYTES,
             swept: Arc::default(),
         }
     }
@@ -1294,6 +1568,21 @@ impl NotesStore {
     #[cfg(test)]
     fn with_lock_wait(mut self, wait: Duration) -> Self {
         self.lock_wait = wait;
+        self
+    }
+
+    /// The same store with another limit of notes per scope, so a test of it stays small.
+    #[cfg(test)]
+    fn with_max_notes(mut self, max: usize) -> Self {
+        self.max_notes = max;
+        self
+    }
+
+    /// The same store with another size limit of written index files, so a test of it stays
+    /// small. Reading keeps [`MAX_META_BYTES`].
+    #[cfg(test)]
+    fn with_max_index_bytes(mut self, max: usize) -> Self {
+        self.max_index_bytes = max;
         self
     }
 
@@ -1348,12 +1637,16 @@ impl NotesStore {
             Err(reason) => return broken(&reason, None),
         };
         match serde_json::from_slice::<FolderHead>(&bytes) {
-            Ok(head) if head.version == META_VERSION => MetaRead::Read(FolderMeta {
-                version: head.version,
-                path: head.path,
-                notes: checked_entries(&path, head.notes, trusted_note_entry),
-                extra: head.extra,
-            }),
+            Ok(head) if head.version == META_VERSION => {
+                let mut notes = checked_entries(&path, head.notes, trusted_note_entry);
+                normalize_entry_titles(&path, &mut notes);
+                MetaRead::Read(FolderMeta {
+                    version: head.version,
+                    path: head.path,
+                    notes,
+                    extra: head.extra,
+                })
+            }
             Ok(head) => broken("unknown version", head.path),
             Err(_) if !is_json(&bytes) => MetaRead::NotJson,
             Err(error) => {
@@ -1408,27 +1701,54 @@ impl NotesStore {
             create_private_dir(&dir).map_err(io_error(&dir))?;
         }
         if !writable {
-            return Self::load(key, dir, folder, None).map(|(opened, _)| Some(opened));
+            return self
+                .load(key, dir, folder, false)
+                .map(|(opened, _)| Some(opened));
         }
         if hold == Hold::WhileSyncing {
-            let (opened, changed) = Self::load(key.clone(), dir.clone(), folder, None)?;
+            let (opened, changed) = self.load(key.clone(), dir.clone(), folder, false)?;
             if !changed {
                 return Ok(Some(opened));
             }
+            // A read must not fail because its sync cannot be saved (security review N3): the
+            // scope is then read as synced in memory, as a read-only store reads it, and saved by
+            // a later read or change.
+            return match self.synced_and_saved(key, dir, folder) {
+                Ok(saved) => Ok(Some(saved)),
+                Err(error) => {
+                    eprintln!("hangar-note: sync of a read not saved: {error}");
+                    Ok(Some(opened))
+                }
+            };
         }
         let held = self.lock_scope(&dir)?;
         self.sweep_stale_temps(&key, &dir);
-        let (mut opened, changed) = Self::load(key, dir, folder, Some(self))?;
+        let (mut opened, changed) = self.load(key, dir, folder, true)?;
         if hold == Hold::ForIndex && opened.index_broken {
             return Err(broken_index(&opened.dir.join(META_FILE)));
         }
         if changed {
             opened.save()?;
         }
-        if hold != Hold::WhileSyncing {
-            opened._lock = Some(held);
-        }
+        opened._lock = Some(held);
         Ok(Some(opened))
+    }
+
+    /// For a read whose sync found something to save: takes the scope lock, reads and syncs again
+    /// under it, saves and releases the lock. Any failure is the caller's to log.
+    fn synced_and_saved(
+        &self,
+        key: String,
+        dir: PathBuf,
+        folder: &NoteFolder,
+    ) -> Result<Folder, NotesError> {
+        let _held = self.lock_scope(&dir)?;
+        self.sweep_stale_temps(&key, &dir);
+        let (opened, changed) = self.load(key, dir, folder, true)?;
+        if changed {
+            opened.save()?;
+        }
+        Ok(opened)
     }
 
     /// Reads `folder.json` from disk and syncs it with the files. Returns whether it needs saving,
@@ -1437,14 +1757,15 @@ impl NotesStore {
     /// without it, it counts as broken but asks for the lock (`true`), so a writable store comes
     /// back with the lock and sets it aside.
     fn load(
+        &self,
         key: String,
         dir: PathBuf,
         folder: &NoteFolder,
-        locked: Option<&Self>,
+        locked: bool,
     ) -> Result<(Folder, bool), NotesError> {
-        let read = match (Self::read_meta(&dir), locked) {
-            (MetaRead::NotJson, Some(store)) => store.set_aside_index(&dir),
-            (read, _) => read,
+        let read = match Self::read_meta(&dir) {
+            MetaRead::NotJson if locked => self.set_aside_index(&dir),
+            read => read,
         };
         let not_json = matches!(read, MetaRead::NotJson);
         let (meta, mut changed, index_broken) = match read {
@@ -1459,6 +1780,8 @@ impl NotesStore {
             dir,
             meta,
             index_broken,
+            max_notes: self.max_notes,
+            max_index_bytes: self.max_index_bytes,
             _lock: None,
         };
         changed |= opened.sync()?;
@@ -1469,7 +1792,7 @@ impl NotesStore {
     /// entries, or, where it is unusable, the files under IDs derived from their names. `None`
     /// without a `folder.json` (the scope shows up once it is opened) or with a broken one that
     /// names no working folder of this key (its scope is unknown).
-    fn scope_notes(key: &str, dir: &Path) -> Option<(Option<PathBuf>, Vec<NoteEntry>)> {
+    fn scope_notes(&self, key: &str, dir: &Path) -> Option<(Option<PathBuf>, Vec<NoteEntry>)> {
         match Self::read_meta(dir) {
             MetaRead::Read(meta) => Some((meta.path, meta.notes)),
             MetaRead::Absent => None,
@@ -1493,6 +1816,8 @@ impl NotesStore {
                     dir: dir.to_path_buf(),
                     meta: FolderMeta::empty(path.clone()),
                     index_broken: true,
+                    max_notes: self.max_notes,
+                    max_index_bytes: self.max_index_bytes,
                     _lock: None,
                 };
                 opened.sync().ok()?;
@@ -1547,23 +1872,20 @@ impl NotesStore {
             updated_at: None,
         };
         let mut others = Vec::new();
-        let entries = match fs::read_dir(&self.root) {
-            Ok(entries) => entries,
+        let keys = match scope_keys(&self.root) {
+            Ok(keys) => keys,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(vec![general]),
             Err(error) => return Err(io_error(&self.root)(error)),
         };
-        for entry in entries.flatten() {
-            let Ok(key) = entry.file_name().into_string() else {
-                continue;
-            };
-            let dir = entry.path();
-            if !is_folder_key(&key) || !is_plain_dir(&dir) {
+        for key in keys {
+            let dir = self.root.join(&key);
+            if !is_plain_dir(&dir) {
                 continue;
             }
             // Read only: an overview must not rewrite anything. Without a folder.json, or with a
             // broken one that names no path, the original path is unknown; the scope shows up as
             // soon as it is opened again.
-            let Some((path, notes)) = Self::scope_notes(&key, &dir) else {
+            let Some((path, notes)) = self.scope_notes(&key, &dir) else {
                 continue;
             };
             let files: Vec<PathBuf> = notes
@@ -1738,6 +2060,7 @@ impl NotesStore {
         let mut opened = self
             .open(folder, true, Hold::ForIndex)?
             .ok_or(NotesError::InvalidFolder("cannot be created"))?;
+        opened.check_room()?;
         let file = create_free_file(&opened.dir, || opened.free_file_name(&title, None))
             .map_err(io_error(&opened.dir))?;
         let path = opened.dir.join(&file);
@@ -1747,7 +2070,14 @@ impl NotesStore {
             .meta
             .notes
             .push(NoteEntry::new(id.clone(), title, file, order));
-        opened.save()?;
+        if let Err(error) = opened.save() {
+            // The empty file made above has no entry now; while it is still empty nobody wrote
+            // into it, so it goes again instead of showing up as an adopted note.
+            if fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_file() && meta.len() == 0) {
+                let _ = fs::remove_file(&path);
+            }
+            return Err(error);
+        }
         self.own(&[&path, &opened.dir.join(META_FILE)]);
         Ok(id)
     }
@@ -1826,23 +2156,35 @@ impl NotesStore {
         // nothing is lost, and restoring brings that text back.
         let from = opened.file(&entry);
         let wanted = format!("{stamp}-{}", entry.file);
+        // Read here, under the scope lock that `opened` holds, and checked before anything moves
+        // (review of N2): a record the trash cannot take refuses the delete with `too-large`, so
+        // the note stays in its list instead of going without a record. An unreadable trash.json
+        // is left as it is, so the deleted note goes without a record.
+        let mut index = self.read_trash_locked(&trash);
+        let mut record = TrashEntry {
+            id: entry.id.clone(),
+            title: entry.title.clone(),
+            file: wanted.clone(),
+            deleted_at: Some(stamp),
+            extra: Map::new(),
+        };
+        if !index.broken {
+            let bytes = pretty_len(&TrashMetaRef::of(&index))
+                .saturating_add(entry_bytes(&record))
+                .saturating_add(INDEX_SLACK);
+            if index.items.len() >= self.max_notes || bytes > self.max_index_bytes {
+                return Err(NotesError::IndexFull("the trash is full"));
+            }
+        }
         let file = move_to_free_name(&from, &trash, || free_name(&trash, &wanted))
             .map_err(io_error(&from))?;
         opened.meta.notes.retain(|n| n.id != entry.id);
         opened.save()?;
         // Without the record the file is still adopted by `list_trash`, only under a new ID.
-        // Read again here, under the scope lock that `opened` holds. An unreadable trash.json is
-        // left as it is, so the deleted note goes without a record.
-        let mut index = self.read_trash_locked(&trash);
         if !index.broken {
-            index.items.push(TrashEntry {
-                id: entry.id,
-                title: entry.title,
-                file,
-                deleted_at: Some(stamp),
-                extra: Map::new(),
-            });
-            if let Err(error) = Self::save_trash(&trash, index) {
+            record.file = file;
+            index.items.push(record);
+            if let Err(error) = self.save_trash(&trash, index) {
                 eprintln!("hangar-note: trash record not saved: {error}");
             }
         }
@@ -1854,14 +2196,14 @@ impl NotesStore {
         Ok(())
     }
 
-    /// A record names a plain `.md` file inside `.trash/` and carries a valid ID and title.
-    /// `trash.json` is a file on disk like any other: a record pointing elsewhere (`../x.md`) must
-    /// never move a foreign file into the notes. A dropped record's file is adopted again by
-    /// [`Self::synced_trash`] under a new ID.
+    /// A record names a plain `.md` file inside `.trash/` and carries a valid ID. `trash.json` is
+    /// a file on disk like any other: a record pointing elsewhere (`../x.md`) must never move a
+    /// foreign file into the notes. A dropped record's file is adopted again by
+    /// [`Self::synced_trash`] under a new ID. The title is not checked here: an unusable one is
+    /// replaced on reading ([`normalize_entry_titles`]), so the record keeps its ID (security
+    /// review N1).
     fn trusted_entry(entry: &TrashEntry) -> bool {
-        plain_markdown_name(&entry.file)
-            && check_id(&entry.id).is_ok_and(|id| id == entry.id)
-            && validate_title(&entry.title).is_ok_and(|title| title == entry.title)
+        plain_markdown_name(&entry.file) && check_id(&entry.id).is_ok_and(|id| id == entry.id)
     }
 
     /// Reads `trash.json` from a shared, untrusted folder: items that do not parse or are not
@@ -1882,12 +2224,16 @@ impl NotesStore {
         // Not logged here when it is not JSON: a writable store sets it aside and logs that.
         match read_limited(&path, MAX_META_BYTES) {
             Ok(Some(bytes)) => match serde_json::from_slice::<TrashHead>(&bytes) {
-                Ok(head) if head.version == TRASH_META_VERSION => TrashIndex {
-                    items: checked_entries(&path, head.items, Self::trusted_entry),
-                    extra: head.extra,
-                    broken: false,
-                    not_json: false,
-                },
+                Ok(head) if head.version == TRASH_META_VERSION => {
+                    let mut items = checked_entries(&path, head.items, Self::trusted_entry);
+                    normalize_entry_titles(&path, &mut items);
+                    TrashIndex {
+                        items,
+                        extra: head.extra,
+                        broken: false,
+                        not_json: false,
+                    }
+                }
                 Ok(_) => broken("unknown version"),
                 Err(_) if !is_json(&bytes) => TrashIndex {
                     broken: true,
@@ -1931,7 +2277,7 @@ impl NotesStore {
 
     /// Writes `trash.json` with the index's items and the unknown fields it was read with. Never
     /// called for a broken index.
-    fn save_trash(trash: &Path, index: TrashIndex) -> Result<(), NotesError> {
+    fn save_trash(&self, trash: &Path, index: TrashIndex) -> Result<(), NotesError> {
         let path = trash.join(TRASH_META_FILE);
         if index.broken {
             return Err(broken_index(&path));
@@ -1941,8 +2287,7 @@ impl NotesStore {
             items: index.items,
             extra: index.extra,
         };
-        let json = serde_json::to_vec_pretty(&meta)
-            .map_err(|e| io_error(&path)(io::Error::new(io::ErrorKind::InvalidData, e)))?;
+        let json = index_json(&path, &meta, self.max_index_bytes)?;
         write_atomic(&path, &json).map_err(io_error(&path))
     }
 
@@ -1951,15 +2296,18 @@ impl NotesStore {
     /// Returns whether the records differ from `trash.json`; the caller saves under the lock,
     /// unless the index is broken. With `locked` (the writable store, holding the scope lock) a
     /// `trash.json` that is not JSON is set aside first; without it, such a file asks for the
-    /// lock (`true`) but is not saved over.
+    /// lock (`true`) but is not saved over. As in a scope, files are adopted only until the trash
+    /// holds [`MAX_SCOPE_NOTES`] records.
     fn synced_trash(
+        &self,
         key: &str,
         trash: &Path,
-        locked: Option<&Self>,
+        locked: bool,
     ) -> Result<(TrashIndex, bool), NotesError> {
-        let mut index = match locked {
-            Some(store) => store.read_trash_locked(trash),
-            None => Self::read_trash(trash),
+        let mut index = if locked {
+            self.read_trash_locked(trash)
+        } else {
+            Self::read_trash(trash)
         };
         let items = &mut index.items;
         let before = items.clone();
@@ -1967,6 +2315,7 @@ impl NotesStore {
         let known: HashSet<String> = items.iter().map(|i| i.file.to_lowercase()).collect();
         let mut found: Vec<String> = fs::read_dir(trash)
             .map_err(io_error(trash))?
+            .take(MAX_DIR_ENTRIES)
             .flatten()
             .filter_map(|e| {
                 let name = e.file_name().into_string().ok()?;
@@ -1975,21 +2324,42 @@ impl NotesStore {
             .filter(|name| !known.contains(&name.to_lowercase()))
             .collect();
         found.sort();
+        let room = self.max_notes.saturating_sub(items.len());
+        if found.len() > room {
+            log_index_full(&trash.join(TRASH_META_FILE), found.len() - room);
+            found.truncate(room);
+        }
         let scope = format!("{key}/{TRASH_DIR}");
+        // The same byte budget as in a scope.
+        let mut bytes = if found.is_empty() {
+            0
+        } else {
+            pretty_len(&TrashMetaRef::of(&index))
+        };
+        let items = &mut index.items;
         let mut ids: HashSet<String> = items.iter().map(|item| item.id.clone()).collect();
-        for file in found {
+        let total = found.len();
+        for (adopted, file) in found.into_iter().enumerate() {
             let (title, stamp) = trash_title(&file);
             let deleted_at = stamp.or_else(|| modified(&trash.join(&file)));
             let id = free_stable_id(&scope, &file, &ids);
-            ids.insert(id.clone());
-            items.push(TrashEntry {
+            let item = TrashEntry {
                 id,
                 title,
                 file,
                 deleted_at,
                 extra: Map::new(),
-            });
+            };
+            let size = entry_bytes(&item);
+            if bytes.saturating_add(size).saturating_add(INDEX_SLACK) > self.max_index_bytes {
+                log_index_full(&trash.join(TRASH_META_FILE), total - adopted);
+                break;
+            }
+            bytes += size;
+            ids.insert(item.id.clone());
+            items.push(item);
         }
+        let items = &index.items;
         let changed = index.not_json || (*items != before && !index.broken);
         Ok((index, changed))
     }
@@ -2003,15 +2373,14 @@ impl NotesStore {
         if !is_plain_dir(&dir) || !is_plain_dir(&trash) {
             return Ok(Vec::new());
         }
-        let (mut index, changed) = Self::synced_trash(&key, &trash, None)?;
+        let (mut index, changed) = self.synced_trash(&key, &trash, false)?;
         if changed && self.writable() {
-            // Read again under the scope lock, so a record Hangar added meanwhile stays.
-            let _held = self.lock_scope(&dir)?;
-            let (fresh, changed) = Self::synced_trash(&key, &trash, Some(self))?;
-            if changed {
-                Self::save_trash(&trash, fresh.clone())?;
+            // Read again under the scope lock, so a record Hangar added meanwhile stays. A sync
+            // that cannot be saved does not fail the read (security review N3).
+            match self.synced_trash_saved(&key, &dir, &trash) {
+                Ok(fresh) => index = fresh,
+                Err(error) => eprintln!("hangar-note: sync of the trash not saved: {error}"),
             }
-            index = fresh;
         }
         let mut list: Vec<TrashInfo> = index
             .items
@@ -2026,6 +2395,21 @@ impl NotesStore {
         Ok(list)
     }
 
+    /// [`Self::synced_trash`] under the scope lock, saved if it changed.
+    fn synced_trash_saved(
+        &self,
+        key: &str,
+        dir: &Path,
+        trash: &Path,
+    ) -> Result<TrashIndex, NotesError> {
+        let _held = self.lock_scope(dir)?;
+        let (fresh, changed) = self.synced_trash(key, trash, true)?;
+        if changed {
+            self.save_trash(trash, fresh.clone())?;
+        }
+        Ok(fresh)
+    }
+
     /// Moves a deleted note back to the end of the scope's list and returns its ID: the old one,
     /// unless a note with that ID exists again.
     pub fn restore_note(&self, folder: &NoteFolder, id: &str) -> Result<String, NotesError> {
@@ -2037,7 +2421,8 @@ impl NotesStore {
         if !is_plain_dir(&trash) {
             return Err(NotesError::UnknownNote);
         }
-        let (mut index, _) = Self::synced_trash(&opened.key, &trash, Some(self))?;
+        opened.check_room()?;
+        let (mut index, _) = self.synced_trash(&opened.key, &trash, true)?;
         let position = index
             .items
             .iter()
@@ -2063,7 +2448,7 @@ impl NotesStore {
         opened.save()?;
         // An unreadable trash.json is left as it is; the restored file is simply gone from it.
         if !index.broken {
-            Self::save_trash(&trash, index)?;
+            self.save_trash(&trash, index)?;
         }
         self.own(&[
             &from,
@@ -2103,24 +2488,18 @@ impl NotesStore {
         // search never blocks saving a note.
         let scopes = {
             let _guard = lock(&self.guard);
-            let entries = match fs::read_dir(&self.root) {
-                Ok(entries) => entries,
+            let keys = match scope_keys(&self.root) {
+                Ok(keys) => keys,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
                 Err(error) => return Err(io_error(&self.root)(error)),
             };
-            let mut keys: Vec<String> = entries
-                .flatten()
-                .filter_map(|e| e.file_name().into_string().ok())
-                .filter(|key| is_folder_key(key))
-                .collect();
-            keys.sort();
             keys.into_iter()
                 .filter_map(|key| {
                     let dir = self.root.join(&key);
                     if !is_plain_dir(&dir) {
                         return None;
                     }
-                    let (path, notes) = Self::scope_notes(&key, &dir)?;
+                    let (path, notes) = self.scope_notes(&key, &dir)?;
                     let path = if key == GENERAL_KEY { None } else { path };
                     Some((key, dir, path, notes))
                 })
@@ -2203,6 +2582,7 @@ impl NotesStore {
             return;
         };
         let dirs: Vec<PathBuf> = entries
+            .take(MAX_DIR_ENTRIES)
             .flatten()
             .filter(|e| {
                 e.file_name()
@@ -2212,15 +2592,38 @@ impl NotesStore {
             .map(|e| e.path())
             .filter(|p| is_plain_dir(p))
             .collect();
+        let take_lock = |dir: &Path| lock_scope(dir, self.lock_wait);
         // Trash first, so that merging the General area below already finds `.trash` on both sides.
+        // A scope's trash moves under that scope's lock (contract "notes-shared 1"); a scope whose
+        // lock cannot be had is skipped and tried again on the next start. The legacy General
+        // folder is no scope of the contract: nobody but a migration writes there.
         for dir in dirs {
             let old = dir.join(LEGACY_TRASH_DIR);
+            if !present(&old) {
+                continue;
+            }
+            let is_scope = dir
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(is_folder_key);
+            let held = if is_scope {
+                match take_lock(&dir) {
+                    Ok(held) => Some(held),
+                    Err(error) => {
+                        log_migration_error(&dir.join(SCOPE_LOCK_FILE), &error);
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
             if let Err(error) = move_dir(&old, &dir.join(TRASH_DIR)) {
                 log_migration_error(&old, &error);
             }
+            drop(held);
         }
         let old = self.root.join(LEGACY_GENERAL_KEY);
-        if let Err(error) = migrate_general(&old, &self.root.join(GENERAL_KEY)) {
+        if let Err(error) = migrate_general(&old, &self.root.join(GENERAL_KEY), take_lock) {
             log_migration_error(&old, &error);
         }
     }
@@ -2270,6 +2673,12 @@ mod tests {
 
     /// Every file below `dir` with its bytes, to prove that nothing changed.
     fn snapshot(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+        snapshot_except(dir, &[])
+    }
+
+    /// [`snapshot`] without the files named in `skip` (a held lock file cannot be read on
+    /// Windows).
+    fn snapshot_except(dir: &Path, skip: &[&str]) -> Vec<(PathBuf, Vec<u8>)> {
         let mut all = Vec::new();
         let mut stack = vec![dir.to_path_buf()];
         while let Some(next) = stack.pop() {
@@ -2277,7 +2686,7 @@ mod tests {
                 let path = entry.path();
                 if path.is_dir() {
                     stack.push(path);
-                } else {
+                } else if !skip.iter().any(|name| entry.file_name() == *name) {
                     all.push((path.clone(), fs::read(&path).unwrap()));
                 }
             }
@@ -4248,6 +4657,362 @@ mod tests {
             assert_eq!(serde_json::to_value(&error).unwrap(), READ_ONLY_CODE);
         }
         assert_eq!(snapshot(t.0.root()), before);
+    }
+
+    /// Adds raw entries to a scope's `folder.json`, as another program could write them.
+    fn push_entries(dir: &Path, entries: &[Value]) {
+        let path = dir.join(META_FILE);
+        let mut meta: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        meta["notes"]
+            .as_array_mut()
+            .unwrap()
+            .extend(entries.iter().cloned());
+        fs::write(&path, meta.to_string()).unwrap();
+    }
+
+    /// Security review N1: a title from `folder.json` is cleaned up on reading like a typed one,
+    /// so no direction override or overlong title reaches the list or the search, and deleting the
+    /// note keeps its ID in the trash record instead of losing it there.
+    #[test]
+    fn foreign_titles_are_normalized_and_the_note_keeps_its_id() {
+        let t = TempNotes::new("foreign-titles");
+        let folder = general();
+        t.0.create_note(&folder, "own").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        fs::write(dir.join("Bidi.md"), "marker-bidi-1e4").unwrap();
+        fs::write(dir.join("Long.md"), "marker-long-7c9").unwrap();
+        let bidi = "00000000-0000-4000-8000-000000000201";
+        let long = "00000000-0000-4000-8000-000000000202";
+        let overlong = "x".repeat(MAX_TITLE_CHARS + 1);
+        push_entries(
+            &dir,
+            &[
+                serde_json::json!({ "id": bidi, "title": "abc\u{202E}gpj.md", "file": "Bidi.md", "order": 1 }),
+                serde_json::json!({ "id": long, "title": overlong, "file": "Long.md", "order": 2 }),
+            ],
+        );
+        let before = fs::read(dir.join(META_FILE)).unwrap();
+
+        let listed = t.0.list_notes(&folder).unwrap();
+        let title = |id: &str| listed.iter().find(|n| n.id == id).unwrap().title.clone();
+        assert_eq!(title(bidi), "abcgpj.md");
+        assert_eq!(title(long), "Long", "the file's stem stands in");
+        for note in &listed {
+            assert!(validate_title(&note.title).is_ok_and(|ok| ok == note.title));
+        }
+        let hits = t.0.search("marker-bidi").unwrap();
+        assert_eq!(hits[0].title, "abcgpj.md");
+        assert_eq!(
+            fs::read(dir.join(META_FILE)).unwrap(),
+            before,
+            "reading alone rewrites nothing"
+        );
+
+        t.0.delete_note(&folder, bidi).unwrap();
+        t.0.delete_note(&folder, long).unwrap();
+        // A trash record another program wrote with such a title keeps its ID too.
+        let trash_meta = dir.join(TRASH_DIR).join(TRASH_META_FILE);
+        let mut records: Value = serde_json::from_slice(&fs::read(&trash_meta).unwrap()).unwrap();
+        for item in records["items"].as_array_mut().unwrap() {
+            if item["id"] == bidi {
+                item["title"] = Value::from("x\u{202E}y\u{7}");
+            }
+        }
+        fs::write(&trash_meta, records.to_string()).unwrap();
+        let trashed = t.0.list_trash(&folder).unwrap();
+        let ids: HashSet<&str> = trashed.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(ids, HashSet::from([bidi, long]), "{trashed:?}");
+        for record in &trashed {
+            assert!(validate_title(&record.title).is_ok_and(|ok| ok == record.title));
+        }
+        assert_eq!(t.0.restore_note(&folder, bidi).unwrap(), bidi);
+    }
+
+    /// Security review H2: two entries for one note (the same ID, or the same file in another
+    /// case) would give it two editors; the first entry wins, the others are dropped.
+    #[test]
+    fn duplicate_index_entries_are_dropped_and_the_first_wins() {
+        let t = TempNotes::new("duplicate-entries");
+        let folder = general();
+        let own = t.0.create_note(&folder, "own").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        fs::write(dir.join("other.md"), "marker-other-3d1").unwrap();
+        let second = "00000000-0000-4000-8000-000000000301";
+        push_entries(
+            &dir,
+            &[
+                serde_json::json!({ "id": second, "title": "again", "file": "OWN.md", "order": 5 }),
+                serde_json::json!({ "id": own, "title": "same id", "file": "other.md", "order": 6 }),
+            ],
+        );
+        let listed = t.0.list_notes(&folder).unwrap();
+        assert_eq!(listed.len(), 2, "{listed:?}");
+        assert_eq!(listed[0].id, own);
+        assert_eq!(listed[0].title, "own");
+        // The duplicate ID's file comes back as a note of its own, under its derived ID.
+        assert_eq!(listed[1].id, stable_id(GENERAL_KEY, "other.md"));
+        assert!(matches!(
+            t.0.read_note(&folder, second),
+            Err(NotesError::UnknownNote)
+        ));
+        assert_eq!(t.0.read_note(&folder, &own).unwrap(), "");
+    }
+
+    /// Security review N2: an index whose rewrite would be larger than the store reads back is
+    /// refused with `too-large` and left as it is, so the scope does not lock itself out.
+    #[test]
+    fn an_index_too_large_to_read_back_is_not_written() {
+        let t = TempNotes::new("index-too-large");
+        let folder = general();
+        t.0.create_note(&folder, "own").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        let path = dir.join(META_FILE);
+        let mut meta: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        // Compact this is below the read limit; written back pretty it is far above it.
+        meta["marker-padding"] = Value::Array(vec![Value::from(1); MAX_META_BYTES / 3]);
+        let compact = serde_json::to_vec(&meta).unwrap();
+        assert!(compact.len() < MAX_META_BYTES);
+        fs::write(&path, &compact).unwrap();
+
+        assert_eq!(t.0.list_notes(&folder).unwrap().len(), 1);
+        let refused = t.0.create_note(&folder, "next").unwrap_err();
+        assert_eq!(refused.code(), "too-large", "{refused}");
+        assert_eq!(fs::read(&path).unwrap(), compact);
+        assert_eq!(t.0.list_notes(&folder).unwrap().len(), 1, "still readable");
+    }
+
+    /// Security review N2: a scope adopts files only up to its limit, the same ones on every
+    /// read of a folder below the listing limit (the first by name); a new note or a restore at
+    /// the limit is refused with `too-large`, and the index stays readable.
+    #[test]
+    fn a_full_scope_adopts_no_more_files_and_refuses_new_notes() {
+        let t = TempNotes::new("scope-full");
+        let store = t.0.clone().with_max_notes(3);
+        let folder = general();
+        let gone = store.create_note(&folder, "gone").unwrap();
+        store.delete_note(&folder, &gone).unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        for name in ["d.md", "a.md", "c.md", "b.md"] {
+            fs::write(dir.join(name), "marker-flood-5f0").unwrap();
+        }
+        let titles = |store: &NotesStore| -> Vec<String> {
+            store
+                .list_notes(&folder)
+                .unwrap()
+                .into_iter()
+                .map(|n| n.title)
+                .collect()
+        };
+        assert_eq!(titles(&store), ["a", "b", "c"]);
+        assert_eq!(titles(&store), ["a", "b", "c"], "the same ones again");
+        let refused = store.create_note(&folder, "new").unwrap_err();
+        assert_eq!(refused.code(), "too-large", "{refused}");
+        assert!(!dir.join("new.md").exists());
+        assert_eq!(
+            store.restore_note(&folder, &gone).unwrap_err().code(),
+            "too-large"
+        );
+        let orders: Vec<u32> = store
+            .list_notes(&folder)
+            .unwrap()
+            .iter()
+            .map(|n| n.order)
+            .collect();
+        assert_eq!(orders, [0, 1, 2]);
+        // Below the limit again, the next file is adopted.
+        let first = store.list_notes(&folder).unwrap()[0].id.clone();
+        store.delete_note(&folder, &first).unwrap();
+        assert_eq!(titles(&store), ["b", "c", "d"]);
+    }
+
+    /// Security review H1: the scopes listed, searched and watched are bounded and the same on
+    /// every pass; General is never pushed out.
+    #[test]
+    fn scope_listings_are_bounded_and_keep_general() {
+        let t = TempNotes::new("scope-cap");
+        let root = t.0.root();
+        let keys: Vec<String> = (0..5).map(|n| format!("{n:032x}")).collect();
+        for key in keys.iter().rev().chain([&GENERAL_KEY.to_owned()]) {
+            fs::create_dir_all(root.join(key)).unwrap();
+        }
+        fs::create_dir_all(root.join("not a scope")).unwrap();
+        let capped = scope_keys_capped(root, 100, 3).unwrap();
+        assert_eq!(capped, [GENERAL_KEY, keys[0].as_str(), keys[1].as_str()]);
+        assert_eq!(scope_keys_capped(root, 100, 3).unwrap(), capped);
+        // A listing cut short still finds General by its name.
+        let cut = scope_keys_capped(root, 1, 10).unwrap();
+        assert_eq!(cut[0], GENERAL_KEY);
+        assert!(cut.len() <= 2, "{cut:?}");
+        assert_eq!(scope_keys(root).unwrap().len(), 6);
+    }
+
+    /// Review of N2: files are adopted only while the index stays below its byte limit, so a
+    /// scope of long names never locks itself out: deleting a note still works, and the room it
+    /// frees takes the next file.
+    #[test]
+    fn adoption_keeps_the_index_below_its_byte_limit() {
+        let t = TempNotes::new("index-bytes");
+        let folder = general();
+        t.0.create_note(&folder, "own").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        let base = fs::metadata(dir.join(META_FILE)).unwrap().len() as usize;
+        let limit = base + 1200;
+        let store = t.0.clone().with_max_index_bytes(limit);
+        let names: Vec<String> = (0..6)
+            .map(|n| format!("{n}{}.md", "x".repeat(200)))
+            .collect();
+        for name in &names {
+            fs::write(dir.join(name), "marker-long-6a2").unwrap();
+        }
+        let files = |store: &NotesStore| -> Vec<String> {
+            let meta: Value =
+                serde_json::from_slice(&fs::read(dir.join(META_FILE)).unwrap()).unwrap();
+            assert_eq!(
+                store.list_notes(&folder).unwrap().len(),
+                meta["notes"].as_array().unwrap().len()
+            );
+            meta["notes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|n| n["file"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        store.list_notes(&folder).unwrap();
+        let adopted = files(&store);
+        let long = adopted.len() - 1;
+        assert!(long >= 1 && long < names.len(), "{adopted:?}");
+        assert!(fs::metadata(dir.join(META_FILE)).unwrap().len() as usize <= limit);
+        assert_eq!(adopted[1..], names[..long], "the first by name");
+
+        let first = store.list_notes(&folder).unwrap()[1].id.clone();
+        store.delete_note(&folder, &first).unwrap();
+        store.list_notes(&folder).unwrap();
+        let after = files(&store);
+        assert_eq!(
+            after.len(),
+            adopted.len(),
+            "the freed room took the next file"
+        );
+        assert!(after.contains(&names[long]), "{after:?}");
+    }
+
+    /// Review of N2: a delete whose trash record would not fit (too many records, or too many
+    /// bytes) is refused with `too-large` before anything moves; the note stays.
+    #[test]
+    fn a_delete_into_a_full_trash_is_refused_and_moves_nothing() {
+        let t = TempNotes::new("trash-full");
+        let store = t.0.clone().with_max_notes(2);
+        let folder = general();
+        let a = store.create_note(&folder, "a").unwrap();
+        let b = store.create_note(&folder, "b").unwrap();
+        store.delete_note(&folder, &a).unwrap();
+        store.delete_note(&folder, &b).unwrap();
+        let c = store.create_note(&folder, "c").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        let before = snapshot_except(&dir, &[SCOPE_LOCK_FILE]);
+        let refused = store.delete_note(&folder, &c).unwrap_err();
+        assert_eq!(refused.code(), "too-large", "{refused}");
+        assert_eq!(snapshot_except(&dir, &[SCOPE_LOCK_FILE]), before);
+        assert_eq!(store.list_notes(&folder).unwrap()[0].id, c);
+        assert_eq!(store.list_trash(&folder).unwrap().len(), 2);
+
+        // The same when the record would make trash.json too large.
+        let t = TempNotes::new("trash-bytes");
+        let id = t.0.create_note(&folder, "d").unwrap();
+        let gone = t.0.create_note(&folder, "e").unwrap();
+        t.0.delete_note(&folder, &gone).unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        let trash_index = dir.join(TRASH_DIR).join(TRASH_META_FILE);
+        let mut record: Value = serde_json::from_slice(&fs::read(&trash_index).unwrap()).unwrap();
+        record["marker-padding"] = Value::from("p".repeat(2000));
+        fs::write(&trash_index, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
+        let limit = fs::metadata(&trash_index).unwrap().len() as usize + 50;
+        let store = t.0.clone().with_max_index_bytes(limit);
+        let before = snapshot_except(&dir, &[SCOPE_LOCK_FILE]);
+        let refused = store.delete_note(&folder, &id).unwrap_err();
+        assert_eq!(refused.code(), "too-large", "{refused}");
+        assert_eq!(snapshot_except(&dir, &[SCOPE_LOCK_FILE]), before);
+    }
+
+    /// Review of N2: a skipped, unsafe or replaced entry is logged once per index file and
+    /// process, not on every read.
+    #[test]
+    fn index_findings_are_logged_once_per_file() {
+        let t = TempNotes::new("log-once");
+        let path = t.1.path().join(META_FILE);
+        assert!(log_once(&path, "marker-kind", "x"));
+        assert!(!log_once(&path, "marker-kind", "x"));
+        assert!(log_once(&path, "marker-other", "x"));
+        assert!(log_once(&t.1.path().join("other.json"), "marker-kind", "x"));
+    }
+
+    /// Security review N3: a scope whose lock cannot be taken (here a folder named `.lock`) can
+    /// still be read, also when the read finds a file to adopt; only writes fail.
+    #[test]
+    fn a_scope_without_its_lock_can_still_be_read() {
+        let t = TempNotes::new("lock-unavailable");
+        let folder = general();
+        let id = t.0.create_note(&folder, "own").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        fs::remove_file(dir.join(SCOPE_LOCK_FILE)).unwrap();
+        fs::create_dir_all(dir.join(SCOPE_LOCK_FILE)).unwrap();
+        fs::write(dir.join("from outside.md"), "marker-outside-2a8").unwrap();
+        let before = fs::read(dir.join(META_FILE)).unwrap();
+
+        let listed = t.0.list_notes(&folder).unwrap();
+        assert_eq!(listed.len(), 2, "{listed:?}");
+        let adopted = stable_id(GENERAL_KEY, "from outside.md");
+        assert!(listed.iter().any(|n| n.id == adopted));
+        assert_eq!(
+            t.0.read_note(&folder, &adopted).unwrap(),
+            "marker-outside-2a8"
+        );
+        assert_eq!(t.0.title(&folder, &id).unwrap(), "own");
+        assert_eq!(fs::read(dir.join(META_FILE)).unwrap(), before);
+        // The trash is read the same way.
+        fs::create_dir_all(dir.join(TRASH_DIR)).unwrap();
+        fs::write(dir.join(TRASH_DIR).join("1-gone.md"), "x").unwrap();
+        assert_eq!(t.0.list_trash(&folder).unwrap().len(), 1);
+
+        assert_eq!(t.0.write_note(&folder, &id, "x").unwrap_err().code(), "io");
+        assert_eq!(t.0.create_note(&folder, "new").unwrap_err().code(), "io");
+        assert_eq!(t.0.delete_note(&folder, &id).unwrap_err().code(), "io");
+    }
+
+    /// Security review N4: the legacy migration changes `folder.json` and the trash only under
+    /// the scope lock; a scope whose lock is held is skipped and migrated on a later start.
+    #[test]
+    fn migration_skips_a_scope_whose_lock_is_held() {
+        let t = TempNotes::new("migrate-locked");
+        let old_id = t.0.create_note(&general(), "old").unwrap();
+        let gone = t.0.create_note(&project(), "gone").unwrap();
+        t.0.delete_note(&project(), &gone).unwrap();
+        make_legacy(t.0.root());
+        t.0.create_note(&general(), "new").unwrap();
+        let general_dir = t.0.root().join(GENERAL_KEY);
+        let project_dir = t.0.root().join(folder_key(&project()).unwrap());
+        let legacy = t.0.root().join(LEGACY_GENERAL_KEY);
+        let quick = t.0.clone().with_lock_wait(Duration::from_millis(50));
+
+        let held = (
+            lock_scope(&general_dir, SCOPE_LOCK_WAIT).unwrap(),
+            lock_scope(&project_dir, SCOPE_LOCK_WAIT).unwrap(),
+        );
+        let before = snapshot_except(t.0.root(), &[SCOPE_LOCK_FILE]);
+        quick.migrate_legacy_layout();
+        let after = snapshot_except(t.0.root(), &[SCOPE_LOCK_FILE]);
+        assert_eq!(after, before, "nothing moved under a held lock");
+        assert!(project_dir.join(LEGACY_TRASH_DIR).is_dir());
+        assert!(legacy.is_dir());
+
+        drop(held);
+        quick.migrate_legacy_layout();
+        assert!(!legacy.exists());
+        assert!(!project_dir.join(LEGACY_TRASH_DIR).exists());
+        assert!(project_dir.join(TRASH_DIR).is_dir());
+        let notes = t.0.list_notes(&general()).unwrap();
+        assert!(notes.iter().any(|n| n.id == old_id), "{notes:?}");
     }
 
     #[cfg(unix)]

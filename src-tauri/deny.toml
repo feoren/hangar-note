@@ -1,8 +1,21 @@
-# cargo-deny: the licenses every crate of the build may carry (security review B9). Checked with
-# `cargo deny --manifest-path src-tauri/Cargo.toml check licenses`.
+# cargo-deny: the licenses every crate of the build may carry (security review B9) and the
+# advisories of the RustSec database. Checked with
+# `cargo deny --manifest-path src-tauri/Cargo.toml check`.
 
 [graph]
 all-features = false
+
+[advisories]
+version = 2
+# Each entry is a crate without a maintainer, not a vulnerability, and none has an upgrade. All of
+# them reach the build only on Linux through Tauri itself (GTK bindings, D-Bus), so they leave with
+# a Tauri release, not with a change here. A new advisory of any other kind still fails the check.
+ignore = [
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error: build-time macro helper of glib-macros (GTK 3 bindings, Linux only, through tauri)" },
+  { id = "RUSTSEC-2026-0370", reason = "zvariant: D-Bus wire format of zbus 5 (Linux only, through tauri-plugin-single-instance)" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names: part of zbus 5 (Linux only, through tauri-plugin-single-instance)" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: part of zbus 5 (Linux only, through tauri-plugin-single-instance)" },
+]
 
 [licenses]
 version = 2

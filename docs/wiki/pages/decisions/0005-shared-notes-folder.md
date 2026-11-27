@@ -6,7 +6,7 @@ superseded_by:
 tags: [hangar, notes, storage, locking, sync, compatibility]
 sources: []
 created: 2026-11-26
-updated: 2026-11-26
+updated: 2026-11-27
 ---
 
 # ADR 0005: Hangar and Hangar Note share the private notes folder
@@ -230,6 +230,42 @@ minutes are removed from the scope folder and its `.trash/`; links, folders and 
 are never touched. Each scope is swept at most once per 10 minutes per process, so the first write
 after a start cleans up.
 
+### 2026-11-27: security review of the shared folder
+A full security review of the backend after "notes-shared 1" found nothing critical, high or
+medium; eight findings of low severity, all about content of the shared folder that neither app
+may trust. All are fixed in `src-tauri/src/notes.rs` unless named otherwise, each with a test.
+
+- **Titles of `folder.json` and `trash.json` are cleaned when read.** A title with control or
+  direction characters or one that is too long is replaced in memory by the cleaned title, else by
+  the name taken from the file; the entry keeps its ID, so the note keeps its color. Reading alone
+  never rewrites an index; the cleaned title is written with the next change.
+- **A scope holds at most 5000 notes and 5000 deleted notes** (`MAX_SCOPE_NOTES`), and no index
+  larger than the 4 MiB both apps read (`MAX_META_BYTES`) is ever written. Files beyond the limit
+  stay on disk untouched and are not adopted; adoption also keeps a byte budget, so a scope with
+  very long names can still be made smaller by deleting. Creating, restoring and deleting into a
+  full index answer the existing code `too-large` before anything moves.
+- **Reading no longer needs the scope lock.** A read that finds something to save and cannot get
+  the lock answers the synced state without saving; only writes fail. The IDs it shows are the
+  derived ones, so they stay the same between calls.
+- **The legacy migration runs under the scope lock** and skips a scope whose lock it cannot get;
+  the next start tries again.
+- **`notes/.writer.lock` is opened like the scope lock:** no link is followed, a file with more
+  than one name is refused (`src-tauri/src/access.rs`).
+- **Listings are bounded:** at most 1000 scopes from at most 20000 folder entries, General always
+  among them (`list_folders`, `search`, `src-tauri/src/watch.rs`).
+- **Duplicate index entries** (same ID, or same file name ignoring case) are dropped; the first
+  wins.
+- **A refused command line argument** reaches the log as its first 32 characters and its length
+  (`src-tauri/src/cli.rs`).
+
+> [!note] For Hangar
+> Hangar should adopt the same limits (5000 entries, the 4 MiB write check), the duplicate rule
+> and the title cleaning, so both apps show the same list for the same folder.
+
+> [!question] Unverified
+> The Unix branches of these fixes compile only on Unix and have not run yet; they run with the
+> CI matrix.
+
 ## Evidence
 - Code: `src-tauri/src/access.rs` (access without marker), `src-tauri/src/notes.rs` (`lock_scope`,
   `SCOPE_LOCK_FILE`, `SCOPE_LOCK_WAIT`, `Hold`, `create_free_file`), `src-tauri/src/watch.rs`,
@@ -278,7 +314,7 @@ after a start cleans up.
   machine.
 
 > [!question] Unverified
-> The scope lock on a network share or a synced folder (OneDrive, Seafile) is only as reliable as
+> The scope lock on a network share or a synced folder (OneDrive, Dropbox) is only as reliable as
 > the file system's lock support; Hangar's notes live in the local data folder, so this was not
 > measured. Linux and macOS behavior of `flock` across two processes is taken from the standard
 > library's documentation, not measured here.

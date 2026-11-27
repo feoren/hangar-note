@@ -1198,6 +1198,7 @@ mod tests {
             notes(NotesError::UnknownNote),
             notes(NotesError::InvalidFolder("path must be absolute")),
             notes(NotesError::TooLarge { size: 2, max: 1 }),
+            notes(NotesError::IndexFull("too many notes")),
             notes(NotesError::NotText),
             notes(NotesError::InvalidQuery("too long")),
             notes(NotesError::ReadOnly),
@@ -1262,6 +1263,7 @@ mod tests {
                     | NotesError::UnknownNote
                     | NotesError::InvalidFolder(_)
                     | NotesError::TooLarge { .. }
+                    | NotesError::IndexFull(_)
                     | NotesError::NotText
                     | NotesError::InvalidQuery(_)
                     | NotesError::ReadOnly
@@ -1284,6 +1286,7 @@ mod tests {
             "invalid-id",
             "not-found",
             "invalid",
+            "too-large",
             "too-large",
             "invalid",
             "invalid",

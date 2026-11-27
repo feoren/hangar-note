@@ -106,6 +106,35 @@ pub enum CliError {
     NotUnicode,
 }
 
+/// At most this many characters of a refused argument reach the log.
+pub const LOGGED_ARGUMENT_CHARS: usize = 32;
+
+impl CliError {
+    /// The error as the log of a running app shows it for a command line forwarded by a second
+    /// start (security review H3): a refused argument comes from another process and may carry
+    /// anything, so only its first [`LOGGED_ARGUMENT_CHARS`] characters (escaped) and its length
+    /// in characters are named.
+    pub fn for_log(&self) -> String {
+        let shortened = |arg: &str| {
+            let total = arg.chars().count();
+            let head: String = arg.chars().take(LOGGED_ARGUMENT_CHARS).collect();
+            if total > LOGGED_ARGUMENT_CHARS {
+                format!("{head:?}... ({total} characters)")
+            } else {
+                format!("{head:?} ({total} characters)")
+            }
+        };
+        match self {
+            Self::UnknownCommand(arg) => format!(
+                "Unknown command {}; expected open, quick or capture",
+                shortened(arg)
+            ),
+            Self::UnknownOption(arg) => format!("Unknown option {}", shortened(arg)),
+            other => other.to_string(),
+        }
+    }
+}
+
 #[derive(Default)]
 struct Options {
     folder: Option<PathBuf>,
@@ -200,6 +229,33 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<OsString> {
         list.iter().map(OsString::from).collect()
+    }
+
+    /// Security review H3: a refused forwarded argument is logged cut to its first 32 characters,
+    /// at a character boundary, with its length; a short one stays whole.
+    #[test]
+    fn refused_arguments_are_logged_shortened() {
+        let long = format!("{}{}", "ä".repeat(31), "😀marker-tail-4b1");
+        let logged = CliError::UnknownOption(long.clone()).for_log();
+        let head = format!("{}😀", "ä".repeat(31));
+        assert_eq!(
+            logged,
+            format!(
+                "Unknown option {head:?}... ({} characters)",
+                long.chars().count()
+            )
+        );
+        assert!(!logged.contains("marker-tail"));
+        let logged = CliError::UnknownCommand("marker\u{1b}[2J".into()).for_log();
+        assert!(
+            logged.contains("\"marker\\u{1b}[2J\" (10 characters)"),
+            "{logged}"
+        );
+        assert!(!logged.contains('\u{1b}'));
+        assert_eq!(
+            CliError::MissingValue("--folder").for_log(),
+            "--folder needs a value"
+        );
     }
 
     fn abs() -> &'static str {

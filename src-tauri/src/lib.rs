@@ -300,7 +300,10 @@ pub fn run(command: CliCommand, capture_text: Option<String>) -> tauri::Result<(
                     windows::deliver(app, &app.state::<Requests>(), project, list);
                 }
                 Err(error) => {
-                    eprintln!("hangar-note: ignoring the forwarded command line: {error}");
+                    eprintln!(
+                        "hangar-note: ignoring the forwarded command line: {}",
+                        error.for_log()
+                    );
                     if let Err(error) = windows::open_hub(app) {
                         eprintln!("hangar-note: notes area not opened: {error}");
                     }

@@ -193,7 +193,9 @@ impl From<&ServiceError> for ErrorCode {
                 | NotesError::InvalidQuery(_)
                 | NotesError::NotText,
             ) => Self::Invalid,
-            ServiceError::Notes(NotesError::TooLarge { .. }) => Self::TooLarge,
+            ServiceError::Notes(NotesError::TooLarge { .. } | NotesError::IndexFull(_)) => {
+                Self::TooLarge
+            }
             ServiceError::Notes(NotesError::Io { source, .. }) => StorageCode::of(source).into(),
             ServiceError::Meta(error) => error.storage_code().map_or(Self::Internal, Self::from),
             // Editor rules of the windows; no route writes an open note.

@@ -27,7 +27,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::fsio::{is_hidden_or_temp, is_link_meta, is_regular_dir, lock};
-use crate::notes::{is_folder_key, TRASH_DIR};
+use crate::notes::{scope_keys, MAX_DIR_ENTRIES, TRASH_DIR};
 
 /// How often the folder is looked at; changes show up within about this long.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(1);
@@ -81,19 +81,15 @@ pub fn state_of(path: &Path) -> Option<String> {
     fs::metadata(path).ok().map(|meta| stat_version(&meta))
 }
 
-/// Takes the versions of every watched file under `root`.
+/// Takes the versions of every watched file under `root`: the scopes of [`scope_keys`], and per
+/// scope at most [`MAX_DIR_ENTRIES`] entries of its listing, so neither a flood of scope folders
+/// nor of files makes a pass unbounded before the budget applies (security review H1).
 pub fn scan(root: &Path) -> Snapshot {
     let mut snapshot = Snapshot::default();
-    let Ok(entries) = fs::read_dir(root) else {
+    let Ok(keys) = scope_keys(root) else {
         return snapshot;
     };
     let mut budget = MAX_WATCHED_FILES;
-    let mut keys: Vec<String> = entries
-        .flatten()
-        .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|key| is_folder_key(key))
-        .collect();
-    keys.sort();
     for key in keys {
         let dir = root.join(&key);
         if !plain_dir(&dir) {
@@ -118,6 +114,7 @@ pub fn scan(root: &Path) -> Snapshot {
             continue;
         };
         let mut names: Vec<String> = files
+            .take(MAX_DIR_ENTRIES)
             .flatten()
             .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
             .filter_map(|entry| entry.file_name().into_string().ok())
