@@ -68,6 +68,7 @@ const api = vi.hoisted(() => ({
   setAutostart: vi.fn(),
   setSidebarOpen: vi.fn(),
   setSidebarWidth: vi.fn(),
+  setListWidth: vi.fn(),
   setLastProject: vi.fn(),
 }));
 
@@ -116,6 +117,7 @@ vi.mock("./api", async (importOriginal) => ({
   setHubOnTop: api.setHubOnTop,
   setSidebarOpen: api.setSidebarOpen,
   setSidebarWidth: api.setSidebarWidth,
+  setListWidth: api.setListWidth,
   setLastProject: api.setLastProject,
 }));
 
@@ -381,6 +383,7 @@ beforeEach(() => {
   api.setSettings.mockImplementation((value: unknown) => Promise.resolve(value));
   api.setSidebarOpen.mockImplementation((open: boolean) => Promise.resolve(open));
   api.setSidebarWidth.mockImplementation((width: number) => Promise.resolve(width));
+  api.setListWidth.mockImplementation((width: number | null) => Promise.resolve(width));
   api.setLastProject.mockImplementation((folder: string | null) => Promise.resolve(folder));
   stored = {};
   forgetSession();
@@ -2286,6 +2289,11 @@ describe("notes area: the sidebar's width", () => {
     expect(api.setSidebarWidth).toHaveBeenLastCalledWith(248);
     const shell = container.querySelector<HTMLElement>(".notes-shell");
     expect(shell?.style.getPropertyValue("--side-width")).toBe("248px");
+    // Enter resets it too, for the keyboard.
+    await press(separator(), "End");
+    await press(separator(), "Enter");
+    expect(api.setSidebarWidth).toHaveBeenLastCalledWith(248);
+    expect(separator().getAttribute("aria-valuenow")).toBe("248");
   });
 
   it("follows a drag within its range and stores it when the drag ends", async () => {
@@ -2320,6 +2328,162 @@ describe("notes area: the sidebar's width", () => {
     stored = { sidebarWidth: 5000 };
     await render("hangar");
     expect(separator().getAttribute("aria-valuenow")).toBe("400");
+  });
+});
+
+function listEdge(): HTMLElement {
+  const found = container.querySelectorAll<HTMLElement>('.list-resize[role="separator"]');
+  expect(found).toHaveLength(1);
+  const edge = found[0];
+  if (!edge) throw new Error("list edge missing");
+  return edge;
+}
+
+function listWidthStyle(): string {
+  const shell = container.querySelector<HTMLElement>(".notes-shell");
+  return shell?.style.getPropertyValue("--list-width") ?? "";
+}
+
+async function resizeWindow(width: number) {
+  windowWidth = width;
+  await act(async () => {
+    window.dispatchEvent(new Event("resize"));
+    await Promise.resolve();
+  });
+}
+
+describe("notes area: the note list's width", () => {
+  it("is a separator beside the list, moved with the keys and reset to its natural width", async () => {
+    await render("hangar");
+    const edge = listEdge();
+    expect(edge.getAttribute("aria-label")).toBe(t("notes.listResize"));
+    expect(edge.title).toBe(t("nav.resizeHint"));
+    expect(edge.tabIndex).toBe(0);
+    const list = document.getElementById(edge.getAttribute("aria-controls") ?? "");
+    expect(list?.classList.contains("list-pane")).toBe(true);
+    // Between the list and the note: the next Tab stop after the list.
+    expect(list?.nextElementSibling).toBe(edge);
+    // 776 px beside the default sidebar: 30 % is less than 280 px; the note keeps 328 px.
+    expect(edge.getAttribute("aria-valuenow")).toBe("280");
+    expect(edge.getAttribute("aria-valuemin")).toBe("240");
+    expect(edge.getAttribute("aria-valuemax")).toBe("448");
+    // Without a choice styles.css lets the list grow with the window.
+    expect(listWidthStyle()).toBe("");
+    await press(edge, "ArrowRight");
+    expect(api.setListWidth).toHaveBeenLastCalledWith(288);
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("288");
+    expect(listWidthStyle()).toBe("288px");
+    await press(listEdge(), "ArrowLeft", { shiftKey: true });
+    expect(api.setListWidth).toHaveBeenLastCalledWith(256);
+    await press(listEdge(), "Home");
+    expect(api.setListWidth).toHaveBeenLastCalledWith(240);
+    await press(listEdge(), "ArrowLeft");
+    // Already at the minimum: nothing new to store.
+    expect(api.setListWidth).toHaveBeenCalledTimes(3);
+    await press(listEdge(), "End");
+    expect(api.setListWidth).toHaveBeenLastCalledWith(448);
+    await press(listEdge(), "Enter");
+    expect(api.setListWidth).toHaveBeenLastCalledWith(null);
+    expect(listWidthStyle()).toBe("");
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("280");
+    await press(listEdge(), "ArrowRight");
+    await act(async () => {
+      listEdge().dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(api.setListWidth).toHaveBeenLastCalledWith(null);
+    expect(listWidthStyle()).toBe("");
+    // The sidebar's width is not touched by any of it.
+    expect(api.setSidebarWidth).not.toHaveBeenCalled();
+  });
+
+  it("follows a drag at once and stores it only when the drag ends", async () => {
+    await render("hangar");
+    const edge = listEdge();
+    const pointer = (type: string, clientX: number) =>
+      act(async () => {
+        edge.dispatchEvent(
+          new PointerEvent(type, { bubbles: true, clientX, pointerId: 1, button: 0 }),
+        );
+        await Promise.resolve();
+      });
+    await pointer("pointerdown", 528);
+    expect(edge.classList.contains("dragging")).toBe(true);
+    await pointer("pointermove", 600);
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("352");
+    expect(listWidthStyle()).toBe("352px");
+    await pointer("pointermove", 900);
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("448");
+    expect(api.setListWidth).not.toHaveBeenCalled();
+    await pointer("pointerup", 900);
+    expect(edge.classList.contains("dragging")).toBe(false);
+    expect(api.setListWidth).toHaveBeenCalledTimes(1);
+    expect(api.setListWidth).toHaveBeenLastCalledWith(448);
+    // A cancelled drag shows the width from before it again and stores nothing.
+    await pointer("pointerdown", 900);
+    await pointer("pointermove", 700);
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("248");
+    await pointer("pointercancel", 700);
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("448");
+    // A drag that ends where it started stores nothing either.
+    await pointer("pointerdown", 900);
+    await pointer("pointermove", 800);
+    await pointer("pointermove", 900);
+    await pointer("pointerup", 900);
+    expect(api.setListWidth).toHaveBeenCalledTimes(1);
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("448");
+  });
+
+  it("is narrowed by a smaller window and keeps the stored wish for a wider one", async () => {
+    stored = { listWidth: 600 };
+    await render("hangar");
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("448");
+    expect(listWidthStyle()).toBe("448px");
+    await resizeWindow(1400);
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("600");
+    expect(listEdge().getAttribute("aria-valuemax")).toBe("640");
+    expect(listWidthStyle()).toBe("600px");
+    await resizeWindow(900);
+    // 652 px beside the sidebar: the note keeps its 328 px.
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("324");
+    await resizeWindow(1400);
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("600");
+    // Only following the window: nothing is stored.
+    expect(api.setListWidth).not.toHaveBeenCalled();
+  });
+
+  it("gets the room of a sidebar folded away", async () => {
+    stored = { listWidth: 600 };
+    await render("hangar");
+    expect(listEdge().getAttribute("aria-valuemax")).toBe("448");
+    await click(edgeToggle());
+    expect(container.querySelector(".notes-shell")?.getAttribute("data-side")).toBe("closed");
+    expect(listEdge().getAttribute("aria-valuemax")).toBe("640");
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("600");
+  });
+
+  it("keeps working when an older backend cannot store it", async () => {
+    api.setListWidth.mockRejectedValue("Command set_list_width not found");
+    await render("hangar");
+    await press(listEdge(), "ArrowRight");
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("288");
+    expect(container.querySelector(".notice")).toBeNull();
+  });
+
+  it.each(["paper", "hangarNarrow"] as const)("has no edge in the %s layout", async (variant) => {
+    stored = { listWidth: 400 };
+    await render(variant);
+    expect(container.querySelector(".list-resize")).toBeNull();
+    expect(container.querySelectorAll('[role="separator"]')).toHaveLength(1);
+  });
+
+  it("goes away when the window becomes too narrow for both columns and comes back", async () => {
+    await render("hangar");
+    listEdge();
+    await resizeWindow(NARROW_HANGAR_WIDTH);
+    expect(container.querySelector(".list-resize")).toBeNull();
+    await resizeWindow(WIDE_WIDTH);
+    expect(listEdge().getAttribute("aria-valuenow")).toBe("280");
   });
 });
 

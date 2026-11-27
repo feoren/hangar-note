@@ -198,6 +198,20 @@
         "ru": "Тонкая строка внизу в цвете заметки показывает строку, столбец, число символов и выделение, и на рабочем столе тоже.",
         "tr": "Notun rengindeki ince alt bilgi; satırı, sütunu, karakter sayısını ve seçimini gösterir, masaüstünde de.",
         "zh": "笔记颜色的细页脚显示行、列、字符数和所选内容，桌面便笺中也一样。"
+      },
+      {
+        "de": "Seitenleiste und Notizliste ziehst du an ihrer Kante breiter oder schmaler, auch mit den Pfeiltasten. Ein Doppelklick setzt die Breite zurück.",
+        "en": "Drag the edge of the sidebar or the note list to make it wider or narrower, or use the arrow keys. A double click resets the width.",
+        "el": "Σύρε την άκρη της πλαϊνής στήλης ή της λίστας σημειώσεων για να τη φαρδύνεις ή να τη στενέψεις, ή πάτα τα βελάκια. Διπλό κλικ την επαναφέρει.",
+        "es": "Arrastra el borde de la barra lateral o de la lista de notas para ensancharla o estrecharla, o usa las flechas. Doble clic restablece el ancho.",
+        "fr": "Fais glisser le bord de la barre latérale ou de la liste des notes pour l'élargir ou la rétrécir, ou utilise les flèches. Un double-clic la rétablit.",
+        "it": "Trascina il bordo della barra laterale o dell'elenco delle note per allargarlo o restringerlo, oppure usa le frecce. Un doppio clic lo ripristina.",
+        "ja": "サイドバーとメモ一覧は、端をドラッグするか矢印キーで幅を変えられます。ダブルクリックで元の幅に戻ります。",
+        "pl": "Przeciągnij krawędź paska bocznego lub listy notatek, aby ją poszerzyć lub zwęzić, albo użyj strzałek. Dwuklik przywraca szerokość.",
+        "pt": "Arraste a borda da barra lateral ou da lista de notas para alargá-la ou estreitá-la, ou use as setas. Um clique duplo redefine a largura.",
+        "ru": "Перетащи край боковой панели или списка заметок, чтобы сделать его шире или уже, или используй стрелки. Двойной щелчок вернёт ширину.",
+        "tr": "Kenar çubuğunu veya not listesini kenarından sürükleyerek genişlet ya da daralt, ok tuşları da olur. Çift tıklama genişliği sıfırlar.",
+        "zh": "拖动侧边栏或笔记列表的边缘即可调宽或调窄，也可用方向键。双击恢复默认宽度。"
       }
     ]
   }

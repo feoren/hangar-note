@@ -513,6 +513,21 @@ pub async fn set_sidebar_width(
     Ok(saved.sidebar_width)
 }
 
+/// The width of hangar's note list in px, as dragged; stored within its range for the next start.
+/// `null` forgets it, and the list grows with the window again. Returns the stored width.
+#[tauri::command]
+pub async fn set_list_width(
+    app: AppHandle,
+    window: WebviewWindow,
+    settings: State<'_, SettingsStore>,
+    width: Option<u32>,
+) -> Result<Option<u32>, AppError> {
+    hub_only(&window)?;
+    let saved = settings.set_list_width(width)?;
+    let _ = app.emit(windows::SETTINGS_CHANGED_EVENT, &saved);
+    Ok(saved.list_width)
+}
+
 /// The project the notes area's "Project" level shows, remembered for a start without a folder.
 /// `null` forgets it. Only a path a project folder can have is stored (`settings::valid_project`).
 #[tauri::command]

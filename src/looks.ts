@@ -4,7 +4,7 @@
 // has a narrow layout of its own (HangarNarrowLayout.tsx) where its two columns do not fit.
 
 import type { MessageKey } from "./i18n";
-import { SIDEBAR_WIDTH_DEFAULT } from "./sidebarWidth";
+import { SIDEBAR_WIDTH_DEFAULT } from "./columnWidth";
 
 export type Look = "hangar" | "paper";
 

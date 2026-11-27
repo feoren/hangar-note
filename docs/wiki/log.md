@@ -242,3 +242,14 @@ Hangar, the rules for two targets and unsigned builds. Added the addendum of 202
 pages/decisions/0003-version-scheme.md (installer name with a hyphen, no `latest.json` while
 there is no updater, English release notes, unsigned only with `--allow-unsigned`). Updated
 index.md.
+
+## [2026-11-27] update | Note list width
+Added the section "Note list width" to pages/syntheses/usability-pass.md: the note list's edge is
+a separator like the sidebar's (one component, one width logic in `src/columnWidth.ts`), 240 to
+640 px, the note keeps 328 px, `listWidth` in settings.json is `null` while the list follows the
+window; the edges' accent line now lies on the border.
+
+## [2026-11-27] update | Paper's search and "+" as in Hangar
+Added the section on paper's search and "+" to pages/syntheses/usability-pass.md:
+paper's top row uses Hangar's search field and "+" (32 px field, 34 px button), the field up to
+420 px, and the field's border shows the focus in both looks.

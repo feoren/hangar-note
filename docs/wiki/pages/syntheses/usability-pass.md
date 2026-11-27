@@ -360,3 +360,27 @@ Checked with tests (`cursorStats` with CRLF, emoji and selections, `onCursor` in
 CodeMirror including the delayed recount, the status line in all three notes area variants and
 both sticky looks) and in headless Chrome against Vite with a mocked Tauri API (hangar at 360, 760
 and 1200 px, paper light and dark, sticky notes at 200 to 300 px with focus and a selection).
+
+## Note list width
+
+| Area | Finding | Change | Reason |
+| --- | --- | --- | --- |
+| List width | Hangar's note list followed the window (`clamp(280px, 30%, 420px)`) and could not be made wider or narrower; the sidebar could. | The list's right edge is a `role="separator"` like the sidebar's, one component for both (`src/ColumnResize.tsx`) and one width logic (`src/columnWidth.ts`, which replaces `src/sidebarWidth.ts`): drag with pointer capture and `col-resize`, arrow keys by 8 px (Shift 32 px), Home and End, a double click or Enter resets. Between 240 px (search and "+" still fit with the sidebar folded away: 147 px search, 34 px "+") and 640 px, and never so wide that the note keeps less than 328 px (the room hangar starts at, 608 px, minus the list's natural 280 px). Without a choice the list still grows with the window; `listWidth` in `settings.json` is `null` until a drag ends, a smaller window narrows the shown width without changing the stored one, and a reset stores `null` again. Only hangar's two columns have the edge: not in paper, not in the narrow layout. The accent line of both edges now lies on the column's border instead of one pixel beside it, so hover and focus show one line, not two. | Long titles or a wide screen; the person decides how much room the list takes. |
+
+Checked with tests (the width functions for both columns, keys, Enter and double click, a drag
+that stores only on release, a cancelled drag, a small window that narrows a stored wish and a
+wide one that brings it back, the folded sidebar's room, no edge in paper and the narrow layout,
+the Rust setting with a missing, out of range, fractional or invalid value) and in headless Chrome
+through CDP against Vite with a mocked Tauri API (hangar at 860 and 1280 px, light and dark, hover,
+drag, keyboard focus, 240 px with the sidebar shown and folded, right to left; the head line stays
+at 52 px in every column, no sideways scrolling).
+
+## Paper's search and "+" as in Hangar
+
+| Area | Finding | Change | Reason |
+| --- | --- | --- | --- |
+| Paper top row | Paper's search was a 40 px pill up to 720 px wide with a 40 px round "+"; Hangar's list has a 32 px field and a 34 px "+". | Paper uses Hangar's rules for both (`.layout-hangar .search, .layout-paper .search` and the shared `.list-new`): 32 px high, 13 px text, 6 px radius, 1 px border, 16 px icons, 8 px gap, "+" 34 by 34 px with a 6 px radius. The field stops at 420 px, where Hangar's list stops growing; the row keeps its 24 px inset to line up with the cards and the head line height (`--side-head`). While the field has focus its border takes the accent color, as in Hangar; the shared rule's border had hidden `.search:focus-within` in both looks, and the input draws no outline of its own. | One search and one "+" in both looks; paper's top no longer looks heavier. |
+
+Measured in headless Chrome at 1280 px, light and dark: both looks 32 px field, 34 by 34 px "+",
+52 px head row, the same computed border, radius, background, font, gap and 16 px icons, and the
+accent border on focus.

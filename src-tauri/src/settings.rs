@@ -1,7 +1,8 @@
 //! `settings.json` in Hangar Note's data folder (ADR 0001): language, theme, the color of new
 //! notes, the personal names of the colors (ADR 0002, "Color categories"), "Always on top" of
-//! the notes area, the look of the windows (ADR 0004), and two things the notes area remembers
-//! across restarts: whether its sidebar is open and the project its "Project" level showed last.
+//! the notes area, the look of the windows (ADR 0004), and what the notes area remembers across
+//! restarts: whether its sidebar is open, the widths of its sidebar and its note list, and the
+//! project its "Project" level showed last.
 //! "Start with the system" is not stored here: it is the OS state itself (autostart plugin).
 
 use std::collections::BTreeMap;
@@ -30,6 +31,10 @@ pub const MAX_PROJECT_PATH_CHARS: usize = 4096;
 pub const SIDEBAR_WIDTH_DEFAULT: u32 = 248;
 pub const SIDEBAR_WIDTH_MIN: u32 = 180;
 pub const SIDEBAR_WIDTH_MAX: u32 = 400;
+/// The range of the note list's width in px (`LIST_WIDTH_*` in `src/columnWidth.ts`). The list has
+/// no fixed default: without a stored width it grows with the window.
+pub const LIST_WIDTH_MIN: u32 = 240;
+pub const LIST_WIDTH_MAX: u32 = 640;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -90,8 +95,16 @@ pub struct Settings {
     pub sidebar_open: bool,
     /// The sidebar's width in px as the person dragged it; a file without the field, or with a
     /// value that is no width, gives the default. Changed only through `set_sidebar_width`.
-    #[serde(default = "default_sidebar_width", deserialize_with = "tolerant_width")]
+    #[serde(
+        default = "default_sidebar_width",
+        deserialize_with = "tolerant_sidebar_width"
+    )]
     pub sidebar_width: u32,
+    /// The note list's width in px as the person dragged it; `None` (the default, and what a file
+    /// without the field or with a value that is no width gives) lets it grow with the window.
+    /// Changed only through `set_list_width`.
+    #[serde(default, deserialize_with = "tolerant_list_width")]
+    pub list_width: Option<u32>,
     /// The project the notes area's "Project" level showed last, for a start without a folder.
     /// Changed only through `set_last_project`, kept by [`SettingsStore::set`]; a stored value
     /// that is no valid project path reads as none.
@@ -107,21 +120,35 @@ fn default_sidebar_width() -> u32 {
     SIDEBAR_WIDTH_DEFAULT
 }
 
-/// Any width brought into the range; anything that is no number is the default, so a hand-edited
-/// file never loses its other settings over this field.
 pub fn clamp_sidebar_width(width: u32) -> u32 {
     width.clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)
 }
 
-fn tolerant_width<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
+pub fn clamp_list_width(width: u32) -> u32 {
+    width.clamp(LIST_WIDTH_MIN, LIST_WIDTH_MAX)
+}
+
+/// A stored width as a whole number of px, or `None` for anything that is no finite number, so a
+/// hand-edited file never loses its other settings over a width field.
+fn width_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<u32>, D::Error> {
     let value = serde_json::Value::deserialize(deserializer)?;
-    Ok(match value.as_f64() {
-        Some(width) if width.is_finite() => {
-            // Rounded and bounded before the cast, so it cannot overflow.
-            clamp_sidebar_width(width.round().clamp(0.0, f64::from(u32::MAX)) as u32)
-        }
-        _ => SIDEBAR_WIDTH_DEFAULT,
-    })
+    Ok(value
+        .as_f64()
+        .filter(|width| width.is_finite())
+        // Rounded and bounded before the cast, so it cannot overflow.
+        .map(|width| width.round().clamp(0.0, f64::from(u32::MAX)) as u32))
+}
+
+/// The sidebar's width brought into its range; no width at all is the default.
+fn tolerant_sidebar_width<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
+    Ok(width_value(deserializer)?.map_or(SIDEBAR_WIDTH_DEFAULT, clamp_sidebar_width))
+}
+
+/// The list's width brought into its range; no width at all is none.
+fn tolerant_list_width<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u32>, D::Error> {
+    Ok(width_value(deserializer)?.map(clamp_list_width))
 }
 
 impl Default for Settings {
@@ -135,6 +162,7 @@ impl Default for Settings {
             look: Look::default(),
             sidebar_open: true,
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            list_width: None,
             last_project: None,
         }
     }
@@ -305,14 +333,15 @@ impl SettingsStore {
 
     /// Everything but what the notes area changes through its own commands
     /// ([`Settings::hub_on_top`], [`Settings::sidebar_open`], [`Settings::sidebar_width`],
-    /// [`Settings::last_project`]): those
-    /// keep their stored values, since the settings page sends its settings without them.
+    /// [`Settings::list_width`], [`Settings::last_project`]): those keep their stored values,
+    /// since the settings page sends its settings without them.
     pub fn set(&self, settings: Settings) -> Result<Settings, SettingsError> {
         let mut settings = tidy(settings);
         let mut current = lock(&self.current);
         settings.hub_on_top = current.hub_on_top;
         settings.sidebar_open = current.sidebar_open;
         settings.sidebar_width = current.sidebar_width;
+        settings.list_width = current.list_width;
         settings.last_project = current.last_project.clone();
         save(&self.path, &settings)?;
         *current = settings.clone();
@@ -342,6 +371,12 @@ impl SettingsStore {
     /// Stores the sidebar's width, brought into its range first.
     pub fn set_sidebar_width(&self, width: u32) -> Result<Settings, SettingsError> {
         self.update(|settings| settings.sidebar_width = clamp_sidebar_width(width))
+    }
+
+    /// Stores the note list's width, brought into its range first; `None` lets it grow with the
+    /// window again.
+    pub fn set_list_width(&self, width: Option<u32>) -> Result<Settings, SettingsError> {
+        self.update(|settings| settings.list_width = width.map(clamp_list_width))
     }
 
     /// Remembers the project the "Project" level shows; `None` forgets it.
@@ -374,6 +409,7 @@ mod tests {
             look: Look::Paper,
             sidebar_open: true,
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            list_width: None,
             last_project: None,
         };
         store.set(changed.clone()).unwrap();
@@ -385,7 +421,8 @@ mod tests {
             serde_json::json!({
                 "version": 1, "language": "pl", "theme": "dark", "newNoteColor": "mint",
                 "colorNames": { "sky": "Arbeit" }, "hubOnTop": false, "look": "paper",
-                "sidebarOpen": true, "sidebarWidth": 248, "lastProject": null
+                "sidebarOpen": true, "sidebarWidth": 248, "listWidth": null,
+                "lastProject": null
             })
         );
     }
@@ -585,6 +622,59 @@ b"
             fs::write(store.path(), text).unwrap();
             let loaded = load(store.path());
             assert_eq!(loaded.sidebar_width, width, "{text}");
+            assert_eq!(loaded.theme, Theme::Dark, "{text}");
+        }
+    }
+
+    #[test]
+    fn the_list_width_is_none_by_default_and_kept_within_its_range() {
+        let dir = TempDir::new("settings-list-width");
+        let store = SettingsStore::open(dir.path());
+        assert_eq!(store.get().list_width, None);
+        assert_eq!(
+            store.set_list_width(Some(320)).unwrap().list_width,
+            Some(320)
+        );
+        assert_eq!(SettingsStore::open(dir.path()).get().list_width, Some(320));
+        assert_eq!(
+            store.set_list_width(Some(20)).unwrap().list_width,
+            Some(LIST_WIDTH_MIN)
+        );
+        assert_eq!(
+            store.set_list_width(Some(5000)).unwrap().list_width,
+            Some(LIST_WIDTH_MAX)
+        );
+        // The settings page and the sidebar's own settings keep it.
+        store.set_list_width(Some(300)).unwrap();
+        let sent: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(sent.list_width, None);
+        assert_eq!(store.set(sent).unwrap().list_width, Some(300));
+        assert_eq!(store.set_sidebar_width(260).unwrap().list_width, Some(300));
+        assert_eq!(store.set_sidebar_open(false).unwrap().list_width, Some(300));
+        // Reset: the list grows with the window again.
+        assert_eq!(store.set_list_width(None).unwrap().list_width, None);
+        assert_eq!(SettingsStore::open(dir.path()).get().list_width, None);
+        // Stored by hand: out of range, a fraction, no number, or missing; the rest stays.
+        for (text, width) in [
+            (
+                r#"{"version":1,"theme":"dark","listWidth":9999}"#,
+                Some(LIST_WIDTH_MAX),
+            ),
+            (
+                r#"{"version":1,"theme":"dark","listWidth":-3}"#,
+                Some(LIST_WIDTH_MIN),
+            ),
+            (
+                r#"{"version":1,"theme":"dark","listWidth":300.6}"#,
+                Some(301),
+            ),
+            (r#"{"version":1,"theme":"dark","listWidth":"wide"}"#, None),
+            (r#"{"version":1,"theme":"dark","listWidth":null}"#, None),
+            (r#"{"version":1,"theme":"dark"}"#, None),
+        ] {
+            fs::write(store.path(), text).unwrap();
+            let loaded = load(store.path());
+            assert_eq!(loaded.list_width, width, "{text}");
             assert_eq!(loaded.theme, Theme::Dark, "{text}");
         }
     }

@@ -692,22 +692,29 @@ kbd {
   display: none;
 }
 
-/* The sidebar's edge: a 7 px strip to grab, a thin accent line while it is hovered, dragged or
-   focused. */
-.side-resize {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-end: -4px;
+/* A column's edge (ColumnResize.tsx), the sidebar's and hangar's list's: a 7 px strip to grab
+   from 3 px inside the column to 4 px beyond it, and a thin accent line while it is hovered, dragged
+   or focused. The line lies on the column's border (its last pixel column) and the first beyond
+   it, so it covers the border instead of running beside it as a second line. */
+.side-resize,
+.list-resize {
   z-index: 3;
   width: 7px;
   cursor: col-resize;
   touch-action: none;
 }
 
-.side-resize::after {
+.side-resize {
   position: absolute;
   inset-block: 0;
-  inset-inline-start: 3px;
+  inset-inline-end: -4px;
+}
+
+.side-resize::after,
+.list-resize::after {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 2px;
   width: 2px;
   background: transparent;
   content: "";
@@ -716,15 +723,19 @@ kbd {
 
 .side-resize:hover::after,
 .side-resize.dragging::after,
-.side-resize:focus-visible::after {
+.side-resize:focus-visible::after,
+.list-resize:hover::after,
+.list-resize.dragging::after,
+.list-resize:focus-visible::after {
   background: var(--accent);
 }
 
-.side-resize:focus-visible {
+.side-resize:focus-visible,
+.list-resize:focus-visible {
   outline: none;
 }
 
-.notes-shell:has(.side-resize.dragging) {
+.notes-shell:has(.side-resize.dragging, .list-resize.dragging) {
   cursor: col-resize;
   user-select: none;
 }
@@ -2797,29 +2808,11 @@ kbd {
   padding: 16px 24px 8px;
 }
 
+/* The search and "+" are hangar's own (`.layout-hangar .search` below, `.list-new`); the search
+   only stops where hangar's list stops growing (LIST_NATURAL_MAX, columnWidth.ts), so on the wide
+   table it never looks bigger than there. */
 .layout-paper .search {
-  max-width: 720px;
-  height: 40px;
-  padding: 0 4px 0 16px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--panel-raised);
-  box-shadow: 0 0 0 1px var(--border);
-}
-
-.layout-paper .search:focus-within {
-  background: var(--panel-raised);
-  box-shadow: 0 0 0 2px var(--accent);
-}
-
-.layout-paper .search-clear {
-  border-radius: 50%;
-}
-
-.paper-top .list-new {
-  width: 40px;
-  min-height: 40px;
-  border-radius: 50%;
+  max-width: 420px;
 }
 .paper-board {
   flex: 1;
@@ -3269,10 +3262,12 @@ kbd {
 
 /* ---- Look "hangar" (direction C): Hangar's window, list and note beside the sidebar ---- */
 
+/* `--list-width` is the list's width as dragged (NotesArea.tsx); without one the list grows with the
+   room (columnWidth.ts, LIST_NATURAL_*, the same numbers). */
 .layout-hangar {
   display: grid;
   grid-template-areas: "list note";
-  grid-template-columns: clamp(280px, 30%, 420px) minmax(0, 1fr);
+  grid-template-columns: var(--list-width, clamp(280px, 30%, 420px)) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   background: var(--bg);
@@ -3280,6 +3275,15 @@ kbd {
 
 .layout-hangar .list-pane {
   background: var(--bg);
+}
+
+/* The list's edge sits in the list's own cell, at its end, reaching 4 px into the note, so it
+   lies on the list's border exactly as the sidebar's edge lies on the sidebar's. */
+.list-resize {
+  position: relative;
+  grid-area: list;
+  justify-self: end;
+  margin-inline-end: -4px;
 }
 
 .layout-hangar .list-top {
@@ -3290,11 +3294,18 @@ kbd {
   padding-inline-start: var(--edge-room);
 }
 
-.layout-hangar .search {
+.layout-hangar .search,
+.layout-paper .search {
   height: 32px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg);
+}
+
+/* The field's input has no outline of its own, so the border shows the focus (as in Hangar). */
+.layout-hangar .search:focus-within,
+.layout-paper .search:focus-within {
+  border-color: var(--accent);
 }
 
 .layout-hangar .note-row {

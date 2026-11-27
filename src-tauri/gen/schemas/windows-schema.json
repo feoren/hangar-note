@@ -327,6 +327,12 @@
           "markdownDescription": "Enables the set_last_project command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_list_width command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-list-width",
+          "markdownDescription": "Enables the set_list_width command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_note_color command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-note-color",
@@ -541,6 +547,12 @@
           "type": "string",
           "const": "deny-set-last-project",
           "markdownDescription": "Denies the set_last_project command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_list_width command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-list-width",
+          "markdownDescription": "Denies the set_list_width command without any pre-configured scope."
         },
         {
           "description": "Denies the set_note_color command without any pre-configured scope.",

@@ -436,6 +436,7 @@ pub fn run(command: CliCommand, capture_text: Option<String>) -> tauri::Result<(
             commands::set_hub_on_top,
             commands::set_sidebar_open,
             commands::set_sidebar_width,
+            commands::set_list_width,
             commands::set_last_project,
             commands::window_ready,
         ])

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { DICTIONARIES } from "./i18n";
 import {
   DEFAULT_LOOK,
+  HANGAR_MIN_ROOM,
   HANGAR_MIN_WIDTH,
   isLook,
   layoutFor,
@@ -15,7 +16,7 @@ import {
   narrowRoom,
   navFolded,
 } from "./looks";
-import { SIDEBAR_WIDTH_DEFAULT } from "./sidebarWidth";
+import { LIST_NATURAL_MIN, NOTE_MIN_WIDTH, SIDEBAR_WIDTH_DEFAULT } from "./columnWidth";
 
 describe("looks", () => {
   it("are hangar and paper, hangar first as the default", () => {
@@ -39,6 +40,8 @@ describe("looks", () => {
   it("give hangar its narrow layout where its columns do not fit beside the sidebar", () => {
     expect(SIDEBAR_WIDTH_DEFAULT).toBe(248);
     expect(HANGAR_MIN_WIDTH).toBe(856);
+    // A dragged list leaves the note at least what it has where both columns first fit.
+    expect(LIST_NATURAL_MIN + NOTE_MIN_WIDTH).toBe(HANGAR_MIN_ROOM);
     expect(layoutFor("hangar", 856)).toBe("hangar");
     expect(layoutFor("hangar", 855)).toBe("hangarNarrow");
     expect(layoutFor("hangar", HANGAR_MIN_WIDTH)).toBe("hangar");

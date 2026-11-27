@@ -12,14 +12,21 @@
 // exception: its sheet opens only by choice, so the open note is saved and closed first
 // (useNotesArea.tsx, `m.look`).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { setSidebarOpen, setSidebarWidth } from "./api";
+import { setListWidth, setSidebarOpen, setSidebarWidth } from "./api";
 import type { AppSettings } from "./appSettings";
-import { HangarLayout } from "./HangarLayout";
+import { HangarLayout, LIST_ID } from "./HangarLayout";
 import { HangarNarrowLayout } from "./HangarNarrowLayout";
 import type { AppMenuGroup, AppMenuItem } from "./AppMenu";
 import { appMenuGroups } from "./appMenuItems";
+import { ColumnResize } from "./ColumnResize";
+import {
+  clampColumnWidth,
+  LIST_COLUMN,
+  SIDEBAR_COLUMN,
+  SIDEBAR_WIDTH_DEFAULT,
+} from "./columnWidth";
 import { KeysDialog } from "./KeysDialog";
 import { LEVEL_PANEL_ID, levelTabId, TeamLevel } from "./LevelBar";
 import { layoutFor, narrowRoom, navFolded, type Layout } from "./looks";
@@ -28,13 +35,6 @@ import { NotesSettings } from "./NotesSettings";
 import { PaperLayout } from "./PaperLayout";
 import { matchSidebarShortcut, sidebarShortcutLabel } from "./shortcuts";
 import { EdgeToggle, Sidebar } from "./Sidebar";
-import {
-  clampSidebarWidth,
-  separatorWidth,
-  SIDEBAR_WIDTH_DEFAULT,
-  SIDEBAR_WIDTH_MIN,
-  maxSidebarWidth,
-} from "./sidebarWidth";
 import { Trash } from "./Trash";
 import { PLATFORM, useNotesArea, type NotesModel } from "./useNotesArea";
 
@@ -55,27 +55,43 @@ function useWindowWidth(): number {
 }
 
 /**
- * The sidebar's stored state (shown, width): what this window set wins over what the settings
- * brought. Each change is stored at once; a backend that does not know these settings yet (before
- * a restart) answers an error, the change then holds while the app runs, and nothing needs saying.
+ * Whether the sidebar is shown: what this window set wins over what the settings brought. Each
+ * change is stored at once; a backend that does not know the setting yet (before a restart)
+ * answers an error, the change then holds while the app runs, and nothing needs saying.
  */
-function useSidebarState(app: AppSettings) {
+function useSidebarOpen(app: AppSettings) {
   const [openSet, setOpenSet] = useState<boolean | null>(null);
-  const [widthSet, setWidthSet] = useState<number | null>(null);
   const open = openSet ?? app.settings?.sidebarOpen ?? true;
-  const width = widthSet ?? app.settings?.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT;
   return {
     open,
-    width,
     setOpen: (next: boolean) => {
       setOpenSet(next);
       void setSidebarOpen(next).catch(() => null);
     },
-    /** While dragging: shown at once, stored only with `storeWidth` when the drag ends. */
-    showWidth: setWidthSet,
-    storeWidth: (next: number) => {
-      setWidthSet(next);
-      void setSidebarWidth(next).catch(() => null);
+  };
+}
+
+/**
+ * A column's chosen width (`null`: none, the column's natural width): what this window set wins
+ * over what the settings brought, and a drag in progress over both. The wish is kept as chosen;
+ * the shown width is brought into the window's range where it is used, so a smaller window
+ * narrows the column without forgetting the wish. Stored only when a drag ends, a key moves the
+ * edge or it is reset; an older backend's error is ignored as for the open state.
+ */
+function useColumnWish<T extends number | null>(stored: T, save: (width: T) => Promise<unknown>) {
+  const [chosen, setChosen] = useState<{ width: T } | null>(null);
+  const [dragged, setDragged] = useState<number | null>(null);
+  return {
+    wish: dragged ?? (chosen === null ? stored : chosen.width),
+    /** While dragging: shown at once, not stored. */
+    show: setDragged,
+    store: (next: T) => {
+      setDragged(null);
+      setChosen({ width: next });
+      void save(next).catch(() => null);
+    },
+    cancel: () => {
+      setDragged(null);
     },
   };
 }
@@ -84,11 +100,19 @@ export function NotesArea({ app }: { app: AppSettings }) {
   const m = useNotesArea(app);
   const windowWidth = useWindowWidth();
   const folded = navFolded(windowWidth);
-  const side = useSidebarState(app);
+  const side = useSidebarOpen(app);
+  const sideWish = useColumnWish(
+    app.settings?.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT,
+    setSidebarWidth,
+  );
+  const listWish = useColumnWish(app.settings?.listWidth ?? null, setListWidth);
   const sideShown = !folded && side.open;
-  const sideWidth = clampSidebarWidth(side.width, windowWidth);
+  const sideWidth = clampColumnWidth(SIDEBAR_COLUMN, sideWish.wish, windowWidth);
   const layout = layoutFor(m.look, windowWidth, sideShown ? sideWidth : 0);
   const narrow = narrowRoom(windowWidth, sideShown ? sideWidth : 0);
+  /** The room beside the sidebar, where hangar's list and note share the width. */
+  const listRoom = windowWidth - (sideShown ? sideWidth : 0);
+  const listWidth = clampColumnWidth(LIST_COLUMN, listWish.wish, listRoom);
   const [overlay, setOverlay] = useState(false);
   const opener = useRef<HTMLElement | null>(null);
 
@@ -154,8 +178,29 @@ export function NotesArea({ app }: { app: AppSettings }) {
   /** The paper look's open note is a modal sheet: the sidebar waits behind it. */
   const behindSheet = layout === "paper" && m.view === "browse" && m.note !== null;
 
-  /** The sidebar's width for styles.css (`--side-width`). */
+  /**
+   * The sidebar's width for styles.css (`--side-width`), and the list's once one is chosen
+   * (`--list-width`); without a choice styles.css lets the list grow with the room.
+   */
   const shellStyle: Record<string, string> = { "--side-width": `${String(sideWidth)}px` };
+  if (listWish.wish !== null) shellStyle["--list-width"] = `${String(listWidth)}px`;
+  const listResize = (
+    <ColumnResize
+      spec={LIST_COLUMN}
+      className="list-resize"
+      label={m.t("notes.listResize")}
+      hint={m.t("nav.resizeHint")}
+      controls={LIST_ID}
+      width={listWidth}
+      room={listRoom}
+      onShow={listWish.show}
+      onStore={listWish.store}
+      onCancel={listWish.cancel}
+      onReset={() => {
+        listWish.store(null);
+      }}
+    />
+  );
   const toggleSide = () => {
     toggle(document.querySelector<HTMLElement>('[data-focus-id="nav"]'));
   };
@@ -205,13 +250,20 @@ export function NotesArea({ app }: { app: AppSettings }) {
       {!folded && (
         <div className="shell-side" ref={sideRef} inert={behindSheet || !side.open}>
           <Sidebar m={m} id={SIDEBAR_ID} menu={menu} />
-          <ResizeHandle
+          <ColumnResize
+            spec={SIDEBAR_COLUMN}
+            className="side-resize"
             label={m.t("nav.resize")}
             hint={m.t("nav.resizeHint")}
+            controls={SIDEBAR_ID}
             width={sideWidth}
-            windowWidth={windowWidth}
-            onShow={side.showWidth}
-            onStore={side.storeWidth}
+            room={windowWidth}
+            onShow={sideWish.show}
+            onStore={sideWish.store}
+            onCancel={sideWish.cancel}
+            onReset={() => {
+              sideWish.store(SIDEBAR_WIDTH_DEFAULT);
+            }}
           />
         </div>
       )}
@@ -234,7 +286,7 @@ export function NotesArea({ app }: { app: AppSettings }) {
           role={m.level === null || m.view !== "browse" || !sideShown ? undefined : "tabpanel"}
           aria-labelledby={m.level === null || !sideShown ? undefined : levelTabId(m.level)}
         >
-          <View m={m} app={app} layout={layout} narrow={narrow} />
+          <View m={m} app={app} layout={layout} narrow={narrow} listResize={listResize} />
         </div>
         {/* The one notice place, floating at the bottom; the paper look's sheet holds its own. */}
         {!behindSheet && <div className="notice-float">{m.noticeSlot}</div>}
@@ -266,91 +318,6 @@ export function NotesArea({ app }: { app: AppSettings }) {
 }
 
 /**
- * The sidebar's right edge: dragged with the mouse or a pen, moved with the arrow keys (Shift: a
- * larger step), Home and End; a double click gives it its default width back. The width is shown
- * while dragging and stored when the drag ends.
- */
-function ResizeHandle({
-  label,
-  hint,
-  width,
-  windowWidth,
-  onShow,
-  onStore,
-}: {
-  label: string;
-  hint: string;
-  width: number;
-  windowWidth: number;
-  onShow: (width: number) => void;
-  onStore: (width: number) => void;
-}) {
-  const drag = useRef<{ startX: number; startWidth: number; last: number } | null>(null);
-  const rtl = () => document.documentElement.dir === "rtl";
-
-  const widthAt = (clientX: number) => {
-    const start = drag.current;
-    if (start === null) return width;
-    const moved = rtl() ? start.startX - clientX : clientX - start.startX;
-    return clampSidebarWidth(start.startWidth + moved, windowWidth);
-  };
-
-  return (
-    <div
-      className="side-resize"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label={label}
-      aria-controls={SIDEBAR_ID}
-      aria-valuenow={width}
-      aria-valuemin={SIDEBAR_WIDTH_MIN}
-      aria-valuemax={maxSidebarWidth(windowWidth)}
-      tabIndex={0}
-      title={hint}
-      onPointerDown={(event) => {
-        if (event.button !== 0) return;
-        event.preventDefault();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        drag.current = { startX: event.clientX, startWidth: width, last: width };
-        event.currentTarget.classList.add("dragging");
-      }}
-      onPointerMove={(event) => {
-        if (drag.current === null) return;
-        const next = widthAt(event.clientX);
-        if (next === drag.current.last) return;
-        drag.current.last = next;
-        onShow(next);
-      }}
-      onPointerUp={(event) => {
-        const start = drag.current;
-        if (start === null) return;
-        drag.current = null;
-        event.currentTarget.classList.remove("dragging");
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
-        if (start.last !== start.startWidth) onStore(start.last);
-      }}
-      onPointerCancel={(event) => {
-        const start = drag.current;
-        drag.current = null;
-        event.currentTarget.classList.remove("dragging");
-        if (start !== null) onShow(start.startWidth);
-      }}
-      onDoubleClick={() => {
-        onStore(clampSidebarWidth(SIDEBAR_WIDTH_DEFAULT, windowWidth));
-      }}
-      onKeyDown={(event) => {
-        const next = separatorWidth(event, width, windowWidth, rtl());
-        if (next === null) return;
-        event.preventDefault();
-        if (next !== width) onStore(next);
-      }}
-    />
-  );
-}
-
-/**
  * The notes in the look's layout, the team level, or the trash or the settings in their place.
  * Those two keep their "Back" in a narrow window, where the sidebar is folded away.
  */
@@ -359,11 +326,14 @@ function View({
   app,
   layout,
   narrow,
+  listResize,
 }: {
   m: NotesModel;
   app: AppSettings;
   layout: Layout;
   narrow: boolean;
+  /** The list's edge in hangar's two columns; the other layouts have no such edge. */
+  listResize: ReactNode;
 }) {
   if (m.view === "settings" || m.view === "trash") {
     return (
@@ -403,6 +373,6 @@ function View({
     );
   }
   if (layout === "paper") return <PaperLayout m={m} />;
-  if (layout === "hangar") return <HangarLayout m={m} />;
+  if (layout === "hangar") return <HangarLayout m={m} listResize={listResize} />;
   return <HangarNarrowLayout m={m} narrow={narrow} />;
 }

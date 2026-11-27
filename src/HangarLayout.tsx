@@ -3,8 +3,9 @@
 // its title and tools in a slim header that ends with the look switch (alone there while no note
 // is open). No status bar across the window: notices float at the bottom (NotesArea.tsx), the keys
 // live in the app menu's Help, and only the open note has its thin status line (NoteFooter) for the
-// cursor and the length. Where the two columns do not fit, the window shows
-// hangar's narrow layout instead (HangarNarrowLayout.tsx, looks.ts).
+// cursor and the length. The list's right edge can be dragged (`listResize`, NotesArea.tsx). Where
+// the two columns do not fit, the window shows hangar's narrow layout instead
+// (HangarNarrowLayout.tsx, looks.ts).
 
 import { colorName, noteTone, toneVariables } from "./colors";
 import { DesktopIcon, MoreIcon, PlusIcon, TaskIcon } from "./icons";
@@ -27,12 +28,22 @@ import {
 import { noteKey } from "./notes";
 import type { NotesModel } from "./useNotesArea";
 
-export function HangarLayout({ m }: { m: NotesModel }) {
+/** The list, the column its edge sizes (`aria-controls`). */
+export const LIST_ID = "notes-list";
+
+export function HangarLayout({
+  m,
+  listResize,
+}: {
+  m: NotesModel;
+  /** The list's right edge (NotesArea.tsx), between the list and the note. */
+  listResize: React.ReactNode;
+}) {
   const { t, note, writable, emptyMode, stats } = m;
   const noteColorName = note === null ? "" : colorName(note.color, m.colorNames, t);
   return (
     <div className={emptyMode ? "notes-area layout-hangar is-empty" : "notes-area layout-hangar"}>
-      <section className="list-pane hangar-list" aria-label={t("notes.list")}>
+      <section id={LIST_ID} className="list-pane hangar-list" aria-label={t("notes.list")}>
         <ListTop m={m} className="hangar-list-top" />
         {emptyMode ? (
           <div className="hangar-empty">
@@ -61,6 +72,7 @@ export function HangarLayout({ m }: { m: NotesModel }) {
           </div>
         )}
       </section>
+      {listResize}
 
       <section
         className="note-pane hangar-editor"

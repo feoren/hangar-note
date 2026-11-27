@@ -127,6 +127,11 @@ export interface SettingsView extends Settings {
   sidebarOpen?: boolean;
   /** The sidebar's width in px as dragged (`settings.json`); left out by an older backend. */
   sidebarWidth?: number;
+  /**
+   * The width of hangar's note list in px as dragged (`settings.json`); `null` while none is
+   * chosen (the list grows with the window), left out by an older backend.
+   */
+  listWidth?: number | null;
   /** The project the "Project" level showed last, `null` or left out without one. */
   lastProject?: string | null;
 }
@@ -280,6 +285,12 @@ export const setHubOnTop = (onTop: boolean) => invoke<boolean>("set_hub_on_top",
 export const setSidebarOpen = (open: boolean) => invoke<boolean>("set_sidebar_open", { open });
 /** Stores the sidebar's width in px; the backend keeps it within its range and answers it. */
 export const setSidebarWidth = (width: number) => invoke<number>("set_sidebar_width", { width });
+/**
+ * Stores the width of hangar's note list in px, `null` for none (it grows with the window again);
+ * the backend keeps it within its range and answers it.
+ */
+export const setListWidth = (width: number | null) =>
+  invoke<number | null>("set_list_width", { width });
 /** Remembers the project the "Project" level shows (`null` forgets it); answers the stored one. */
 export const setLastProject = (folder: string | null) =>
   invoke<string | null>("set_last_project", { folder });
