@@ -2789,8 +2789,11 @@ kbd {
   min-height: 0;
 }
 
+/* Spacing as in hangar, the reference: the search starts at the rows' inset (like hangar's list
+   top) and the look switch ends 8 px from the edge (like hangar's note head); the head row's
+   height comes from the rule at the end of the file. */
 .paper-top {
-  padding: 16px 24px 8px;
+  padding: 0 8px 0 var(--row-inset);
 }
 
 /* The search and "+" are hangar's own (`.layout-hangar .search` below, `.list-new`); the search
@@ -2803,14 +2806,17 @@ kbd {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 16px 24px 80px;
+  /* hangar's list (`.list-wrap`): the rows' inset on every side. */
+  padding: var(--row-inset);
 }
 
+/* Cards are slips apart, so they keep a gap where hangar's rows touch (--row-gap); it is the same
+   inset as the edges, one even rhythm. */
 .paper-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   align-items: start;
-  gap: 16px;
+  gap: var(--row-inset);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -3066,7 +3072,9 @@ kbd {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  padding: 10px 10px 0 16px;
+  /* As tall as hangar's note head, with its inset (0 8 0 10); paper keeps it without a bar. */
+  min-height: var(--side-head);
+  padding: 0 8px 0 10px;
   color: var(--note-muted);
 }
 
@@ -3130,10 +3138,10 @@ kbd {
   overflow: auto;
 }
 
+/* hangar's page (`.hangar-editor .note-page`): its --page-pad and 14 px above, 24 px below. */
 .paper-sheet .note-page {
-  --page-pad: 28px;
   max-width: none;
-  padding: 8px var(--page-pad) 24px;
+  padding-block: 14px 24px;
 }
 
 .paper-sheet .note-title:not(:disabled):hover {
@@ -3205,21 +3213,12 @@ kbd {
 }
 
 @media (max-width: 559px) {
-  .paper-top {
-    padding: 12px 16px 8px;
-  }
-
   .layout-paper .search {
     max-width: none;
     margin: 0;
   }
-  .paper-board {
-    padding: 12px 16px 80px;
-  }
-
   .paper-grid {
     grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
   }
 
   .paper-sheet {
@@ -3230,18 +3229,14 @@ kbd {
   }
 
   /* Close and the menu stay at the top right; the colors take the second line. */
-  .sheet-head {
-    padding-left: 8px;
-  }
-
   .sheet-colors {
     flex-basis: 100%;
     order: 2;
   }
 
+  /* As hangar's page in a narrow room. */
   .paper-sheet .note-page {
     --page-pad: 16px;
-    padding: 4px var(--page-pad) 24px;
   }
 }
 
