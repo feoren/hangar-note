@@ -2,7 +2,92 @@
   {
     "version": "0.2.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Mit Hangar Drive zeigt eine kleine Wolke, welche Notizen auf deinem Server liegen. In den Einstellungen siehst du, wie es um die Synchronisierung steht.",
+        "en": "With Hangar Drive, a small cloud shows which notes are on your server. The settings tell you where syncing stands.",
+        "el": "Με το Hangar Drive, ένα μικρό σύννεφο δείχνει ποιες σημειώσεις είναι στον διακομιστή σου. Στις ρυθμίσεις βλέπεις πώς πάει ο συγχρονισμός.",
+        "es": "Con Hangar Drive, una pequeña nube muestra qué notas están en tu servidor. En los ajustes ves cómo va la sincronización.",
+        "fr": "Avec Hangar Drive, un petit nuage montre quelles notes sont sur ton serveur. Les paramètres indiquent où en est la synchronisation.",
+        "it": "Con Hangar Drive una piccola nuvola mostra quali note sono sul tuo server. Nelle impostazioni vedi a che punto è la sincronizzazione.",
+        "ja": "Hangar Drive を使うと、サーバーにあるメモに小さな雲のマークが付きます。同期の状況は設定で確認できます。",
+        "pl": "Z Hangar Drive mała chmurka pokazuje, które notatki są na twoim serwerze. W ustawieniach widzisz, jak idzie synchronizacja.",
+        "pt": "Com o Hangar Drive, uma pequena nuvem mostra quais notas estão no seu servidor. Nas configurações você vê como está a sincronização.",
+        "ru": "С Hangar Drive маленькое облако показывает, какие заметки лежат на твоём сервере. В настройках видно, как идёт синхронизация.",
+        "tr": "Hangar Drive ile küçük bir bulut hangi notların sunucunda olduğunu gösterir. Eşitlemenin durumunu ayarlarda görürsün.",
+        "zh": "使用 Hangar Drive 时，小云朵会标出已在你服务器上的笔记。同步状态可在设置中查看。"
+      },
+      {
+        "de": "Hangar Note trägt jetzt das Orange seines Logos statt Blau, gut lesbar im hellen und im dunklen Design.",
+        "en": "Hangar Note now wears the orange of its logo instead of blue, easy to read in light and dark.",
+        "el": "Το Hangar Note έχει πλέον το πορτοκαλί του λογότυπού του αντί για μπλε, ευανάγνωστο σε φωτεινό και σκοτεινό θέμα.",
+        "es": "Hangar Note lleva ahora el naranja de su logotipo en lugar del azul, bien legible en claro y en oscuro.",
+        "fr": "Hangar Note prend désormais l'orange de son logo au lieu du bleu, bien lisible en clair comme en sombre.",
+        "it": "Hangar Note ora usa l'arancione del suo logo al posto del blu, ben leggibile in chiaro e in scuro.",
+        "ja": "アクセントカラーが青からロゴのオレンジに変わりました。ライトでもダークでも読みやすい色です。",
+        "pl": "Hangar Note ma teraz pomarańczowy kolor swojego logo zamiast niebieskiego, czytelny w jasnym i ciemnym motywie.",
+        "pt": "O Hangar Note agora usa o laranja do seu logotipo em vez do azul, fácil de ler no tema claro e no escuro.",
+        "ru": "Hangar Note теперь в оранжевом цвете своего логотипа вместо синего, он хорошо читается в светлой и тёмной теме.",
+        "tr": "Hangar Note artık mavi yerine logosunun turuncusunu kullanıyor; açık ve koyu temada kolayca okunur.",
+        "zh": "强调色从蓝色改为标志的橙色，在浅色和深色主题下都清晰易读。"
+      },
+      {
+        "de": "Der Schalter zwischen der Hangar- und der Papier-Ansicht ist schlichter und sieht aus wie in Hangar Drive.",
+        "en": "The switch between the Hangar and Paper looks is plainer and matches Hangar Drive.",
+        "el": "Ο διακόπτης ανάμεσα στις εμφανίσεις Hangar και Χαρτί είναι πιο λιτός και μοιάζει με αυτόν του Hangar Drive.",
+        "es": "El selector entre los aspectos Hangar y Papel es más sencillo y se parece al de Hangar Drive.",
+        "fr": "Le sélecteur entre les apparences Hangar et Papier est plus sobre et ressemble à celui de Hangar Drive.",
+        "it": "Il selettore tra gli aspetti Hangar e Carta è più sobrio e somiglia a quello di Hangar Drive.",
+        "ja": "Hangar とペーパーの外観を切り替えるボタンがシンプルになり、Hangar Drive と同じ見た目になりました。",
+        "pl": "Przełącznik między wyglądem Hangar i Papier jest prostszy i wygląda jak w Hangar Drive.",
+        "pt": "O seletor entre as aparências Hangar e Papel ficou mais simples e igual ao do Hangar Drive.",
+        "ru": "Переключатель между видами Hangar и Бумага стал проще и выглядит как в Hangar Drive.",
+        "tr": "Hangar ve Kâğıt görünümleri arasındaki anahtar daha sade ve Hangar Drive'dakiyle aynı.",
+        "zh": "Hangar 与纸张外观之间的切换按钮更简洁，与 Hangar Drive 一致。"
+      },
+      {
+        "de": "Haftnotizen zeigen auf Wunsch Zeilennummern. Der Schalter sitzt unten links in der Fußzeile und gilt für alle Haftnotizen.",
+        "en": "Sticky notes can show line numbers. The switch sits at the bottom left of the footer and applies to every sticky note.",
+        "el": "Τα αυτοκόλλητα σημειώματα δείχνουν αριθμούς γραμμών αν θέλεις. Ο διακόπτης είναι κάτω αριστερά και ισχύει για όλα.",
+        "es": "Las notas adhesivas pueden mostrar números de línea. El interruptor está abajo a la izquierda y vale para todas.",
+        "fr": "Les pense-bêtes peuvent afficher les numéros de ligne. Le bouton est en bas à gauche et vaut pour tous les pense-bêtes.",
+        "it": "I post-it possono mostrare i numeri di riga. L'interruttore è in basso a sinistra e vale per tutti i post-it.",
+        "ja": "付箋に行番号を表示できるようになりました。切り替えはフッターの左下にあり、すべての付箋に適用されます。",
+        "pl": "Karteczki mogą pokazywać numery wierszy. Przełącznik jest w lewym dolnym rogu i działa dla wszystkich karteczek.",
+        "pt": "As notas adesivas podem mostrar números de linha. O botão fica no canto inferior esquerdo e vale para todas.",
+        "ru": "Стикеры могут показывать номера строк. Переключатель внизу слева действует на все стикеры.",
+        "tr": "Yapışkan notlar istersen satır numaralarını gösterir. Anahtar alt bilginin solunda durur ve tüm yapışkan notlar için geçerlidir.",
+        "zh": "便笺可以显示行号。开关位于页脚左下角，对所有便笺生效。"
+      },
+      {
+        "de": "Die Papier-Ansicht hat jetzt dieselben Abstände wie die Hangar-Ansicht.",
+        "en": "The Paper look now uses the same spacing as the Hangar look.",
+        "el": "Η εμφάνιση Χαρτί έχει πλέον τις ίδιες αποστάσεις με την εμφάνιση Hangar.",
+        "es": "El aspecto Papel usa ahora los mismos espacios que el aspecto Hangar.",
+        "fr": "L'apparence Papier utilise désormais les mêmes espacements que l'apparence Hangar.",
+        "it": "L'aspetto Carta ora usa le stesse spaziature dell'aspetto Hangar.",
+        "ja": "ペーパーの外観の余白が Hangar の外観と同じになりました。",
+        "pl": "Wygląd Papier ma teraz te same odstępy co wygląd Hangar.",
+        "pt": "A aparência Papel agora usa os mesmos espaçamentos da aparência Hangar.",
+        "ru": "Вид Бумага теперь использует те же отступы, что и вид Hangar.",
+        "tr": "Kâğıt görünümü artık Hangar görünümüyle aynı boşlukları kullanıyor.",
+        "zh": "纸张外观现在使用与 Hangar 外观相同的间距。"
+      },
+      {
+        "de": "Das gewählte Projekt steht nur noch in der Seitenleiste unter Projektordner, nicht mehr zusätzlich unter den Tabs.",
+        "en": "The chosen project now appears only in the sidebar under Project folders, no longer under the tabs as well.",
+        "el": "Το επιλεγμένο έργο εμφανίζεται πλέον μόνο στην πλαϊνή στήλη, στους Φακέλους έργων, όχι και κάτω από τις καρτέλες.",
+        "es": "El proyecto elegido aparece ahora solo en la barra lateral, en Carpetas de proyecto, y ya no bajo las pestañas.",
+        "fr": "Le projet choisi n'apparaît plus que dans la barre latérale, sous Dossiers de projet, et plus sous les onglets.",
+        "it": "Il progetto scelto ora compare solo nella barra laterale, in Cartelle di progetto, e non più sotto le schede.",
+        "ja": "選んだプロジェクトはサイドバーのプロジェクトフォルダーにだけ表示され、タブの下には表示されなくなりました。",
+        "pl": "Wybrany projekt widać teraz tylko na pasku bocznym w Folderach projektów, już nie pod kartami.",
+        "pt": "O projeto escolhido agora aparece só na barra lateral, em Pastas de projeto, e não mais abaixo das abas.",
+        "ru": "Выбранный проект теперь виден только на боковой панели в разделе Папки проектов, а не ещё и под вкладками.",
+        "tr": "Seçili proje artık yalnızca kenar çubuğunda Proje klasörleri altında görünür, sekmelerin altında görünmez.",
+        "zh": "所选项目现在只显示在侧边栏的项目文件夹中，不再在标签下方重复显示。"
+      }
+    ]
   },
   {
     "version": "0.1.0",
