@@ -1342,25 +1342,25 @@ kbd {
 
 /* ---- The look switch: two small icons at the top right of the notes, in every look ---- */
 
+/* Hangar Drive's view switch (its styles.css, ".segmented"): two icons as one control in a thin
+   frame, the chosen one in the text color on --hover, the other quiet. */
 .look-switch {
   display: inline-flex;
   flex: none;
-  gap: 1px;
-  padding: 1px;
-  border-radius: var(--radius);
-  background: var(--panel);
-  box-shadow: inset 0 0 0 1px var(--border);
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
 }
 
 .look-option {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 26px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: 5px;
   background: transparent;
   color: var(--muted);
   transition:
@@ -1368,13 +1368,15 @@ kbd {
     color 120ms var(--ease-out);
 }
 
-.look-option:hover {
-  color: var(--text);
+@media (hover: hover) {
+  .look-option:hover {
+    color: var(--text);
+  }
 }
 
 .look-option[aria-checked="true"] {
-  background: var(--selected);
-  color: var(--accent);
+  background: var(--hover);
+  color: var(--text);
 }
 
 .look-option:focus-visible {
@@ -3439,8 +3441,7 @@ kbd {
 
 /* On the note's own header the switch takes the note's tones, so it never sits there as a patch. */
 .hangar-head .look-switch {
-  background: transparent;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--note-text) 20%, transparent);
+  border-color: color-mix(in srgb, var(--note-text) 20%, transparent);
 }
 
 .hangar-head .look-option {
