@@ -3,6 +3,7 @@ dist
 src-tauri
 docs
 tools/*
+!tools/readme-shots/
 pnpm-lock.yaml
 CLAUDE.md
 AGENTS.md
