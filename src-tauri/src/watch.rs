@@ -23,7 +23,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::fsio::{is_hidden_or_temp, is_link_meta, is_regular_dir, lock};
@@ -176,11 +176,25 @@ struct WatchState {
     seq: u64,
 }
 
+/// Told about every file the store itself wrote or moved away (Hangar Drive's per note status,
+/// `drive/`). Called right after the store's write, possibly with its locks held, so it must only
+/// hand the path on and never block.
+pub type OwnObserver = Arc<dyn Fn(&Path) + Send + Sync>;
+
 /// The last look at the folder and the app's own writes since then; shared by the store's clones.
-#[derive(Debug)]
 pub struct Watch {
     root: PathBuf,
     state: Mutex<WatchState>,
+    observer: Mutex<Option<OwnObserver>>,
+}
+
+impl std::fmt::Debug for Watch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Watch")
+            .field("root", &self.root)
+            .field("state", &self.state)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Watch {
@@ -188,7 +202,13 @@ impl Watch {
         Self {
             root: root.to_path_buf(),
             state: Mutex::default(),
+            observer: Mutex::default(),
         }
+    }
+
+    /// Sets the one observer of own writes ([`OwnObserver`]).
+    pub fn observe_own(&self, observer: OwnObserver) {
+        *lock(&self.observer) = Some(observer);
     }
 
     /// Records the state this app just left `path` in (written, or gone after a move). Called by
@@ -200,10 +220,16 @@ impl Watch {
     /// Records `now` as the state this app left `path` in, for a write whose version is known
     /// from its own handle (a look at the path could already see another program's file).
     pub fn own_as(&self, path: &Path, now: Option<String>) {
-        let mut state = lock(&self.state);
-        state.seq += 1;
-        let seq = state.seq;
-        state.own.insert(path.to_path_buf(), (seq, now));
+        {
+            let mut state = lock(&self.state);
+            state.seq += 1;
+            let seq = state.seq;
+            state.own.insert(path.to_path_buf(), (seq, now));
+        }
+        let observer = lock(&self.observer).clone();
+        if let Some(observer) = observer {
+            observer(path);
+        }
     }
 
     /// Looks at the folder and names the scopes another program changed since the last look.

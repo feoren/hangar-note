@@ -162,6 +162,16 @@ pub struct NoteInfo {
     pub order: u32,
 }
 
+/// An active note's file, by [`NotesStore::note_files`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoteFile {
+    /// The folder key, as in [`FolderInfo`].
+    pub scope: String,
+    pub id: String,
+    /// The file name inside the scope folder, as the index names it.
+    pub file: String,
+}
+
 /// A hit of [`NotesStore::search`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1586,6 +1596,11 @@ impl NotesStore {
         self
     }
 
+    /// Tells `observer` about every file this store writes or moves away (`watch::OwnObserver`).
+    pub fn observe_own_writes(&self, observer: crate::watch::OwnObserver) {
+        self.watch.observe_own(observer);
+    }
+
     /// The scopes another program (Hangar) changed since the last call; the first call names
     /// none. For the poll in `lib.rs`; see `watch.rs`.
     pub fn outside_changes(&self) -> std::collections::BTreeSet<String> {
@@ -2475,6 +2490,35 @@ impl NotesStore {
         let _guard = lock(&self.guard);
         let opened = self.opened(folder)?;
         Ok(opened.file(opened.entry(id)?))
+    }
+
+    /// The active notes (not the trash) of every listed scope, or only of `scope`, read only as
+    /// [`NotesStore::search`] reads: no folder is synced or rewritten, at most [`MAX_SCOPES`]
+    /// scopes. For Hangar Drive's per note status (`drive/`). File names come from the scope's
+    /// index, which another program or device may have written; the caller checks them.
+    pub fn note_files(&self, scope: Option<&str>) -> Vec<NoteFile> {
+        let _guard = lock(&self.guard);
+        let keys = match scope {
+            Some(key) if is_folder_key(key) => vec![key.to_owned()],
+            Some(_) => return Vec::new(),
+            None => scope_keys(&self.root).unwrap_or_default(),
+        };
+        let mut files = Vec::new();
+        for key in keys {
+            let dir = self.root.join(&key);
+            if !is_plain_dir(&dir) {
+                continue;
+            }
+            let Some((_, notes)) = self.scope_notes(&key, &dir) else {
+                continue;
+            };
+            files.extend(notes.into_iter().map(|note| NoteFile {
+                scope: key.clone(),
+                id: note.id,
+                file: note.file,
+            }));
+        }
+        files
     }
 
     /// Case-insensitive substring search in titles and contents of all scopes, read only (no
