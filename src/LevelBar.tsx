@@ -2,13 +2,13 @@
 // "Private", "Project", "Team", each the same width with its mark above its name. The tabs are one
 // Tab stop; Left, Right, Home and End move between
 // them and choose (useNotesArea.tsx holds what each level shows, Ctrl+1 to Ctrl+3 choose from
-// anywhere). While "Project" is chosen, a small line below names its project (Hangar's working
-// folder); with more than one project, that line, a click on the chosen tab, Down or Enter open
-// the menu that switches the project.
+// anywhere). The project itself is named once, in the sidebar's project folders, not again under
+// the tabs; with more than one project, a click on the chosen tab, Down or Enter open the menu that
+// switches the project.
 
 import { useRef, useState } from "react";
 
-import { ChevronDownIcon, FolderIcon, PersonIcon, TeamIcon } from "./icons";
+import { FolderIcon, PersonIcon, TeamIcon } from "./icons";
 import type { Level } from "./notesScope";
 import { tabTarget } from "./shortcuts";
 import type { NotesModel } from "./useNotesArea";
@@ -102,24 +102,6 @@ export function LevelBar({ m, onChosen }: { m: NotesModel; onChosen?: () => void
           );
         })}
       </div>
-      {m.level === "project" && m.projectName !== null && (
-        <button
-          type="button"
-          className="level-project-name"
-          title={m.project?.path ?? undefined}
-          disabled={!switchable}
-          aria-haspopup={switchable ? "menu" : undefined}
-          aria-expanded={switchable ? m.menuOpen("project") : undefined}
-          aria-label={switchable ? `${t("level.switchProject")}: ${m.projectName}` : undefined}
-          onClick={(event) => {
-            openProjects(event.currentTarget);
-          }}
-        >
-          <FolderIcon size={13} />
-          <span className="level-label">{m.projectName}</span>
-          {switchable && <ChevronDownIcon size={12} />}
-        </button>
-      )}
     </div>
   );
 }

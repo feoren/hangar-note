@@ -2180,14 +2180,15 @@ function withTwoProjects() {
 
 const C = "d4e5f6a7-0000-4000-8000-000000000002";
 
-/** The name the project tab shows. */
 /**
- * The project the "Project" level names: the quiet line under the level tabs (the tab itself
- * just says "Project"); empty while there is no project.
+ * The project the "Project" level shows: the current entry in the sidebar's project folders (the
+ * tab itself just says "Project", and nothing under the tabs repeats the name); empty while there
+ * is no project.
  */
 function projectTabLabel(): string {
   expect(tab("project").querySelector(".level-label")?.textContent).toBe(t("level.project"));
-  return container.querySelector(".level-project-name .level-label")?.textContent ?? "";
+  expect(container.querySelector(".level-project-name")).toBeNull();
+  return container.querySelector('.nav-item[aria-current="page"] .nav-label')?.textContent ?? "";
 }
 
 /** The one round button on the sidebar's edge (at the window's edge while it is away). */
@@ -2581,7 +2582,7 @@ describe("notes area: the project of the Project level", () => {
     withTwoProjects();
     stored = { lastProject: SHOP };
     await render();
-    // Not chosen yet: the tab's tooltip names the project; chosen, the line below the tabs.
+    // Not chosen yet: the tab's tooltip names the project; chosen, the sidebar marks it.
     expect(tab("project").title).toBe(`${SHOP}\nStrg+2`);
     await click(tab("project"));
     expect(projectTabLabel()).toBe("shop");

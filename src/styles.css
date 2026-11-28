@@ -837,40 +837,6 @@ kbd {
   text-overflow: ellipsis;
 }
 
-/* The project the "Project" level shows, a quiet line under the tabs; a menu where there are
-   several. */
-.level-project-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  min-height: 28px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  text-align: start;
-}
-
-.level-project-name:not(:disabled):hover,
-.level-project-name[aria-expanded="true"] {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.level-project-name:disabled {
-  cursor: default;
-}
-
-.level-project-name > svg {
-  flex: none;
-}
-
-.level-project-name .level-label {
-  flex: 0 1 auto;
-}
 /* ---- The team level: one plain sentence until Hangar is connected ---- */
 
 .team-level {
