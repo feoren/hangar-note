@@ -1572,7 +1572,7 @@ dependencies = [
 
 [[package]]
 name = "hangar-note"
-version = "0.2.0"
+version = "0.2.0+53"
 dependencies = [
  "dirs 7.0.0",
  "getrandom 0.4.3",
