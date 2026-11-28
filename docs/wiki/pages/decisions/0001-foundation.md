@@ -6,7 +6,7 @@ superseded_by:
 tags: [foundation, scope, tauri, notes, windows, storage]
 sources: []
 created: 2026-11-25
-updated: 2026-11-26
+updated: 2026-11-28
 ---
 
 # ADR 0001: Foundation: sticky notes on the desktop
@@ -199,6 +199,8 @@ number from Git as in Hangar. Updater and release script follow with the first r
 > [!warning] Superseded in part
 > [[0002-hangar-notes-takeover]] (2026-11-26) makes team notes, encryption and Hangar's notes data
 > goals: Hangar Note takes over Hangar's notes area and uses its storage in place.
+> [[0006-sync-through-hangar-drive]] (2026-11-28) lifts "sync between devices" for exactly one
+> path: Hangar Drive syncing Hangar's notes folder in place.
 
 - Sync between devices, sharing with a team, encryption.
 - Images, ink, attachments, reminders.

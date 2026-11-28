@@ -253,3 +253,27 @@ window; the edges' accent line now lies on the border.
 Added the section on paper's search and "+" to pages/syntheses/usability-pass.md:
 paper's top row uses Hangar's search field and "+" (32 px field, 34 px button), the field up to
 420 px, and the field's border shows the focus in both looks.
+
+## [2026-11-28] update | Sync through Hangar Drive
+Added pages/decisions/0006-sync-through-hangar-drive.md: Hangar Note's side of contract
+"drive-local 1" (owner decisions, client, phases, worker, the window interface, deviations, pinned
+proof vectors, tests against a fake Drive). Added the amendment of 2026-11-28 to
+pages/decisions/0005-shared-notes-folder.md (Drive as a third writer, section 10 of Drive's
+ADR 0003, checked in the code) and a pointer in pages/decisions/0001-foundation.md. Updated
+index.md.
+
+## [2026-11-28] update | Drive client security follow-ups
+Added the hardening after the security review (N1 to N3, H1, H2), the new tests and the check of
+tauri's `local_data_dir` to pages/decisions/0006-sync-through-hangar-drive.md; softened the
+statement about shutdown on Windows.
+
+## [2026-11-28] update | Drive client review fixes
+Corrected pages/decisions/0006-sync-through-hangar-drive.md after the acceptance review: both of
+Drive's files are read through `fsio::read_capped_wiped`; a proven `503 busy` keeps the last state
+like a busy hello; quitting cuts a wait for an answer short within 100 ms, a hello within its 5 s
+deadline.
+
+## [2026-11-28] update | Drive status in every window, cancellable hello
+pages/decisions/0006-sync-through-hangar-drive.md: recorded that every window may read the IDs
+of all synced notes through `drive_sync_status`, and why; the hello of a Drive exchange is now
+cancellable as well, so quitting does not wait for a port holder that never answers.

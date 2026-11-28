@@ -6,7 +6,7 @@ superseded_by:
 tags: [hangar, notes, storage, locking, sync, compatibility]
 sources: []
 created: 2026-11-26
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 
 # ADR 0005: Hangar and Hangar Note share the private notes folder
@@ -265,6 +265,41 @@ may trust. All are fixed in `src-tauri/src/notes.rs` unless named otherwise, eac
 > [!question] Unverified
 > The Unix branches of these fixes compile only on Unix and have not run yet; they run with the
 > CI matrix.
+
+### 2026-11-28: Hangar Drive as a third writer
+[[0006-sync-through-hangar-drive]] lets Hangar Drive sync this folder in place (contract
+"drive-local 1", Hangar Drive repository, ADR 0003, section 10). "notes-shared 1" gains:
+
+- **A sync client is a third writer.** It takes the scope lock `<scope>/.lock` around every rename
+  that creates, replaces, moves or deletes an entry in `<scope>/` or `<scope>/.trash/`, never
+  `notes/.writer.lock`, and writes only the entries of Drive's profile `hangar-note-1` (scope
+  folders `general` or 32 lower case hex digits; in a scope plain `.md` notes, `folder.json` and
+  `.trash/`; in `.trash/` plain `.md` notes and `trash.json`).
+- **`folder.json`, `trash.json` and every `.md` may come from another device.** Both apps treat
+  them as remote input under the rules of this page's security reviews: limits, title cleaning,
+  duplicate rule, set-aside of non-JSON indexes, no link followed.
+- **`folder.json.path` is for display only:** no file system access through it, no process started
+  from it without an explicit action of the person, and UNC or device paths are never opened.
+- **`.hangar-drive` at the notes root is not a scope.**
+- Hangar takes the scope lock around note and index writes and publishes the level it serves; until
+  then Drive refuses the folder with `hangarTooOld`.
+
+Checked in Hangar Note's code on 2026-11-28:
+
+- `notes::is_folder_key` accepts only `general` or 32 ASCII hex digits, so `.hangar-drive` is never
+  listed, searched, watched or synced (`scope_keys`, used by `list_folders`, `search`, `note_files`
+  and `watch.rs`); test `the_store_lists_active_notes_and_skips_drives_marker_folder`. It also
+  accepts upper case hex digits, which Drive's profile does not; neither app creates such a folder.
+- `folder.json.path` is read in `scope_notes`, `folder_for_key` and `list_folders` and used only to
+  show the scope (`FolderInfo.path`, `name`) and to derive the scope key again for comparison
+  (`folder_key` hashes the normalized string, no file system access). Every file access goes
+  through `<root>/<key>` (`open`, `folder_dir`, `note_path`); the file manager calls
+  (`desktop::reveal`, `desktop::open_folder`) get only paths from `note_path` and `folder_dir`,
+  which lie inside the notes root. Nothing starts a process from it. Nothing had to change.
+
+> [!question] Unverified
+> That Hangar's own lister skips `.hangar-drive` and that Hangar treats `folder.json.path` the same
+> way; Hangar has to confirm it.
 
 ## Evidence
 - Code: `src-tauri/src/access.rs` (access without marker), `src-tauri/src/notes.rs` (`lock_scope`,
