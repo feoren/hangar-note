@@ -142,6 +142,8 @@ export function forgetSession(): void {
 /** The note in the editor. `id === null`: a new quick note that exists only once you type. */
 export interface Current {
   folder: NoteFolder;
+  /** The backend's key of the folder (`general` or 32 hex digits), `null` for a new quick note. */
+  folderKey: string | null;
   id: string | null;
   title: string;
   autoTitled: boolean;
@@ -158,6 +160,8 @@ export interface Stats {
 }
 
 export interface Row extends NoteRef {
+  /** The backend's key of the folder, as the sync through Hangar Drive names it. */
+  folderKey: string;
   title: string;
   updatedAt: number | null;
   color: NoteColor;
@@ -226,6 +230,7 @@ export type Place = "trash" | "settings" | null;
 function current(note: OpenedNote): Current {
   return {
     folder: { path: note.path },
+    folderKey: note.folderKey,
     id: note.id,
     title: note.title,
     autoTitled: note.autoTitled,
@@ -810,6 +815,7 @@ export function useNotesArea(app: AppSettings) {
       const next = byLastChange(
         lists.flat().map((row): Row => ({
           folder: { path: row.path },
+          folderKey: row.folderKey,
           id: row.id,
           title: row.title,
           updatedAt: row.updatedAt,
@@ -928,6 +934,7 @@ export function useNotesArea(app: AppSettings) {
             query: trimmed,
             rows: found.map((hit) => ({
               folder: { path: hit.path },
+              folderKey: hit.folderKey,
               id: hit.id,
               title: hit.title,
               updatedAt: hit.updatedAt,
@@ -1000,6 +1007,7 @@ export function useNotesArea(app: AppSettings) {
       show(
         {
           folder,
+          folderKey: null,
           id: null,
           title: "",
           autoTitled: true,

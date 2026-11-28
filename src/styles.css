@@ -624,6 +624,61 @@ kbd {
   flex: none;
 }
 
+/* A note on your server (Hangar Drive): the cloud and its words at the line's start, as quiet as
+   the numbers. They give way first: in a narrow note only the cloud stays, with its tooltip. */
+.cursor-synced {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-inline-end: auto;
+  padding-inline-end: 12px;
+}
+
+.cursor-synced svg {
+  flex: none;
+}
+
+/* The sticky note's switch for its line numbers: a small icon button in the note's tones, quiet
+   while off, in the note's text color on a soft tint while on (--note-text keeps far more than
+   3 : 1 on every note tone, as the text itself). It stays within the slim line's height. */
+.footer-switch {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 19px;
+  margin-inline: -6px auto;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--note-muted);
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+.footer-switch:has(+ .cursor-synced) {
+  margin-inline-end: 6px;
+}
+
+@media (hover: hover) {
+  .footer-switch:hover {
+    color: var(--note-text);
+  }
+}
+
+.footer-switch[aria-checked="true"] {
+  background: color-mix(in srgb, var(--note-text) 12%, transparent);
+  color: var(--note-text);
+}
+
+.cursor-synced-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* In the notes area as tall as the sidebar's footer, line included; the sticky note stays slim. */
 .note-pane > .cursor-footer {
   --footer-height: var(--foot-height);
@@ -637,6 +692,12 @@ kbd {
 
 @container (max-width: 260px) {
   .cursor-footer-text:has(.cursor-selected) .cursor-position {
+    display: none;
+  }
+}
+
+@container (max-width: 300px) {
+  .cursor-synced-text {
     display: none;
   }
 }
@@ -1802,7 +1863,8 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
-.note-row-mark {
+.note-row-mark,
+.note-row-synced {
   display: inline-flex;
 }
 
@@ -2585,6 +2647,44 @@ kbd {
   height: 16px;
   margin: 0;
   accent-color: var(--accent);
+}
+
+/* Where syncing through Hangar Drive stands: one sentence with a quiet mark, no controls (the
+   person decides in Hangar Drive). */
+.drive-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 560px;
+  line-height: 1.45;
+}
+
+.drive-status-icon {
+  display: inline-flex;
+  flex: none;
+  /* Centered on the first line of the sentence. */
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.drive-status-synced .drive-status-icon {
+  color: var(--ok);
+}
+
+.drive-status-problem .drive-status-icon {
+  color: var(--error);
+}
+
+.drive-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.drive-status-when {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 /* A note that cannot save and was asked to close: the warning with a way to copy. */

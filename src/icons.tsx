@@ -143,6 +143,25 @@ export function DesktopIcon(props: IconProps) {
   );
 }
 
+/** Line numbers: a column of short marks beside the lines of text. */
+export function LineNumbersIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.5 4h1M2.5 8h1M2.5 12h1M6.5 4h7M6.5 8h7M6.5 12h4.5" />
+    </Svg>
+  );
+}
+
+/** A cloud with a tick: the note is synced to your server through Hangar Drive. */
+export function CloudCheckIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.5 12.75h7a3 3 0 0 0 .55-5.95 4.25 4.25 0 0 0-8.2 1.15 2.5 2.5 0 0 0 .65 4.8z" />
+      <path d="M5.9 9.4l1.4 1.4 2.8-2.9" />
+    </Svg>
+  );
+}
+
 export function ChevronDownIcon(props: IconProps) {
   return (
     <Svg {...props}>

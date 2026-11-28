@@ -38,6 +38,7 @@ const api = vi.hoisted(() => {
     handlers,
     getSticky: vi.fn(),
     getStatus: vi.fn(),
+    getDriveSyncStatus: vi.fn(),
     renameNote: vi.fn(),
     writeSticky: vi.fn(),
     deleteNote: vi.fn(),
@@ -64,6 +65,8 @@ vi.mock("./api", async (importOriginal) => ({
   utf8Bytes: (text: string) => new TextEncoder().encode(text).length,
   getSticky: api.getSticky,
   getStatus: api.getStatus,
+  getDriveSyncStatus: api.getDriveSyncStatus,
+  onDriveSyncChanged: vi.fn(() => Promise.resolve(() => undefined)),
   renameNote: api.renameNote,
   writeSticky: api.writeSticky,
   deleteNote: api.deleteNote,
@@ -85,13 +88,19 @@ vi.mock("./clipboard", () => ({ copyText: api.copyText }));
 
 // The real editor needs layout; a contenteditable stands in for it and reports its changes.
 const editor = vi.hoisted(() => {
-  const state: { options: EditorOptions | null; loads: string[] } = { options: null, loads: [] };
+  const state: {
+    options: EditorOptions | null;
+    loads: string[];
+    created: number;
+    numbers: boolean[];
+  } = { options: null, loads: [], created: 0, numbers: [] };
   return state;
 });
 
 vi.mock("./editor", () => ({
   createNoteEditor: (parent: HTMLElement, options: EditorOptions) => {
     editor.options = options;
+    editor.created += 1;
     const content = document.createElement("div");
     content.className = "cm-content";
     content.contentEditable = "true";
@@ -107,6 +116,9 @@ vi.mock("./editor", () => ({
       },
       toggleTask: vi.fn(),
       setReadOnly: vi.fn(),
+      setLineNumbers: (on: boolean) => {
+        editor.numbers.push(on);
+      },
       destroy: () => {
         content.remove();
       },
@@ -115,6 +127,7 @@ vi.mock("./editor", () => ({
 }));
 
 const { NoteWindow } = await import("./NoteWindow");
+const { STICKY_LINE_NUMBERS_KEY } = await import("./stickyLineNumbers");
 
 const t = createTranslator("de");
 let root: Root;
@@ -194,6 +207,7 @@ beforeEach(() => {
   Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
   api.getSticky.mockResolvedValue(note);
   api.getStatus.mockResolvedValue(writable);
+  api.getDriveSyncStatus.mockResolvedValue({ phase: "absent", synced: {} });
   api.writeSticky.mockResolvedValue("v2");
   api.renameNote.mockResolvedValue(null);
   api.deleteNote.mockResolvedValue(null);
@@ -210,6 +224,9 @@ afterEach(() => {
   outside.remove();
   api.handlers.clear();
   editor.loads = [];
+  editor.created = 0;
+  editor.numbers = [];
+  localStorage.clear();
   vi.clearAllMocks();
 });
 
@@ -248,7 +265,11 @@ describe("note window", () => {
       expect(footer.textContent).toContain("851 Zeichen");
       expect(footer.title).toBe("Zeile 3, Spalte 811, 12 von 851 Zeichen ausgewählt");
       expect(footer.getAttribute("aria-label")).toBe(t("footer.label"));
-      expect(footer.querySelector("[tabindex], button, [aria-live]")).toBeNull();
+      // Information only: the one control is the line numbers switch, no live region.
+      expect(footer.querySelector("[aria-live]")).toBeNull();
+      expect(Array.from(footer.querySelectorAll("[tabindex], button"))).toEqual([
+        footer.querySelector('[role="switch"]'),
+      ]);
       // The last part of the note, below the formatting bar, inside the note's colors.
       expect(footer.parentElement?.lastElementChild).toBe(footer);
       expect(footer.closest<HTMLElement>(".note")?.style.getPropertyValue("--note-head")).not.toBe(
@@ -632,5 +653,78 @@ describe("note window: a change outside without a click", () => {
     await press(buttonNamed(t("notes.copyMarkdown")));
     expect(api.copyText).toHaveBeenCalledWith("Nur hier");
     expect(editor.loads).toEqual([]);
+  });
+});
+
+describe("sticky note: synced through Hangar Drive", () => {
+  it("says so in its status line when Hangar Drive keeps it on your server", async () => {
+    api.getDriveSyncStatus.mockResolvedValue({ phase: "active", synced: { general: [ID] } });
+    await render();
+    const mark = container.querySelector(".cursor-footer .cursor-synced");
+    expect(mark?.textContent).toBe(t("drive.synced"));
+    expect(mark?.getAttribute("title")).toBe(t("drive.synced"));
+  });
+
+  it("says nothing for a note Hangar Drive does not keep", async () => {
+    api.getDriveSyncStatus.mockResolvedValue({ phase: "active", synced: { general: ["other"] } });
+    await render();
+    expect(container.querySelector(".cursor-footer")).not.toBeNull();
+    expect(container.querySelector(".cursor-synced")).toBeNull();
+  });
+});
+
+describe("sticky note: the line numbers switch", () => {
+  function numbersSwitch(): HTMLButtonElement {
+    const found = container.querySelector<HTMLButtonElement>('.cursor-footer [role="switch"]');
+    if (!found) throw new Error("line numbers switch missing");
+    return found;
+  }
+
+  it("starts off, named, as a button the keys can reach", async () => {
+    await render();
+    const toggle = numbersSwitch();
+    expect(toggle.type).toBe("button");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(toggle.getAttribute("aria-label")).toBe(t("footer.lineNumbers"));
+    expect(toggle.title).toBe(t("footer.lineNumbers"));
+    expect(editor.options?.lineNumbers).toBe(false);
+  });
+
+  it("turns them on in the same editor and keeps the choice for every sticky note", async () => {
+    await render();
+    await act(async () => {
+      numbersSwitch().click();
+      await Promise.resolve();
+    });
+    expect(numbersSwitch().getAttribute("aria-checked")).toBe("true");
+    expect(editor.numbers.at(-1)).toBe(true);
+    // Reconfigured in place: no second editor, so cursor, selection and history stay.
+    expect(editor.created).toBe(1);
+    expect(localStorage.getItem(STICKY_LINE_NUMBERS_KEY)).toBe("1");
+    await act(async () => {
+      numbersSwitch().click();
+      await Promise.resolve();
+    });
+    expect(editor.numbers.at(-1)).toBe(false);
+    expect(localStorage.getItem(STICKY_LINE_NUMBERS_KEY)).toBe("0");
+  });
+
+  it("starts with the stored choice", async () => {
+    localStorage.setItem(STICKY_LINE_NUMBERS_KEY, "1");
+    await render();
+    expect(editor.options?.lineNumbers).toBe(true);
+    expect(numbersSwitch().getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("follows a change in another sticky note", async () => {
+    await render();
+    await act(async () => {
+      localStorage.setItem(STICKY_LINE_NUMBERS_KEY, "1");
+      window.dispatchEvent(new StorageEvent("storage", { key: STICKY_LINE_NUMBERS_KEY }));
+      await Promise.resolve();
+    });
+    expect(numbersSwitch().getAttribute("aria-checked")).toBe("true");
+    expect(editor.numbers.at(-1)).toBe(true);
+    expect(editor.created).toBe(1);
   });
 });

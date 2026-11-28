@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { HubRequest, NoteRow, OpenedNote, Status } from "./api";
+import type { DriveSyncView, HubRequest, NoteRow, OpenedNote, Status } from "./api";
 import type { AppSettings } from "./appSettings";
 import { NOTE_TONES } from "./colors";
 import type { EditorOptions } from "./editor";
@@ -70,6 +70,12 @@ const api = vi.hoisted(() => ({
   setSidebarWidth: vi.fn(),
   setListWidth: vi.fn(),
   setLastProject: vi.fn(),
+  getDriveSyncStatus: vi.fn(),
+}));
+
+/** The handler the notes area gave for the `drive-sync-changed` event. */
+const drive = vi.hoisted((): { handler: ((view: DriveSyncView) => void) | null } => ({
+  handler: null,
 }));
 
 // The real error codes and their helpers (errors.ts reads them); the commands are mocked.
@@ -119,6 +125,11 @@ vi.mock("./api", async (importOriginal) => ({
   setSidebarWidth: api.setSidebarWidth,
   setListWidth: api.setListWidth,
   setLastProject: api.setLastProject,
+  getDriveSyncStatus: api.getDriveSyncStatus,
+  onDriveSyncChanged: vi.fn((handler: (view: DriveSyncView) => void) => {
+    drive.handler = handler;
+    return Promise.resolve(() => undefined);
+  }),
 }));
 
 vi.mock("./clipboard", () => ({ copyText: api.copyText }));
@@ -146,6 +157,7 @@ vi.mock("./editor", () => ({
       },
       toggleTask: vi.fn(),
       setReadOnly: vi.fn(),
+      setLineNumbers: vi.fn(),
       destroy: () => {
         content.remove();
       },
@@ -385,6 +397,8 @@ beforeEach(() => {
   api.setSidebarWidth.mockImplementation((width: number) => Promise.resolve(width));
   api.setListWidth.mockImplementation((width: number | null) => Promise.resolve(width));
   api.setLastProject.mockImplementation((folder: string | null) => Promise.resolve(folder));
+  api.getDriveSyncStatus.mockResolvedValue({ phase: "absent", synced: {} });
+  drive.handler = null;
   stored = {};
   forgetSession();
 });
@@ -2913,5 +2927,107 @@ describe("notes area: the app menu", () => {
     await click(appMenuItem(t("notes.new")));
     await type("Neu");
     expect(api.createNote).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("notes area: notes synced through Hangar Drive", () => {
+  const syncedA: DriveSyncView = {
+    phase: "active",
+    lastSyncMs: Date.now(),
+    synced: { general: [A] },
+  };
+
+  /** The sync mark of a row (or card), `null` without one. */
+  function syncMark(title: string): Element | null {
+    return rowButton(title).closest("li")?.querySelector(".note-row-synced") ?? null;
+  }
+
+  function footerSynced(): Element | null {
+    return container.querySelector(".cursor-footer .cursor-synced");
+  }
+
+  it.each(ALL_LOOKS)("marks only the synced note's row in %s, with its words", async (variant) => {
+    api.getDriveSyncStatus.mockResolvedValue(syncedA);
+    await render(variant);
+    const mark = syncMark("Einkaufen");
+    expect(mark?.getAttribute("title")).toBe(t("drive.synced"));
+    // Screen readers hear it with the row, sighted people see the cloud.
+    expect(mark?.querySelector(".sr-only")?.textContent).toBe(t("drive.synced"));
+    expect(mark?.querySelector("svg")).not.toBeNull();
+    expect(syncMark("Projekt")).toBeNull();
+    // The title and the row's own marks stay.
+    expect(titles()).toEqual(["Einkaufen", "Projekt"]);
+  });
+
+  it.each(ALL_LOOKS)(
+    "says so in the status line of the open synced note in %s",
+    async (variant) => {
+      api.getDriveSyncStatus.mockResolvedValue(syncedA);
+      await render(variant);
+      await click(rowButton("Einkaufen"));
+      expect(footerSynced()?.textContent).toBe(t("drive.synced"));
+      expect(footerSynced()?.closest('[aria-hidden="true"]')).toBeNull();
+    },
+  );
+
+  it("leaves the status line of a note that is not synced alone", async () => {
+    api.getDriveSyncStatus.mockResolvedValue(syncedA);
+    await render("hangar");
+    await click(rowButton("Projekt"));
+    expect(container.querySelector(".cursor-footer")).not.toBeNull();
+    expect(footerSynced()).toBeNull();
+  });
+
+  it("marks nothing while the sync is not active, even for listed notes", async () => {
+    api.getDriveSyncStatus.mockResolvedValue({ ...syncedA, phase: "attention" });
+    await render("hangar");
+    await click(rowButton("Einkaufen"));
+    expect(container.querySelector(".note-row-synced")).toBeNull();
+    expect(footerSynced()).toBeNull();
+  });
+
+  it("follows the backend's event without a reload", async () => {
+    await render("hangar");
+    await click(rowButton("Einkaufen"));
+    expect(syncMark("Einkaufen")).toBeNull();
+    await act(async () => {
+      drive.handler?.(syncedA);
+      await Promise.resolve();
+    });
+    expect(syncMark("Einkaufen")).not.toBeNull();
+    expect(footerSynced()).not.toBeNull();
+    await act(async () => {
+      drive.handler?.({ phase: "declined", synced: {} });
+      await Promise.resolve();
+    });
+    expect(syncMark("Einkaufen")).toBeNull();
+    expect(footerSynced()).toBeNull();
+  });
+
+  it("shows where the sync stands in the settings, without any control", async () => {
+    api.getDriveSyncStatus.mockResolvedValue(syncedA);
+    await render("hangar");
+    await click(navItem(t("notes.settings")));
+    const section = container.querySelector(".drive-sync");
+    expect(section?.getAttribute("role")).toBe("group");
+    expect(section?.textContent).toContain(t("drive.title"));
+    expect(section?.querySelector('[role="status"]')?.textContent).toBe(t("drive.active"));
+    expect(section?.querySelector(".drive-status-when")?.textContent).toMatch(
+      /^Zuletzt synchronisiert: /,
+    );
+    expect(section?.querySelector("button, input, select, a")).toBeNull();
+  });
+
+  it("leaves the settings without the section when there is no Hangar Drive", async () => {
+    await render("hangar");
+    await click(navItem(t("notes.settings")));
+    expect(container.querySelector(".drive-sync")).toBeNull();
+    await act(async () => {
+      drive.handler?.({ phase: "asked", synced: {} });
+      await Promise.resolve();
+    });
+    expect(container.querySelector('.drive-sync [role="status"]')?.textContent).toBe(
+      t("drive.asked"),
+    );
   });
 });

@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { undo } from "@codemirror/commands";
 import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
@@ -47,6 +48,36 @@ describe("createNoteEditor", () => {
     expect(parent.querySelector(".cm-content")?.contains(gutter ?? null)).toBe(false);
     expect(parent.querySelector(".cm-content")?.textContent).toBe("einszwei");
     numbered.destroy();
+    parent.remove();
+  });
+
+  it("turns the line numbers on and off in place, keeping text, selection and history", () => {
+    const parent = document.createElement("div");
+    document.body.append(parent);
+    const editor = createNoteEditor(parent, { ...options, text: "eins\nzwei" });
+    const content = parent.querySelector(".cm-content");
+    if (!(content instanceof HTMLElement)) throw new Error("no editor");
+    const view = EditorView.findFromDOM(content);
+    if (view === null) throw new Error("no view");
+    view.dispatch({ changes: { from: 0, insert: "null " } });
+    view.dispatch({ selection: EditorSelection.single(2, 7) });
+    editor.setLineNumbers(true);
+    expect(parent.querySelector(".cm-lineNumbers")).not.toBeNull();
+    // The same view: nothing was built anew.
+    expect(EditorView.findFromDOM(content)).toBe(view);
+    expect(view.state.doc.toString()).toBe("null eins\nzwei");
+    expect(view.state.selection.main).toMatchObject({ anchor: 2, head: 7 });
+    editor.setLineNumbers(false);
+    expect(parent.querySelector(".cm-lineNumbers")).toBeNull();
+    // The typed text can still be undone.
+    // On the view: focusing, as the menu's undo does, needs a real browser.
+    undo(view);
+    expect(view.state.doc.toString()).toBe("eins\nzwei");
+    // A note loaded later keeps the choice.
+    editor.setLineNumbers(true);
+    editor.load("drei");
+    expect(parent.querySelector(".cm-lineNumbers")).not.toBeNull();
+    editor.destroy();
     parent.remove();
   });
 

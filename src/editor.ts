@@ -70,6 +70,8 @@ export interface NoteEditor {
   setReadOnly: (readOnly: boolean) => void;
   /** Undo, redo or select all from a menu; the editor takes the focus back. */
   edit: (command: EditCommand) => void;
+  /** Shows or hides the line numbers in place: text, cursor, selection and history stay. */
+  setLineNumbers: (on: boolean) => void;
   destroy: () => void;
 }
 
@@ -87,8 +89,9 @@ export interface EditorOptions {
   onFocus: (focused: boolean) => void;
   readOnly?: boolean;
   /**
-   * Line numbers at the left edge. The notes area shows them; the sticky notes leave them out,
-   * since a small note on the desktop has no width to spare.
+   * Line numbers at the left edge. The notes area shows them; a sticky note starts without them,
+   * since a small note on the desktop has little width to spare, and turns them on in its status
+   * line (`setLineNumbers`).
    */
   lineNumbers?: boolean;
   /**
@@ -384,8 +387,10 @@ function cursorReporter(onCursor: ((stats: CursorStats) => void) | undefined) {
 
 export function createNoteEditor(parent: HTMLElement, options: EditorOptions): NoteEditor {
   let readOnly = options.readOnly === true;
+  let numbered = options.lineNumbers === true;
   const cursor = cursorReporter(options.onCursor);
   const lock = new Compartment();
+  const numbers = new Compartment();
   const allowed = styleNonce(parent.ownerDocument);
   const nonce: Extension = allowed === null ? [] : EditorView.cspNonce.of(allowed);
   const state = (raw: string) => {
@@ -407,7 +412,7 @@ export function createNoteEditor(parent: HTMLElement, options: EditorOptions): N
         taskPlugin(options.taskLabel),
         EditorView.lineWrapping,
         placeholder(options.placeholder),
-        lineNumberColumn(options.lineNumbers === true),
+        numbers.of(lineNumberColumn(numbered)),
         EditorView.contentAttributes.of({ "aria-label": options.label, spellcheck: "true" }),
         theme,
         EditorView.updateListener.of((update) => {
@@ -447,6 +452,11 @@ export function createNoteEditor(parent: HTMLElement, options: EditorOptions): N
     edit: (command) => {
       view.focus();
       EDIT_COMMANDS[command](view);
+    },
+    setLineNumbers: (on) => {
+      if (on === numbered) return;
+      numbered = on;
+      view.dispatch({ effects: numbers.reconfigure(lineNumberColumn(on)) });
     },
     destroy: () => {
       cursor.stop();

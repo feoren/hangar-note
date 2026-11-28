@@ -1,8 +1,10 @@
 // The settings of the notes area: language, theme, the look (ADR 0004), the color of new notes,
 // the person's own names of the eight colors (ADR 0002, "Color categories") and "Start with the
-// system". A change is saved at once and takes effect at once in every window.
+// system". A change is saved at once and takes effect at once in every window. At the end, where
+// syncing through Hangar Drive stands: shown only, since it is confirmed and turned off in Hangar
+// Drive.
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { setAutostart, setSettings, type Settings, type ThemeSetting } from "./api";
 import { settingsWith, type AppSettings } from "./appSettings";
@@ -16,8 +18,10 @@ import {
   withColorName,
   type NoteColor,
 } from "./colors";
-import { LANGUAGE_NAMES, LANGUAGES, useT, type MessageKey } from "./i18n";
-import { BackIcon, CheckIcon } from "./icons";
+import { driveSyncText, driveSyncTone, useDriveSync, type DriveSyncTone } from "./driveSync";
+import { relativeTime } from "./format";
+import { LANGUAGE_NAMES, LANGUAGES, useT, type Language, type MessageKey } from "./i18n";
+import { AlertIcon, BackIcon, CheckIcon, CloudCheckIcon, InfoIcon } from "./icons";
 import { LOOK_HINTS, LOOK_NAMES, LOOKS, type Look } from "./looks";
 
 const THEMES: readonly { value: ThemeSetting; label: MessageKey }[] = [
@@ -216,9 +220,65 @@ export function NotesSettings({ app, onBack }: { app: AppSettings; onBack: () =>
           {t("settings.autostart")}
         </label>
 
+        <DriveSyncSection language={app.language} />
+
         {failed !== null && <p className="notes-message error-text">{t(failed)}</p>}
       </div>
     </>
+  );
+}
+
+/** How often "Last synced" is told again: often enough for "just now" not to linger. */
+const SYNC_TIME_REFRESH_MS = 30_000;
+
+function DriveSyncIcon({ tone }: { tone: DriveSyncTone }) {
+  if (tone === "synced") return <CloudCheckIcon />;
+  if (tone === "problem") return <AlertIcon />;
+  return <InfoIcon />;
+}
+
+/**
+ * Where syncing through Hangar Drive stands, in one sentence; away entirely without Hangar Drive.
+ * Only the sentence is a live region: the ticking time under it is not read aloud each minute.
+ */
+export function DriveSyncSection({ language }: { language: Language }) {
+  const t = useT();
+  const view = useDriveSync();
+  const titleId = useId();
+  const [now, setNow] = useState(() => Date.now());
+  const lastSync = view.phase === "active" ? (view.lastSyncMs ?? null) : null;
+
+  useEffect(() => {
+    // A sync newer than `now` reads as "now" until the next tick (relativeTime clamps it).
+    if (lastSync === null) return;
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+    }, SYNC_TIME_REFRESH_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [lastSync]);
+
+  const sentence = driveSyncText(view);
+  if (sentence === null) return null;
+  const tone = driveSyncTone(view);
+  return (
+    <div className="field drive-sync" role="group" aria-labelledby={titleId}>
+      <span id={titleId}>{t("drive.title")}</span>
+      <div className={`drive-status drive-status-${tone}`}>
+        <span className="drive-status-icon">
+          <DriveSyncIcon tone={tone} />
+        </span>
+        <span className="drive-status-text">
+          <span role="status">{t(sentence)}</span>
+          {lastSync !== null && (
+            <span className="drive-status-when">
+              {t("drive.lastSync", { time: relativeTime(lastSync, now, language) })}
+            </span>
+          )}
+        </span>
+      </div>
+    </div>
   );
 }
 

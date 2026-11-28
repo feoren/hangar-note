@@ -145,6 +145,81 @@ export interface TrayLabels {
   untitled: string;
 }
 
+/**
+ * Where syncing the notes through Hangar Drive stands (`drive_sync_status`). Hangar Note only
+ * shows it: the person confirms and revokes the sync in Hangar Drive.
+ */
+export const DRIVE_SYNC_PHASES = [
+  "absent",
+  "notRunning",
+  "setup",
+  "waiting",
+  "asked",
+  "active",
+  "unavailable",
+  "declined",
+  "attention",
+] as const;
+export type DriveSyncPhase = (typeof DRIVE_SYNC_PHASES)[number];
+
+/** Why the sync waits or is unavailable. */
+export const DRIVE_SYNC_REASONS = ["missing", "refused", "hangarTooOld"] as const;
+export type DriveSyncReason = (typeof DRIVE_SYNC_REASONS)[number];
+
+export interface DriveSyncView {
+  phase: DriveSyncPhase;
+  reason?: DriveSyncReason;
+  /** The name of the notes in Hangar Drive. */
+  folderName?: string;
+  /** When Hangar Drive last finished a sync, in ms since the epoch. */
+  lastSyncMs?: number;
+  /** The synced notes: note ids per folder key (`general` or 32 hex digits). */
+  synced: Readonly<Record<string, readonly string[]>>;
+}
+
+/** No Hangar Drive, no backend (a plain browser) or an older backend without the command. */
+export const NO_DRIVE_SYNC: DriveSyncView = Object.freeze({
+  phase: "absent",
+  synced: Object.freeze({}),
+});
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The view from what the backend sent, checked field by field: an unknown phase counts as
+ * `absent` (a newer backend shows nothing rather than something wrong), an unknown reason and
+ * malformed fields are left out, and `synced` keeps only string ids under string keys.
+ */
+export function parseDriveSyncView(value: unknown): DriveSyncView {
+  if (!isRecord(value)) return NO_DRIVE_SYNC;
+  const phase = DRIVE_SYNC_PHASES.find((known) => known === value.phase) ?? "absent";
+  const reason = DRIVE_SYNC_REASONS.find((known) => known === value.reason);
+  const entries: [string, readonly string[]][] = [];
+  if (isRecord(value.synced)) {
+    for (const [folderKey, ids] of Object.entries(value.synced)) {
+      if (!Array.isArray(ids)) continue;
+      const kept = ids.filter((id): id is string => typeof id === "string" && id !== "");
+      if (kept.length > 0) entries.push([folderKey, kept]);
+    }
+  }
+  const synced = Object.fromEntries(entries);
+  const view: DriveSyncView = { phase, synced };
+  if (reason !== undefined) view.reason = reason;
+  if (typeof value.folderName === "string" && value.folderName.trim() !== "") {
+    view.folderName = value.folderName.trim();
+  }
+  if (
+    typeof value.lastSyncMs === "number" &&
+    Number.isFinite(value.lastSyncMs) &&
+    value.lastSyncMs > 0
+  ) {
+    view.lastSyncMs = value.lastSyncMs;
+  }
+  return view;
+}
+
 /** Events the backend sends (src-tauri/src/windows.rs). */
 export const NOTES_CHANGED_EVENT = "notes-changed";
 export const SETTINGS_CHANGED_EVENT = "settings-changed";
@@ -155,6 +230,8 @@ export const FLUSH_REQUESTED_EVENT = "note-flush-requested";
 export const LOOK_CHANGED_EVENT = "note-look-changed";
 /** To one sticky note: its file was changed outside (Hangar, another program). */
 export const CHANGED_OUTSIDE_EVENT = "note-changed-outside";
+/** To every window: the state of the sync through Hangar Drive changed (`DriveSyncView`). */
+export const DRIVE_SYNC_CHANGED_EVENT = "drive-sync-changed";
 
 /** Fixed error codes of the backend (windows.rs, notes.rs). */
 export const NOT_SAVED_ERROR = "not-saved";
@@ -283,6 +360,9 @@ export const setSettings = (value: Settings) => invoke<Settings>("set_settings",
 export const setHubOnTop = (onTop: boolean) => invoke<boolean>("set_hub_on_top", { onTop });
 /** Shows or folds away the notes area's sidebar for the next start too; answers the stored state. */
 export const setSidebarOpen = (open: boolean) => invoke<boolean>("set_sidebar_open", { open });
+/** Where syncing through Hangar Drive stands; rejects without a backend that knows it. */
+export const getDriveSyncStatus = () =>
+  invoke<unknown>("drive_sync_status").then(parseDriveSyncView);
 /** Stores the sidebar's width in px; the backend keeps it within its range and answers it. */
 export const setSidebarWidth = (width: number) => invoke<number>("set_sidebar_width", { width });
 /**
@@ -312,6 +392,12 @@ export const onHubRequests = (handler: () => void) => onSignal(HUB_REQUESTS_EVEN
 export function onSettingsChanged(handler: (settings: Settings) => void): Promise<UnlistenFn> {
   return listen<Settings>(SETTINGS_CHANGED_EVENT, (event) => {
     handler(event.payload);
+  });
+}
+
+export function onDriveSyncChanged(handler: (view: DriveSyncView) => void): Promise<UnlistenFn> {
+  return listen<unknown>(DRIVE_SYNC_CHANGED_EVENT, (event) => {
+    handler(parseDriveSyncView(event.payload));
   });
 }
 

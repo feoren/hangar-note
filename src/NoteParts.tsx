@@ -6,9 +6,11 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 
 import { noteTone, rowToneVariables, toneVariables, type NoteColor, type Theme } from "./colors";
 import { CursorFooter } from "./CursorFooter";
+import { useNoteSynced } from "./driveSync";
 import { relativeTime } from "./format";
 import {
   CloseIcon,
+  CloudCheckIcon,
   DesktopIcon,
   EyeIcon,
   LockIcon,
@@ -266,8 +268,25 @@ export function RowMeta({
         </span>
       )}
       {progress !== null && <Progress m={m} done={progress.done} total={progress.total} />}
+      <SyncedMark m={m} row={row} />
       {time !== "" && <span className="note-row-time">{time}</span>}
     </>
+  );
+}
+
+/**
+ * A quiet cloud with a tick on a note that Hangar Drive keeps on your server; nothing on any other
+ * note or while the sync is not active. Before the time, so the times stay in one column.
+ */
+function SyncedMark({ m, row }: { m: NotesModel; row: Row }) {
+  const synced = useNoteSynced(row.folderKey, row.id);
+  if (!synced) return null;
+  const label = m.t("drive.synced");
+  return (
+    <span className="note-row-synced" title={label}>
+      <CloudCheckIcon size={14} />
+      <span className="sr-only">{label}</span>
+    </span>
   );
 }
 
@@ -460,12 +479,14 @@ export function NotePage({ m, heading = true }: { m: NotesModel; heading?: boole
  */
 export function NoteFooter({ m }: { m: NotesModel }) {
   const { note } = m;
+  const synced = useNoteSynced(note?.folderKey ?? null, note?.id ?? null);
   if (note === null || note.onDesktop) return null;
   return (
     <CursorFooter
       store={m.cursor}
       language={m.language}
       position={!m.preview}
+      synced={synced}
       style={toneVariables(noteTone(note.color, m.theme))}
     />
   );

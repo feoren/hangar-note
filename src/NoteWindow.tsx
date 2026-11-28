@@ -50,6 +50,8 @@ import {
 } from "./colors";
 import { copyText } from "./clipboard";
 import { CursorFooter } from "./CursorFooter";
+import { useNoteSynced } from "./driveSync";
+import { readStickyLineNumbers, useStickyLineNumbers } from "./stickyLineNumbers";
 import { createCursorStore } from "./cursorStats";
 import { createNoteEditor, type Format, type NoteEditor } from "./editor";
 import { errorMessage } from "./errors";
@@ -133,12 +135,18 @@ export function NoteWindow({ label, theme, colorNames, look, language }: Props) 
    */
   const [file] = useState(createFileState);
   const [progress, setProgress] = useState<ChecklistProgress>({ done: 0, total: 0 });
+  const synced = useNoteSynced(note?.folderKey ?? null, note?.id ?? null);
   /** The cursor's numbers for the status line; only the status line renders when they change. */
   const [cursor] = useState(createCursorStore);
   const progressTimer = useRef<number | null>(null);
   const [leaveAnyway] = useState(() => createLeaveAnyway());
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<NoteEditor | null>(null);
+  /** One choice for every sticky note; the editor reads it once at its start, then follows. */
+  const [lineNumbers, setLineNumbers] = useStickyLineNumbers();
+  useEffect(() => {
+    editor.current?.setLineNumbers(lineNumbers);
+  }, [lineNumbers]);
   const menu = useRef<HTMLDivElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const closing = useRef(false);
@@ -212,6 +220,7 @@ export function NoteWindow({ label, theme, colorNames, look, language }: Props) 
           placeholder: latest.current.t("note.placeholder"),
           taskLabel: latest.current.t("note.task"),
           readOnly: !canWrite,
+          lineNumbers: readStickyLineNumbers(),
           onCursor: cursor.set,
           onChange: (text) => {
             textRef.current = text;
@@ -804,7 +813,18 @@ export function NoteWindow({ label, theme, colorNames, look, language }: Props) 
       )}
 
       {/* Under everything, so a notice or the formatting bar never pushes it out of place. */}
-      <CursorFooter key="footer" store={cursor} language={language} />
+      <CursorFooter
+        key="footer"
+        store={cursor}
+        language={language}
+        synced={synced}
+        lineNumbers={{
+          on: lineNumbers,
+          onToggle: () => {
+            setLineNumbers(!lineNumbers);
+          },
+        }}
+      />
     </div>
   );
 }
