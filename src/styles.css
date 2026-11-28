@@ -1,6 +1,19 @@
-/* Tokens taken from Hangar's src/styles.css (only what this app uses). Dark is the default; the
-   light values follow below. appSettings.ts sets data-theme. The note colors themselves come from
-   colors.ts as --note-* on each note and card. */
+/* Tokens taken from Hangar's src/styles.css (only what this app uses), with this app's own accent:
+   the orange of its logo (src-tauri/app-icon.svg), as Hangar Drive uses the green of its own. Dark
+   is the default; the light values follow below. appSettings.ts sets data-theme. The note colors
+   themselves come from colors.ts as --note-* on each note and card.
+
+   Accent contrast (WCAG 2.x), measured against every surface it sits on:
+   - dark --accent #ffb547: 10.8 : 1 on --bg, 9.9 on --panel, 9.1 on --panel-raised, 8.2 on
+     --hover, 8.6 on --selected; on the dark note tones 5.9 (lemon header) to 8.1 : 1.
+   - light --accent #875801 (the logo's hue at OKLCH lightness 0.50): 6.1 : 1 on --bg, 5.6 on
+     --panel, 5.1 on --hover, 5.3 on --selected; on the light note backgrounds 5.0 to 5.6 : 1, on
+     the note headers 4.4 (peach) to 5.1 : 1, so a focus ring there keeps far more than 3 : 1.
+   - filled buttons: dark text #0e1116 on #ffb547 10.8 : 1 (hover #ffc674 12.2 : 1); white on
+     #875801 6.1 : 1 (hover #784e02 7.3 : 1).
+   Orange stays apart from the note colors: as text and rings it is a line, never an area, and a
+   filled button carries dark text, which no note does. The text selection inside a note keeps
+   its blue: an orange tint would vanish on lemon and peach notes. */
 :root {
   --bg: #0e1116;
   --panel: #151a21;
@@ -9,14 +22,16 @@
   --border: #262e39;
   --text: #d6dde6;
   --muted: #8592a3;
-  --accent: #5aa9ff;
-  --primary: #2f6fb3;
-  --primary-hover: #3a7fc8;
-  --on-primary: #ffffff;
+  --accent: #ffb547;
+  /* Light orange under dark text, as the logo's fold on its dark tile. */
+  --primary: #ffb547;
+  --primary-hover: #ffc674;
+  --on-primary: #0e1116;
   --error: #f47067;
   --danger: #f47067;
-  /* A chosen row, scope or card in the hangar look and the settings: the accent at 17 %. */
-  --selected: #1b2b3e;
+  /* A chosen row, scope or card in the hangar look and the settings: the accent at 12 % over the
+     background, a warm grey rather than a note color. */
+  --selected: #2b251c;
   /* The table the paper look lays its cards on. */
   --table: #0e1116;
   --ok: #57ab5a;
@@ -72,12 +87,14 @@
   --border: #d0d7de;
   --text: #1f2328;
   --muted: #59636e;
-  --accent: #0969da;
-  --primary: #0969da;
-  --primary-hover: #0860ca;
+  /* The logo's hue at OKLCH lightness 0.50, for 4.5 : 1 on every light surface. */
+  --accent: #875801;
+  --primary: #875801;
+  --primary-hover: #784e02;
+  --on-primary: #ffffff;
   --error: #cf222e;
   --danger: #cf222e;
-  --selected: #e1edfb;
+  --selected: #f3efe7;
   --table: #f3f5f8;
   --ok: #1a7f37;
   --scrim: rgb(31 35 40 / 28%);
