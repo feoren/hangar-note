@@ -277,3 +277,8 @@ deadline.
 pages/decisions/0006-sync-through-hangar-drive.md: recorded that every window may read the IDs
 of all synced notes through `drive_sync_status`, and why; the hello of a Drive exchange is now
 cancellable as well, so quitting does not wait for a port holder that never answers.
+
+## [2026-11-28] update | README screenshots
+pages/syntheses/release-process.md: added the README screenshot step (`pnpm readme:shots`,
+`tools/readme-shots/`) and the list of the seven current scenes, and why the images are not
+rendered again after the build. Updated index.md.

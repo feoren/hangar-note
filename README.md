@@ -8,6 +8,7 @@
 
 <p align="center">
   <a href="#features">Features</a> ·
+  <a href="#screenshots">Screenshots</a> ·
   <a href="#getting-started">Getting started</a> ·
   <a href="#working-with-hangar">Working with Hangar</a> ·
   <a href="#build-from-source">Build from source</a> ·
@@ -30,9 +31,14 @@ put any note on the desktop as a sticky note that stays next to the work in any 
 Hangar Note takes over Hangar's notes area step by step. The desktop app is open source under the
 MIT license.
 
-**Status:** in development. There is no release and no installer download yet; you can
-[build it from source](#build-from-source). It runs on Windows 10 and 11 today; macOS and Linux
-are planned. What is built and what is planned is listed below.
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-note-light.png">
+  <img alt="The Hangar Note window in the Hangar look: the sidebar with the levels Private, Project and Team, All notes with 14 notes, the project folders atlas-api, atlas-web and orbit-docs and the colors; the note list with Release checklist, API ideas, Weekly sync and four more; and the open note Release checklist in lemon, with three of five checklist items ticked, line numbers and the button To the desktop" src="docs/images/hangar-note-dark.png">
+</picture>
+
+**Status:** in development, released as a pre-release for Windows 10 and 11 on the
+[releases page](https://github.com/feoren/hangar-note/releases). macOS and Linux are planned. What
+is built and what is planned is listed below.
 
 ## Features
 
@@ -50,7 +56,8 @@ are planned. What is built and what is planned is listed below.
   can copy it.
 - **Line numbers and a status line.** The notes area shows quiet line numbers beside the text. A
   thin status line in the note's color shows line, column, the character count and your selection,
-  in the notes area and in every sticky note.
+  in the notes area and in every sticky note. Sticky notes show line numbers when you switch them
+  on at the bottom left of their status line; the choice applies to every sticky note.
 
 ### Finding and sorting
 
@@ -83,7 +90,7 @@ are planned. What is built and what is planned is listed below.
 - **Two looks.** _Hangar_ (the default) shows three columns with everything at a glance, like
   Hangar, and switches to a narrow layout in small windows. _Paper_ shows notes as colored slips in
   a grid, with checklists you tick right on them; a note opens as a sheet only when you choose it.
-  Sticky notes follow the chosen look.
+  Sticky notes follow the chosen look. A small switch at the top right changes the look.
 - **Light or dark.** Follow the system or switch with one click at the bottom of the sidebar.
 - **A sidebar that gets out of the way.** Resize it by dragging, fold it away with the round button
   on its edge or with `Ctrl+Shift+S`.
@@ -95,6 +102,59 @@ are planned. What is built and what is planned is listed below.
   Portuguese, Russian, Turkish and Chinese, as in Hangar.
 - **Usable by keyboard.** Menus, the level tabs, the sidebar and the look switch work with the
   arrow keys, and _Help > Keyboard shortcuts_ lists the keys that matter.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-note-drive-light.png">
+        <img alt="The note list under All notes with a small cloud on twelve of fourteen notes, each row naming its level Private or its project folder, and the open note Deploy steps in mint, whose status line says On your server" src="docs/images/hangar-note-drive-dark.png">
+      </picture>
+      <br><sub>A small cloud marks every note Hangar Drive keeps on your server.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-note-sticky-light.png">
+        <img alt="A sticky note Trip to the coast in peach on the desktop, with line numbers 1 to 5, one of three checklist items ticked, the format bar, and the line number switch switched on at the bottom left of its status line" src="docs/images/hangar-note-sticky-dark.png">
+      </picture>
+      <br><sub>Sticky notes show line numbers with one switch in their status line.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-note-paper-light.png">
+        <img alt="The Paper look: notes as colored slips in a grid with their checklists, which can be ticked right on the slip" src="docs/images/hangar-note-paper-dark.png">
+      </picture>
+      <br><sub>The Paper look shows notes as colored slips with the same calm spacing as the Hangar look.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-note-look-switch-light.png">
+        <img alt="Close-up of the header of the note API ideas in sky with the buttons color, preview and To the desktop and, at the right, the look switch with the options Hangar and Paper" src="docs/images/hangar-note-look-switch-dark.png">
+      </picture>
+      <br><sub>A small switch at the top right changes between the Hangar and Paper looks.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-note-settings-light.png">
+        <img alt="The settings with the Hangar Drive section saying Your notes are synced with Hangar Drive and Last synced 1 minute ago" src="docs/images/hangar-note-settings-dark.png">
+      </picture>
+      <br><sub>The settings say in one sentence where syncing with Hangar Drive stands.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-note-projects-light.png">
+        <img alt="The Project level with the folder atlas-web chosen under Project folders in the sidebar and its note Deploy steps open" src="docs/images/hangar-note-projects-dark.png">
+      </picture>
+      <br><sub>Project notes: the chosen project folder is marked in the sidebar.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Working with Hangar
 
@@ -113,6 +173,11 @@ Hangar Note is built to work next to the Hangar desktop app.
   a new note. Hangar will use it to start Hangar Note (see [Command line](#command-line)).
 - **A local channel.** A running Hangar Note listens on a token-protected loopback channel, through
   which Hangar will use it (see [Security](#security)).
+- **Kept on your server with Hangar Drive.** When [Hangar Drive](https://github.com/feoren/hangar-drive)
+  is installed, Hangar Note asks it once to sync the notes folder; you confirm that in Hangar Drive.
+  A small cloud then marks every note that is on your server, and the settings say where syncing
+  stands. Without Hangar Drive nothing changes. The details are in
+  [ADR 0006](docs/wiki/pages/decisions/0006-sync-through-hangar-drive.md).
 
 > Full protection for edits in both apps needs a Hangar release that follows the same rules. Until
 > then, avoid editing the same note in Hangar and Hangar Note at the same moment. The details are
@@ -131,14 +196,18 @@ These parts are decided but not built yet. Follow the progress in
 - **macOS 13 or later** (Apple silicon and Intel) and **Linux x64** (X11 and Wayland).
 - **Releases** with installers and signed updates.
 
-Not planned: sync between devices beyond Git and the Hangar relay, images and reminders.
+Not planned: sync between devices beyond Git, the Hangar relay and Hangar Drive, images and
+reminders.
 
 ## Getting started
 
 ### Install
 
-There is no release yet. Until the first one, [build Hangar Note from source](#build-from-source);
-installers for download will follow on the GitHub releases page.
+Download `Hangar-Note_<version>_x64-setup.exe` and `SHA256SUMS.txt` from the
+[releases page](https://github.com/feoren/hangar-note/releases) and run the installer. The
+installer is not code-signed yet, so Windows SmartScreen warns on the first start; check the file
+against `SHA256SUMS.txt` first, for example with `Get-FileHash` in PowerShell. You can also
+[build Hangar Note from source](#build-from-source).
 
 ### First steps
 

@@ -4,7 +4,7 @@ type: synthesis
 tags: [release, version, forgejo, github, signing, checksums]
 sources: []
 created: 2026-11-27
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 
 # Release process
@@ -39,6 +39,29 @@ Three separate steps; the script never commits and prints the files to commit.
    `--allow-unsigned` flags, so a pre-release never becomes GitHub's latest release.
 5. `py -3 tools/release.py --next X.Y.Z` starts the upcoming version (files without B, empty
    undated changelog entry).
+
+## README screenshots
+
+Before the build, `pnpm readme:shots` (`tools/readme-shots/run.mjs`, modeled on Hangar's tool)
+renders the README images into `docs/images/` from the real frontend with a mocked backend
+(`tools/readme-shots/mock.ts`) in a headless Edge or Chrome: one image per scene and color
+scheme, 1296 x 839, at most 300 KB. `--scene <name>` renders single scenes. Temporary files stay
+under `tests/.tmp/readme-shots/` and are removed at the end; a running app is never touched.
+
+Current scenes (files `<file>-dark.png` and `<file>-light.png`):
+
+| Scene | File | Shows |
+| --- | --- | --- |
+| `overview` | `hangar-note` | the README hero: main window in the Hangar look |
+| `drive` | `hangar-note-drive` | the cloud mark of notes Hangar Drive keeps, "On your server" |
+| `sticky` | `hangar-note-sticky` | a sticky note with line numbers and their switch |
+| `paper` | `hangar-note-paper` | the Paper look |
+| `look-switch` | `hangar-note-look-switch` | close-up of the look switch |
+| `settings` | `hangar-note-settings` | the Hangar Drive section of the settings |
+| `projects` | `hangar-note-projects` | the Project level with a chosen project folder |
+
+The images show the upcoming version without a build number: the release commit may change only
+the version files and the changelog, so they are not rendered again after the build.
 
 ## Safety rules carried over from Hangar
 
