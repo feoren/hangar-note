@@ -1,7 +1,7 @@
 {
   "name": "hangar-note",
   "private": true,
-  "version": "0.1.0+39",
+  "version": "0.2.0",
   "type": "module",
   "packageManager": "pnpm@12.18.0",
   "scripts": {

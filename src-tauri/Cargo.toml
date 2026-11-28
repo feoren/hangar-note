@@ -1,6 +1,6 @@
 [package]
 name = "hangar-note"
-version = "0.1.0+39"
+version = "0.2.0"
 description = "Sticky notes on the desktop"
 edition = "2021"
 # The oldest Rust the build supports: tauri-plugin-autostart 2.7 needs 1.90. CI builds with
