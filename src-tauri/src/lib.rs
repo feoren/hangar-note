@@ -8,6 +8,7 @@ pub mod channel;
 pub mod cli;
 pub mod commands;
 pub mod desktop;
+pub mod drive;
 pub mod export;
 pub mod fsio;
 pub mod install;
@@ -32,7 +33,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tauri::plugin::TauriPlugin;
-use tauri::{AppHandle, Manager as _, RunEvent, Runtime};
+use tauri::{AppHandle, Emitter as _, Manager as _, RunEvent, Runtime};
 
 use crate::access::{Access, AccessGate, RootKind};
 use crate::channel::{Actions, Channel, ClientError};
@@ -120,7 +121,7 @@ pub fn capture_note(
 /// Hangar writes the same notes folder (ADR 0005): a light poll tells the windows about its
 /// changes within about [`watch::POLL_INTERVAL`], without anyone pressing a key. The first pass
 /// only takes the starting point. The thread ends with the process.
-fn watch_outside_changes(app: AppHandle, service: Arc<NotesService>) {
+fn watch_outside_changes(app: AppHandle, service: Arc<NotesService>, drive: Arc<drive::DriveSync>) {
     let started = std::thread::Builder::new()
         .name("notes-watch".into())
         .spawn(move || {
@@ -129,11 +130,46 @@ fn watch_outside_changes(app: AppHandle, service: Arc<NotesService>) {
                 std::thread::sleep(watch::POLL_INTERVAL);
                 let changed = service.outside_changes();
                 windows::notify_outside(&app, &service, &changed);
+                drive.scopes_changed(&changed);
             }
         });
     if let Err(error) = started {
         eprintln!("hangar-note: changes from Hangar show only on the next reload: {error}");
     }
+}
+
+/// The windows get every new Hangar Drive view as [`windows::DRIVE_SYNC_CHANGED_EVENT`].
+struct DriveEvents(AppHandle);
+
+impl drive::ViewSink for DriveEvents {
+    fn changed(&self, view: &drive::DriveSyncView) {
+        let _ = self.0.emit(windows::DRIVE_SYNC_CHANGED_EVENT, view);
+    }
+}
+
+/// Hangar Drive's sync status (ADR 0006). Drive syncs only Hangar's own notes folder in place, so
+/// with a development root the client never starts and the phase stays `absent`. Every file the
+/// store writes is handed to the worker, which asks Drive about the affected notes again.
+fn start_drive_sync(
+    app: &AppHandle,
+    root: &access::NotesRoot,
+    store: &NotesStore,
+) -> drive::DriveSync {
+    if root.kind != RootKind::Hangar {
+        return drive::DriveSync::disabled();
+    }
+    let Some(drive_dir) = drive::discovery::drive_dir(app.path().local_data_dir().ok()) else {
+        return drive::DriveSync::disabled();
+    };
+    let sync = drive::DriveSync::start(
+        drive::Config::new(drive_dir),
+        Arc::new(store.clone()),
+        Arc::new(DriveEvents(app.clone())),
+    );
+    if let Some(observer) = sync.own_writes_observer() {
+        store.observe_own_writes(observer);
+    }
+    sync
 }
 
 /// What the local channel's routes do in the running app.
@@ -350,7 +386,9 @@ pub fn run(command: CliCommand, capture_text: Option<String>) -> tauri::Result<(
             app.manage(QuitMemory::default());
             app.manage(Requests::default());
             app.manage(tray::CurrentLabels::default());
-            watch_outside_changes(app.handle().clone(), service.clone());
+            let drive = Arc::new(start_drive_sync(app.handle(), &root, service.store()));
+            app.manage(drive.clone());
+            watch_outside_changes(app.handle().clone(), service.clone(), drive);
 
             let actions = Arc::new(AppActions {
                 app: app.handle().clone(),
@@ -439,6 +477,7 @@ pub fn run(command: CliCommand, capture_text: Option<String>) -> tauri::Result<(
             commands::set_list_width,
             commands::set_last_project,
             commands::window_ready,
+            commands::drive_sync_status,
         ])
         .build(tauri::generate_context!())?;
 
@@ -449,6 +488,9 @@ pub fn run(command: CliCommand, capture_text: Option<String>) -> tauri::Result<(
         } if tray::present(handle) => api.prevent_exit(),
         RunEvent::Exit => {
             handle.state::<BoundsSaver>().flush(None);
+            if let Some(drive) = handle.try_state::<Arc<drive::DriveSync>>() {
+                drive.stop();
+            }
             if let Some(state) = handle.try_state::<ChannelState>() {
                 remove_endpoint(&state);
             }

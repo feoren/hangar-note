@@ -58,6 +58,9 @@ pub const NOTE_REPLY_TIMEOUT: Duration = FLUSH_TIMEOUT;
 
 /// To the notes area, without payload: notes changed, reload the list.
 pub const NOTES_CHANGED_EVENT: &str = "notes-changed";
+/// To every window, with the new `drive::DriveSyncView`: Hangar Drive's sync status changed
+/// (ADR 0006). Sent only when the view differs from the last one.
+pub const DRIVE_SYNC_CHANGED_EVENT: &str = "drive-sync-changed";
 /// To every window, with the new settings.
 pub const SETTINGS_CHANGED_EVENT: &str = "settings-changed";
 /// To the notes area: requests wait (`take_hub_requests`), or "This project" changed.

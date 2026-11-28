@@ -39,6 +39,7 @@ const COMMANDS: &[&str] = &[
     "set_list_width",
     "set_last_project",
     "window_ready",
+    "drive_sync_status",
 ];
 
 fn main() {

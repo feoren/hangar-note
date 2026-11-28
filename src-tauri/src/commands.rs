@@ -587,3 +587,13 @@ pub async fn window_ready(window: WebviewWindow) -> Result<(), AppError> {
     windows::show_and_focus(&window);
     Ok(())
 }
+
+/// Hangar Drive's sync status of the notes (ADR 0006): the phase and, while the notes sync, the
+/// IDs of the notes Drive answered `synced` for, per folder key. Changes arrive as
+/// `drive-sync-changed` with the same view. Read only; any window may ask.
+#[tauri::command]
+pub async fn drive_sync_status(
+    drive: State<'_, Arc<crate::drive::DriveSync>>,
+) -> Result<crate::drive::DriveSyncView, AppError> {
+    Ok(drive.view())
+}

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "note",
-  "description": "A sticky note (label note-<scope>-<id>): reading and writing its own note, renaming it after its first line, its color and keep on top, deleting and closing itself (the backend refuses any other note), answering the backend's save requests, a new sticky note next to it, opening the notes area, copying its text through the backend when it cannot save, the status and the settings, the tray texts, showing itself once loaded, moving the frameless window by its header (start dragging) and listening to the backend's events.",
+  "description": "A sticky note (label note-<scope>-<id>): reading and writing its own note, renaming it after its first line, its color and keep on top, deleting and closing itself (the backend refuses any other note), answering the backend's save requests, a new sticky note next to it, opening the notes area, copying its text through the backend when it cannot save, the status and the settings, the tray texts, showing itself once loaded, Hangar Drive's sync status of the notes, moving the frameless window by its header (start dragging) and listening to the backend's events.",
   "windows": ["note-*"],
   "permissions": [
     "core:event:allow-listen",
@@ -21,6 +21,7 @@
     "allow-copy-text",
     "allow-get-settings",
     "allow-set-tray-labels",
-    "allow-window-ready"
+    "allow-window-ready",
+    "allow-drive-sync-status"
   ]
 }

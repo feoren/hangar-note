@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "hub",
-  "description": "The notes area (label hub): scopes, listing, searching, reading and writing notes that are not on the desktop, creating, renaming, deleting and restoring them, colors, putting a note on the desktop and taking it back, exporting through the backend's save dialog, showing a note or a notes folder in the file manager, copying a note or text that is not saved through the backend, answering the backend's save requests, the settings, its own always on top state, whether its sidebar is open, the widths of its sidebar and its note list and the project it showed last, the tray texts, showing itself once loaded, listening to the backend's events. No core:window permission is granted, and no dialog or clipboard permission: those plugins are used from the backend only.",
+  "description": "The notes area (label hub): scopes, listing, searching, reading and writing notes that are not on the desktop, creating, renaming, deleting and restoring them, colors, putting a note on the desktop and taking it back, exporting through the backend's save dialog, showing a note or a notes folder in the file manager, copying a note or text that is not saved through the backend, answering the backend's save requests, the settings, its own always on top state, whether its sidebar is open, the widths of its sidebar and its note list and the project it showed last, the tray texts, showing itself once loaded, Hangar Drive's sync status of the notes, listening to the backend's events. No core:window permission is granted, and no dialog or clipboard permission: those plugins are used from the backend only.",
   "windows": ["hub"],
   "permissions": [
     "core:event:allow-listen",
@@ -36,6 +36,7 @@
     "allow-set-sidebar-width",
     "allow-set-list-width",
     "allow-set-last-project",
-    "allow-window-ready"
+    "allow-window-ready",
+    "allow-drive-sync-status"
   ]
 }

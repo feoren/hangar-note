@@ -207,6 +207,12 @@
           "markdownDescription": "Enables the delete_note command without any pre-configured scope."
         },
         {
+          "description": "Enables the drive_sync_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-drive-sync-status",
+          "markdownDescription": "Enables the drive_sync_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the export_note command without any pre-configured scope.",
           "type": "string",
           "const": "allow-export-note",
@@ -427,6 +433,12 @@
           "type": "string",
           "const": "deny-delete-note",
           "markdownDescription": "Denies the delete_note command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the drive_sync_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-drive-sync-status",
+          "markdownDescription": "Denies the drive_sync_status command without any pre-configured scope."
         },
         {
           "description": "Denies the export_note command without any pre-configured scope.",

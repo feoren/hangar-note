@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-drive-sync-status"
+description = "Enables the drive_sync_status command without any pre-configured scope."
+commands.allow = ["drive_sync_status"]
+
+[[permission]]
+identifier = "deny-drive-sync-status"
+description = "Denies the drive_sync_status command without any pre-configured scope."
+commands.deny = ["drive_sync_status"]
