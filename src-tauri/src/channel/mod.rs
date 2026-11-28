@@ -54,7 +54,7 @@ use self::http::{Head, Status, WipingReader};
 use self::slots::{
     Deadline, HeadSlot, Heads, Slot, AFTER_HELLO_GRACE, HEAD_GRACE, HEAD_TIME, MAX_AUTHENTICATED,
 };
-use crate::fsio::{read_capped, write_atomic_owner_only, StorageCode};
+use crate::fsio::{read_capped_wiped, write_atomic_owner_only, StorageCode};
 use crate::notes::NotesError;
 use crate::service::{Excerpt, HitRow, ServiceError};
 
@@ -381,10 +381,8 @@ pub fn write_endpoint(dir: &Path, endpoint: &EndpointFile) -> io::Result<()> {
 
 pub fn read_endpoint(dir: &Path) -> io::Result<EndpointFile> {
     let invalid = |reason: &str| io::Error::new(io::ErrorKind::InvalidData, reason.to_owned());
-    let bytes = Zeroizing::new(
-        read_capped(&dir.join(ENDPOINT_FILE), MAX_ENDPOINT_BYTES)?
-            .ok_or_else(|| invalid("endpoint.json too large"))?,
-    );
+    let bytes = read_capped_wiped(&dir.join(ENDPOINT_FILE), MAX_ENDPOINT_BYTES)?
+        .ok_or_else(|| invalid("endpoint.json too large"))?;
     let parsed: EndpointIn =
         serde_json::from_slice(&bytes).map_err(|_| invalid("endpoint.json unreadable"))?;
     let token = Zeroizing::new(parsed.token);
@@ -1097,17 +1095,105 @@ fn still_open(stream: &TcpStream, buffered: &[u8]) -> bool {
     }
 }
 
-/// Sends one request to the running app (used by `hangar-note capture`) and returns the JSON
-/// answer. Hello and request share one connection: first the server proves on `/v1/hello` that
-/// it knows the token; only then, and only while that connection is still open, do the token of
-/// the route's scope and `body` go out. The answer counts only with a valid proof of its own.
-pub fn post(
-    endpoint: &EndpointFile,
+/// The other end of a client exchange: where it listens, the token it serves, and the key its
+/// proofs are made with (the token under the contract's label, [`proof::key_with_label`]). The
+/// token is borrowed and never copied.
+pub struct Peer<'a> {
+    pub port: u16,
+    pub token: &'a str,
+    pub key: &'a [u8; 32],
+}
+
+/// The open connection of an exchange in progress, so another thread can cut a long wait short
+/// (Hangar Drive's `events` long poll when the app quits): [`StreamSlot::cancel`] shuts the socket
+/// down, and the blocked read returns at once.
+#[derive(Debug, Default)]
+pub struct StreamSlot {
+    stream: Mutex<Option<TcpStream>>,
+    cancelled: std::sync::atomic::AtomicBool,
+}
+
+impl StreamSlot {
+    /// Keeps a handle of `stream` for [`StreamSlot::cancel`]; `false` when the slot is cancelled
+    /// (also by a cancel that raced with this call) or no handle could be made, and the exchange
+    /// must not start.
+    fn hold(&self, stream: &TcpStream) -> bool {
+        if self.cancelled() {
+            return false;
+        }
+        let Ok(clone) = stream.try_clone() else {
+            return false;
+        };
+        *crate::fsio::lock(&self.stream) = Some(clone);
+        // A cancel between the first look and storing the handle found nothing to shut down.
+        if self.cancelled() {
+            if let Some(stream) = crate::fsio::lock(&self.stream).take() {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+            return false;
+        }
+        true
+    }
+
+    fn release(&self) {
+        crate::fsio::lock(&self.stream).take();
+    }
+
+    /// Whether [`StreamSlot::cancel`] was called.
+    pub fn cancelled(&self) -> bool {
+        self.cancelled.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Ends the exchange in progress, and every later one through this slot.
+    pub fn cancel(&self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(stream) = crate::fsio::lock(&self.stream).take() {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+    }
+}
+
+/// A proven answer: its status and its body, wiped when dropped.
+pub struct Answer {
+    pub status: u16,
+    pub body: Zeroizing<Vec<u8>>,
+}
+
+/// Why an exchange gave no proven answer. Never carries the token, a nonce or a body.
+#[derive(Debug, thiserror::Error)]
+pub enum ExchangeError {
+    /// Nothing listens on the port.
+    #[error("nothing listens on the port")]
+    NotRunning,
+    /// Something answered the hello without a valid proof, or closed the connection after it;
+    /// only the nonce went out.
+    #[error("the program on the port did not prove itself")]
+    NotProven,
+    /// The server proved itself but takes no request on this connection now.
+    #[error("the server is busy")]
+    Busy,
+    /// The request went out, but no proven answer came back.
+    #[error("the request was not confirmed")]
+    Unconfirmed,
+    #[error("the connection failed: {0}")]
+    Io(#[from] io::Error),
+}
+
+/// One proven exchange (ADR 0002, "One exchange, one connection"): `POST /v1/hello` with a nonce
+/// and neither token nor content; only after a valid proof, and only while that connection is
+/// still open, the token and `body` go to `path` with a new nonce and `Connection: close`. The
+/// answer counts only with a valid proof of its own, errors included. `request_time` bounds the
+/// write and the read of the real request (a long poll needs more than the default). With `slot`,
+/// the connection can be cut short from another thread.
+pub fn exchange(
+    peer: &Peer<'_>,
     path: &str,
-    body: &serde_json::Value,
-) -> Result<serde_json::Value, ClientError> {
-    let key = proof::key(&endpoint.token);
-    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, endpoint.port));
+    body: &[u8],
+    request_time: Duration,
+    slot: Option<&StreamSlot>,
+) -> Result<Answer, ExchangeError> {
+    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, peer.port));
     let stream = match TcpStream::connect_timeout(&address, CONNECT_TIME) {
         Ok(stream) => stream,
         Err(error)
@@ -1116,15 +1202,37 @@ pub fn post(
                 io::ErrorKind::ConnectionRefused | io::ErrorKind::TimedOut
             ) =>
         {
-            return Err(ClientError::NotRunning)
+            return Err(ExchangeError::NotRunning)
         }
         Err(error) => return Err(error.into()),
     };
-    let mut reader = WipingReader::new(&stream);
+    if let Some(slot) = slot {
+        if !slot.hold(&stream) {
+            return Err(ExchangeError::Io(io::ErrorKind::Interrupted.into()));
+        }
+    }
+    let result = exchange_on(&stream, peer, path, body, request_time, slot);
+    if let Some(slot) = slot {
+        slot.release();
+    }
+    result
+}
+
+fn exchange_on(
+    stream: &TcpStream,
+    peer: &Peer<'_>,
+    path: &str,
+    body: &[u8],
+    request_time: Duration,
+    slot: Option<&StreamSlot>,
+) -> Result<Answer, ExchangeError> {
+    // One deadline for all reads of an answer (security review of the Drive client, N2): a server
+    // that sends a byte now and then cannot stretch a limit meant for the whole answer.
+    let mut reader = WipingReader::new(Deadline::new(stream, HELLO_TIME));
+    let cancelled = || slot.is_some_and(StreamSlot::cancelled);
 
     let hello_nonce = proof::new_nonce()?;
     let hello = (|| -> io::Result<Reply> {
-        stream.set_read_timeout(Some(HELLO_TIME))?;
         stream.set_write_timeout(Some(HELLO_TIME))?;
         let hello = Request {
             path: HELLO_PATH,
@@ -1132,43 +1240,121 @@ pub fn post(
             token: None,
             body: b"",
         };
-        write_request(&stream, endpoint.port, &hello, true)?;
+        write_request(stream, peer.port, &hello, true)?;
+        // Cancellable also here, so quitting never waits out the hello time of a program on the
+        // port that takes the connection and never answers.
+        if let Some(slot) = slot {
+            let left = wait_for_answer(stream, HELLO_TIME, slot)?;
+            reader.get_mut().restart(left);
+        }
         read_reply(&mut reader)
     })()
-    .map_err(|_| ClientError::NotProven)?;
-    if hello.status != 200 || !hello.proven(&key, HELLO_PATH, &hello_nonce) {
-        return Err(ClientError::NotProven);
+    .map_err(|error| {
+        if cancelled() {
+            ExchangeError::Io(error)
+        } else {
+            ExchangeError::NotProven
+        }
+    })?;
+    if hello.status != 200 || !hello.proven(peer.key, HELLO_PATH, &hello_nonce) {
+        return Err(ExchangeError::NotProven);
     }
-    // The app proved itself but takes no request on this connection now.
     if !hello.keep_alive {
-        return Err(ClientError::Refused(ErrorCode::Busy.as_str().to_owned()));
+        return Err(ExchangeError::Busy);
     }
-    if !still_open(&stream, reader.buffer()) {
-        return Err(ClientError::NotProven);
+    if !still_open(stream, reader.buffer()) {
+        return Err(ExchangeError::NotProven);
+    }
+    if cancelled() {
+        return Err(ExchangeError::Io(io::ErrorKind::Interrupted.into()));
     }
 
     let nonce = proof::new_nonce()?;
-    let text = to_json_wiped(body, false).map_err(ClientError::Io)?;
+    let reply = (|| -> io::Result<Reply> {
+        reader.get_mut().restart(request_time);
+        stream.set_write_timeout(Some(request_time))?;
+        let request = Request {
+            path,
+            nonce: &nonce,
+            token: Some(peer.token),
+            body,
+        };
+        write_request(stream, peer.port, &request, false)?;
+        if let Some(slot) = slot {
+            let left = wait_for_answer(stream, request_time, slot)?;
+            reader.get_mut().restart(left);
+        }
+        read_reply(&mut reader)
+    })()
+    .map_err(|_| ExchangeError::Unconfirmed)?;
+    if !reply.proven(peer.key, path, &nonce) {
+        return Err(ExchangeError::Unconfirmed);
+    }
+    Ok(Answer {
+        status: reply.status,
+        body: reply.body,
+    })
+}
+
+/// How often a cancellable wait looks at its [`StreamSlot`].
+const CANCEL_STEP: Duration = Duration::from_millis(100);
+
+/// Waits until the first byte of the answer arrives, at most `limit`, in steps of
+/// [`CANCEL_STEP`] so a [`StreamSlot::cancel`] ends the wait without relying on a shutdown from
+/// another thread waking a blocked read: on Windows 11 it did not in the test
+/// `stopping_cuts_the_long_poll_short` (the stop took the full 25 s wait), which matches no
+/// documented guarantee either way. Returns the time left of `limit`.
+fn wait_for_answer(stream: &TcpStream, limit: Duration, slot: &StreamSlot) -> io::Result<Duration> {
+    let deadline = std::time::Instant::now() + limit;
+    let mut probe = [0u8; 1];
+    loop {
+        if slot.cancelled() {
+            return Err(io::ErrorKind::Interrupted.into());
+        }
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return Err(io::ErrorKind::TimedOut.into());
+        }
+        stream.set_read_timeout(Some(left.min(CANCEL_STEP)))?;
+        match stream.peek(&mut probe) {
+            // Bytes, or the end of the stream, which the read then reports.
+            Ok(_) => return Ok(left),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) => {}
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// Sends one request to the running app (used by `hangar-note capture`) and returns the JSON
+/// answer, through one proven [`exchange`] with the token of the route's scope.
+pub fn post(
+    endpoint: &EndpointFile,
+    path: &str,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value, ClientError> {
+    let key = proof::key(&endpoint.token);
     let token = match route_scope(path) {
         Scope::Notes => endpoint.token.as_str(),
         Scope::Team => endpoint.team_token.as_str(),
     };
-    let reply = (|| -> io::Result<Reply> {
-        stream.set_read_timeout(Some(REQUEST_TIME))?;
-        stream.set_write_timeout(Some(REQUEST_TIME))?;
-        let request = Request {
-            path,
-            nonce: &nonce,
-            token: Some(token),
-            body: &text,
-        };
-        write_request(&stream, endpoint.port, &request, false)?;
-        read_reply(&mut reader)
-    })()
-    .map_err(|_| ClientError::Unconfirmed)?;
-    if !reply.proven(&key, path, &nonce) {
-        return Err(ClientError::Unconfirmed);
-    }
+    let peer = Peer {
+        port: endpoint.port,
+        token,
+        key: &key,
+    };
+    let text = to_json_wiped(body, false).map_err(ClientError::Io)?;
+    let reply = exchange(&peer, path, &text, REQUEST_TIME, None).map_err(|error| match error {
+        ExchangeError::NotRunning => ClientError::NotRunning,
+        ExchangeError::NotProven => ClientError::NotProven,
+        // The app proved itself but takes no request on this connection now.
+        ExchangeError::Busy => ClientError::Refused(ErrorCode::Busy.as_str().to_owned()),
+        ExchangeError::Unconfirmed => ClientError::Unconfirmed,
+        ExchangeError::Io(error) => ClientError::Io(error),
+    })?;
     let value: serde_json::Value =
         serde_json::from_slice(&reply.body).unwrap_or(serde_json::Value::Null);
     if reply.status == 200 {
@@ -2211,5 +2397,26 @@ mod tests {
         // Medium integrity, no read, write or execute up (N-B), also after the replacement.
         let label = crate::winsec::label_sddl(&path).unwrap();
         assert!(label.contains("ML;;NWNRNX;;;ME"), "{label}");
+    }
+
+    /// Security review of the Drive client, N3: a cancelled slot never lets an exchange start, and
+    /// a cancel shuts the held connection down.
+    #[test]
+    fn a_cancelled_slot_holds_nothing() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let stream = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let slot = StreamSlot::default();
+        assert!(slot.hold(&stream));
+        slot.cancel();
+        assert!(slot.cancelled());
+        // The held handle was shut down: the other end reads the end of the stream.
+        let mut probe = [0u8; 1];
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        assert_eq!((&server).read(&mut probe).unwrap(), 0);
+        assert!(!slot.hold(&stream));
+        slot.release();
     }
 }

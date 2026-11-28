@@ -34,15 +34,22 @@ pub const PROOF_HEADER: &str = "X-Channel-Proof";
 pub const NONCE_BYTES: usize = 32;
 /// Hex digits of a nonce and of a proof.
 pub const HEX_LEN: usize = 64;
-/// Separates this key from any other use of the token.
-const KEY_LABEL: &[u8] = b"hangar-channel-server";
+/// Separates this key from any other use of the token, and this contract's proofs from those of
+/// any other contract built on the same construction (Hangar Drive's "drive-local 1" uses its own
+/// label, `drive::client::DRIVE_KEY_LABEL`).
+pub const KEY_LABEL: &[u8] = b"hangar-channel-server";
 const BLOCK: usize = 64;
 const OUTPUT: usize = 32;
 
-/// The proof key of a token.
+/// The proof key of a token for this channel ([`KEY_LABEL`]).
 pub fn key(token: &str) -> Zeroizing<[u8; OUTPUT]> {
+    key_with_label(KEY_LABEL, token)
+}
+
+/// The proof key of a token under another contract's label: `SHA-256(label || token)`.
+pub fn key_with_label(label: &[u8], token: &str) -> Zeroizing<[u8; OUTPUT]> {
     let mut hasher = Sha256::new();
-    hasher.update(KEY_LABEL);
+    hasher.update(label);
     hasher.update(token.as_bytes());
     let mut key = Zeroizing::new([0u8; OUTPUT]);
     key.copy_from_slice(&hasher.finalize());

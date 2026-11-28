@@ -655,6 +655,32 @@ pub fn read_capped(path: &Path, max: usize) -> io::Result<Option<Vec<u8>>> {
     Ok((bytes.len() <= max).then_some(bytes))
 }
 
+/// [`read_capped`] for a file that holds a secret (an `endpoint.json` with its token): the bytes go
+/// into one buffer allocated once at `max + 1` bytes and wiped when dropped, so no growing buffer
+/// and no probe read leaves an unwiped copy behind. `None` when the file is larger than `max`.
+pub fn read_capped_wiped(
+    path: &Path,
+    max: usize,
+) -> io::Result<Option<zeroize::Zeroizing<Vec<u8>>>> {
+    let mut file = open_regular(path)?;
+    let mut bytes = zeroize::Zeroizing::new(vec![0u8; max.saturating_add(1)]);
+    let mut filled = 0;
+    while filled < bytes.len() {
+        match file.read(&mut bytes[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    if filled > max {
+        return Ok(None);
+    }
+    // Shortening keeps the allocation; the cut bytes are zeros already.
+    bytes.truncate(filled);
+    Ok(Some(bytes))
+}
+
 /// The first `max` bytes of a regular file, however large it is.
 pub fn read_prefix(path: &Path, max: usize) -> io::Result<Vec<u8>> {
     let file = open_regular(path)?;
@@ -1292,5 +1318,27 @@ mod tests {
         fs::write(&from, "x").unwrap();
         let error = rename_no_replace(&from, &to).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+    }
+
+    /// Security review of the Drive client, H1: a secret file is read into one wiped buffer of
+    /// `max + 1` bytes, never grown, and a larger file is refused.
+    #[test]
+    fn a_secret_file_is_read_into_one_buffer_and_capped() {
+        let dir = TempDir::new("fsio-wiped");
+        let path = dir.path().join("endpoint.json");
+        fs::write(&path, b"marker-secret-91").unwrap();
+        let bytes = read_capped_wiped(&path, 64).unwrap().unwrap();
+        assert_eq!(&bytes[..], b"marker-secret-91");
+        assert_eq!(bytes.capacity(), 65);
+        assert!(read_capped_wiped(&path, 16).unwrap().is_some());
+        assert!(read_capped_wiped(&path, 15).unwrap().is_none());
+        fs::write(&path, b"").unwrap();
+        assert!(read_capped_wiped(&path, 4).unwrap().unwrap().is_empty());
+        assert_eq!(
+            read_capped_wiped(&dir.path().join("missing"), 4)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
+        );
     }
 }
